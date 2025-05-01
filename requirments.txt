@@ -1,0 +1,16 @@
+Flask
+Flask-SQLAlchemy
+Flask-Migrate
+Flask-JWT-Extended
+Flask-Cors
+mysql-connector-python
+python-dotenv
+Authlib
+requests
+redis
+marshmallow
+bcrypt
+PyJWT
+gunicorn
+pytest
+Flask-Caching

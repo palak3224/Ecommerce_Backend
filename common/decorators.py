@@ -1,0 +1,122 @@
+import time
+import functools
+from flask import request, jsonify, current_app
+from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
+
+from common.cache import get_redis_client
+
+def rate_limit(limit=100, per=60, key_prefix='rl'):
+    """
+    Rate limiting decorator.
+    
+    Args:
+        limit (int): Maximum number of requests allowed within time period
+        per (int): Time period in seconds
+        key_prefix (str): Redis key prefix for rate limit counters
+    """
+    def decorator(f):
+        @functools.wraps(f)
+        def wrapped(*args, **kwargs):
+            # Get client IP or use JWT identity if available
+            try:
+                verify_jwt_in_request(optional=True)
+                user_id = get_jwt_identity()
+                if user_id:
+                    key = f"{key_prefix}:user:{user_id}"
+                else:
+                    key = f"{key_prefix}:ip:{request.remote_addr}"
+            except:
+                key = f"{key_prefix}:ip:{request.remote_addr}"
+            
+            # Get Redis client
+            redis_client = get_redis_client(current_app)
+            if not redis_client:
+                # If Redis is not available, skip rate limiting
+                return f(*args, **kwargs)
+            
+            # Get current counter and timestamp
+            current = time.time()
+            p = redis_client.pipeline()
+            p.get(key)
+            p.get(f"{key}:ts")
+            count, timestamp = p.execute()
+            
+            # Initialize counter if not exists
+            if not count:
+                count = 0
+            else:
+                count = int(count)
+            
+            # Initialize timestamp if not exists
+            if not timestamp:
+                timestamp = current
+            else:
+                timestamp = float(timestamp)
+            
+            # Reset counter if outside time window
+            time_passed = current - float(timestamp)
+            if time_passed > per:
+                count = 0
+                timestamp = current
+            
+            # Check if limit exceeded
+            if count >= limit:
+                response = {
+                    "error": "Rate limit exceeded",
+                    "retry_after": int(per - time_passed)
+                }
+                return jsonify(response), 429
+            
+            # Increment counter
+            p = redis_client.pipeline()
+            p.incr(key)
+            p.setex(key, per, count + 1)
+            p.setex(f"{key}:ts", per, timestamp)
+            p.execute()
+            
+            # Continue with request
+            return f(*args, **kwargs)
+        return wrapped
+    return decorator
+
+def cache_response(timeout=300, key_prefix='cache'):
+    """
+    Cache response decorator.
+    
+    Args:
+        timeout (int): Cache timeout in seconds
+        key_prefix (str): Redis key prefix for cached responses
+    """
+    def decorator(f):
+        @functools.wraps(f)
+        def wrapped(*args, **kwargs):
+            # Skip cache for non-GET requests
+            if request.method != 'GET':
+                return f(*args, **kwargs)
+            
+            # Get Redis client
+            redis_client = get_redis_client(current_app)
+            if not redis_client:
+                # If Redis is not available, skip caching
+                return f(*args, **kwargs)
+            
+            # Generate cache key
+            path = request.path
+            query = request.query_string.decode('utf-8')
+            key = f"{key_prefix}:{path}:{query}"
+            
+            # Try to get from cache
+            cached_response = redis_client.get(key)
+            if cached_response:
+                return jsonify(eval(cached_response)), 200
+            
+            # Get response from function
+            response, status_code = f(*args, **kwargs)
+            
+            # Cache response if status code is 200
+            if status_code == 200:
+                redis_client.setex(key, timeout, str(response))
+            
+            return jsonify(response), status_code
+        return wrapped
+    return decorator
