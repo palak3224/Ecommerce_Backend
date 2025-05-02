@@ -1,8 +1,13 @@
-from flask import Flask, jsonify, request, make_response
+from flask import Flask, jsonify, request, make_response, send_from_directory
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from flask_migrate import Migrate
 from common.cache import cached
+import os
+import cloudinary
+from cloudinary import CloudinaryImage
+import cloudinary.uploader
+import cloudinary.api
 
 from config import get_config
 from common.database import db
@@ -17,6 +22,13 @@ def create_app(config_name='default'):
     app = Flask(__name__)
     app.config.from_object(get_config())
     
+    # Configure Cloudinary
+    cloudinary.config(
+        cloud_name=app.config['CLOUDINARY_CLOUD_NAME'],
+        api_key=app.config['CLOUDINARY_API_KEY'],
+        api_secret=app.config['CLOUDINARY_API_SECRET']
+    )
+    
     # Configure CORS to allow requests from localhost:5173
     CORS(app, resources={r"/api/*": {
         "origins": ["http://localhost:5173"],
@@ -29,9 +41,6 @@ def create_app(config_name='default'):
     cache.init_app(app)
     jwt = JWTManager(app)
     Migrate(app, db)
-    
-    # Add Cross-Origin headers for Google Auth support
-  
     
     # Register blueprints
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
@@ -61,9 +70,10 @@ def create_app(config_name='default'):
     return app
 
 def add_headers(response):
-        response.headers['Cross-Origin-Opener-Policy'] = 'same-origin-allow-popups'
-        response.headers['Cross-Origin-Embedder-Policy'] = 'require-corp'  # Optional
-        return response
+    response.headers['Cross-Origin-Opener-Policy'] = 'same-origin-allow-popups'
+    response.headers['Cross-Origin-Embedder-Policy'] = 'require-corp'  # Optional
+    return response
+
 if __name__ == "__main__":
     app = create_app()
     app.after_request(add_headers)

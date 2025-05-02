@@ -187,10 +187,25 @@ def verify_email(token):
             return {"error": "User not found"}, 404
         
         user.is_email_verified = True
+        
+        # Mark verification token as used
+        verification.is_used = True
+        db.session.commit()  # Commit both changes
+        
+        # If user is a merchant, update merchant verification status
+        if user.role == UserRole.MERCHANT:
+            merchant_profile = MerchantProfile.get_by_user_id(user.id)
+            if merchant_profile:
+                merchant_profile.verification_status = 'email_verified'
+                merchant_profile.is_verified = True
+        
         verification.use()
         db.session.commit()
         
-        return {"message": "Email verified successfully"}, 200
+        return {
+            "message": "Email verified successfully",
+            "user_id": user.id
+        }, 200
     except Exception as e:
         current_app.logger.error(f"Email verification error: {str(e)}")
         return {"error": "Email verification failed"}, 500

@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token, create_refresh_token
 from marshmallow import Schema, fields, validate, ValidationError
 
 from auth.controllers import (
@@ -8,6 +8,7 @@ from auth.controllers import (
     request_password_reset, reset_password
 )
 from auth.utils import user_role_required, merchant_role_required, admin_role_required
+from auth.models import User
 
 # Schema definitions
 class RegisterUserSchema(Schema):
@@ -116,9 +117,41 @@ def logout():
 
 @auth_bp.route('/verify-email/<token>', methods=['GET'])
 def verify_email_route(token):
-    """Verify user email."""
-    response, status_code = verify_email(token)
-    return jsonify(response), status_code
+    """Verify user email and return tokens for automatic login."""
+    try:
+        # Verify email and get response
+        response, status_code = verify_email(token)
+        
+        if status_code != 200:
+            return jsonify(response), status_code
+            
+        # Get user from database
+        user_id = response.get('user_id')
+        if not user_id:
+            return jsonify({"error": "User ID not found in verification response"}), 400
+            
+        user = User.get_by_id(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+            
+        # Generate tokens
+        access_token = create_access_token(identity=user.id)
+        refresh_token = create_refresh_token(identity=user.id)
+        
+        return jsonify({
+            "message": "Email verified successfully",
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "is_verified": True
+            }
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
 
 @auth_bp.route('/google', methods=['POST'])
 def google_auth_route():

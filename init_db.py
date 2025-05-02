@@ -8,7 +8,21 @@ import mysql.connector
 from dotenv import load_dotenv
 from app import create_app
 from common.database import db
-from auth.models import User, MerchantProfile, RefreshToken, EmailVerification, UserRole, AuthProvider
+from auth.models.models import (
+    User,
+    MerchantProfile,
+    RefreshToken,
+    EmailVerification,
+    PhoneVerification,
+    UserRole,
+    AuthProvider
+)
+from auth.models.merchant_document import (
+    MerchantDocument,
+    VerificationStatus,
+    DocumentType,
+    DocumentStatus
+)
 
 # Load environment variables
 load_dotenv()

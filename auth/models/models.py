@@ -4,6 +4,7 @@ from datetime import datetime
 from enum import Enum
 
 from common.database import db, BaseModel
+from auth.models.merchant_document import VerificationStatus, DocumentType
 
 class UserRole(Enum):
     USER = 'user'
@@ -28,6 +29,7 @@ class User(BaseModel):
     role = db.Column(db.Enum(UserRole), default=UserRole.USER, nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     is_email_verified = db.Column(db.Boolean, default=False, nullable=False)
+    is_phone_verified = db.Column(db.Boolean, default=False, nullable=False)
     auth_provider = db.Column(db.Enum(AuthProvider), default=AuthProvider.LOCAL, nullable=False)
     provider_user_id = db.Column(db.String(255), nullable=True)  # For OAuth provider user ID
     last_login = db.Column(db.DateTime, nullable=True)
@@ -70,17 +72,24 @@ class MerchantProfile(BaseModel):
     
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, unique=True)
     business_name = db.Column(db.String(200), nullable=False)
-    business_description = db.Column(db.Text, nullable=False)
-    business_email = db.Column(db.String(255), nullable=False)
+    business_description = db.Column(db.Text, nullable=True)
+    business_email = db.Column(db.String(120), nullable=False)
     business_phone = db.Column(db.String(20), nullable=False)
-    business_address = db.Column(db.String(255), nullable=False)
-    is_verified = db.Column(db.Boolean, default=False, nullable=False)
-    verification_status = db.Column(db.String(50), default='pending', nullable=False)
-    store_url = db.Column(db.String(255), nullable=True, unique=True)
+    business_address = db.Column(db.Text, nullable=False)
+    gstin = db.Column(db.String(15), nullable=True)
+    pan_number = db.Column(db.String(10), nullable=True)
+    store_url = db.Column(db.String(255), nullable=True)
     logo_url = db.Column(db.String(255), nullable=True)
+    logo_public_id = db.Column(db.String(255), nullable=True)  # Cloudinary public ID
+    verification_status = db.Column(db.Enum(VerificationStatus), default=VerificationStatus.PENDING, nullable=False)
+    verification_submitted_at = db.Column(db.DateTime, nullable=True)
+    verification_completed_at = db.Column(db.DateTime, nullable=True)
+    verification_notes = db.Column(db.Text, nullable=True)
+    is_verified = db.Column(db.Boolean, default=False, nullable=False)
     
     # Relationships
     user = db.relationship('User', back_populates='merchant_profile')
+    documents = db.relationship('MerchantDocument', back_populates='merchant', cascade='all, delete-orphan')
     
     @classmethod
     def get_by_user_id(cls, user_id):
@@ -91,6 +100,27 @@ class MerchantProfile(BaseModel):
     def get_by_business_name(cls, business_name):
         """Get merchant profile by business name."""
         return cls.query.filter_by(business_name=business_name).first()
+    
+    def update_verification_status(self, status, notes=None):
+        """Update verification status."""
+        self.verification_status = status
+        if status == VerificationStatus.APPROVED:
+            self.is_verified = True
+            self.verification_completed_at = datetime.utcnow()
+        elif status == VerificationStatus.REJECTED:
+            self.is_verified = False
+            self.verification_completed_at = datetime.utcnow()
+        
+        if notes:
+            self.verification_notes = notes
+            
+        db.session.commit()
+    
+    def submit_for_verification(self):
+        """Submit profile for verification."""
+        self.verification_status = VerificationStatus.DOCUMENTS_SUBMITTED
+        self.verification_submitted_at = datetime.utcnow()
+        db.session.commit()
 
 class RefreshToken(BaseModel):
     """Refresh token model for JWT authentication."""
@@ -164,3 +194,60 @@ class EmailVerification(BaseModel):
         """Mark verification token as used."""
         self.is_used = True
         db.session.commit()
+
+class PhoneVerification(BaseModel):
+    """Phone verification OTP model."""
+    __tablename__ = 'phone_verifications'
+    
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    phone = db.Column(db.String(20), nullable=False)
+    otp = db.Column(db.String(6), nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    is_used = db.Column(db.Boolean, default=False, nullable=False)
+    
+    @classmethod
+    def create_otp(cls, user_id, phone, expires_at):
+        """Create a new OTP."""
+        import random
+        otp = ''.join(random.choices('0123456789', k=6))
+        verification = cls(
+            user_id=user_id,
+            phone=phone,
+            otp=otp,
+            expires_at=expires_at
+        )
+        verification.save()
+        return otp
+    
+    @classmethod
+    def verify_otp(cls, user_id, otp):
+        """Verify OTP for user."""
+        verification = cls.query.filter_by(
+            user_id=user_id,
+            otp=otp,
+            is_used=False
+        ).first()
+        
+        if not verification:
+            return False
+        
+        if verification.expires_at < datetime.utcnow():
+            return False
+        
+        verification.is_used = True
+        db.session.commit()
+        
+        # Update user's phone verification status
+        user = User.get_by_id(user_id)
+        if user:
+            user.is_phone_verified = True
+            db.session.commit()
+            
+            # Update merchant verification status if applicable
+            if user.role == UserRole.MERCHANT:
+                merchant = MerchantProfile.get_by_user_id(user_id)
+                if merchant and merchant.verification_status == VerificationStatus.EMAIL_VERIFIED:
+                    merchant.verification_status = VerificationStatus.PHONE_VERIFIED
+                    db.session.commit()
+        
+        return True

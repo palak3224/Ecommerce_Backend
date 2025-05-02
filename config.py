@@ -31,13 +31,19 @@ class Config:
     CACHE_TYPE = 'redis'
     CACHE_DEFAULT_TIMEOUT = 300  # 5 minutes
 
+    # Cloudinary
+    CLOUDINARY_CLOUD_NAME = os.getenv('CLOUDINARY_CLOUD_NAME')
+    CLOUDINARY_API_KEY = os.getenv('CLOUDINARY_API_KEY')
+    CLOUDINARY_API_SECRET = os.getenv('CLOUDINARY_API_SECRET')
+    ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'doc', 'docx']
+
     MAIL_SERVER = 'smtp.gmail.com'  # Replace with your SMTP server
     MAIL_PORT = 587  # Common ports: 587 (TLS), 465 (SSL)
     MAIL_USE_TLS = True
     MAIL_USE_SSL = False
-    MAIL_USERNAME = 'ojshavsaxenaa@gmail.com'  # Replace with your email
-    MAIL_PASSWORD = 'loly gjrt xccb vhja'  # Replace with your email password or app password
-    MAIL_DEFAULT_SENDER = ('shopeasy', 'ojshavsaxenaa@gmail.com')
+    MAIL_USERNAME = os.getenv('MAIL_USERNAME')
+    MAIL_PASSWORD = os.getenv('MAIL_PASSWORD')
+    MAIL_DEFAULT_SENDER = (os.getenv('MAIL_SENDER_NAME', 'shopeasy'), os.getenv('MAIL_USERNAME'))
 
     FRONTEND_URL = 'http://localhost:5173'
 
