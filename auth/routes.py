@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token, create_refresh_token
-from marshmallow import Schema, fields, validate, ValidationError
+from marshmallow import Schema, fields, validate, ValidationError, validates_schema
 
 from auth.controllers import (
     register_user, register_merchant, login_user, refresh_access_token,
@@ -8,7 +8,7 @@ from auth.controllers import (
     request_password_reset, reset_password
 )
 from auth.utils import user_role_required, merchant_role_required, admin_role_required
-from auth.models import User
+from auth.models import User, MerchantProfile
 
 # Schema definitions
 class RegisterUserSchema(Schema):
@@ -18,16 +18,26 @@ class RegisterUserSchema(Schema):
     last_name = fields.Str(required=True)
     phone = fields.Str()
 
-class RegisterMerchantSchema(RegisterUserSchema):
+class RegisterMerchantSchema(Schema):
+    password = fields.Str(required=True, validate=validate.Length(min=8))
+    first_name = fields.Str(required=True)
+    last_name = fields.Str(required=True)
+    phone = fields.Str()
     business_name = fields.Str(required=True)
     business_description = fields.Str()
-    business_email = fields.Email()
+    business_email = fields.Email(required=True)
     business_phone = fields.Str()
     business_address = fields.Str()
 
 class LoginSchema(Schema):
-    email = fields.Email(required=True)
-    password = fields.Str(required=True)
+    email = fields.Email(required=False)
+    business_email = fields.Email(required=False)
+    password = fields.Str(required=True, validate=validate.Length(min=8))
+
+    @validates_schema
+    def validate_email_or_business_email(self, data, **kwargs):
+        if not data.get('email') and not data.get('business_email'):
+            raise ValidationError("Either email or business_email is required")
 
 class RefreshTokenSchema(Schema):
     refresh_token = fields.Str(required=True)
@@ -81,12 +91,47 @@ def login():
         schema = LoginSchema()
         data = schema.load(request.json)
         
+        # Check if this is a business email or regular email login
+        if data.get('business_email'):
+            data['email'] = data.get('business_email')
+            # Flag to indicate this is a business email login
+            data['business_email'] = True
+        
         # Login user
         response, status_code = login_user(data)
+        
+        if status_code == 200:
+            # Get merchant profile if user is a merchant
+            user_id = response.get('user', {}).get('id')
+            if user_id:
+                merchant = MerchantProfile.get_by_user_id(user_id)
+                if merchant:
+                    response['merchant'] = {
+                        'id': merchant.id,
+                        'user_id': merchant.user_id,
+                        'business_name': merchant.business_name,
+                        'business_description': merchant.business_description,
+                        'business_email': merchant.business_email,
+                        'business_phone': merchant.business_phone,
+                        'business_address': merchant.business_address,
+                        'gstin': merchant.gstin,
+                        'pan_number': merchant.pan_number,
+                        'store_url': merchant.store_url,
+                        'logo_url': merchant.logo_url,
+                        'logo_public_id': merchant.logo_public_id,
+                        'verification_status': merchant.verification_status.value if merchant.verification_status else None,
+                        'verification_submitted_at': merchant.verification_submitted_at.isoformat() if merchant.verification_submitted_at else None,
+                        'verification_completed_at': merchant.verification_completed_at.isoformat() if merchant.verification_completed_at else None,
+                        'verification_notes': merchant.verification_notes,
+                        'is_verified': merchant.is_verified,
+                        'created_at': merchant.created_at.isoformat(),
+                        'updated_at': merchant.updated_at.isoformat()
+                    }
+        
         return jsonify(response), status_code
     except ValidationError as e:
         return jsonify({"error": "Validation error", "details": e.messages}), 400
-
+    
 @auth_bp.route('/refresh', methods=['POST'])
 def refresh():
     """Refresh access token."""
@@ -179,7 +224,10 @@ def me():
         response, status_code = get_current_user(user_id)
         return jsonify(response), status_code
     except Exception as e:
-        return jsonify({"error": str(e)}), 401
+        current_app.logger.error(f"Error in /me endpoint: {str(e)}")
+        if "Invalid token" in str(e):
+            return jsonify({"error": "Invalid or expired token"}), 401
+        return jsonify({"error": "Failed to get user information"}), 500
 
 @auth_bp.route('/password/reset-request', methods=['POST'])
 def password_reset_request():

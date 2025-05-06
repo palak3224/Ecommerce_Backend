@@ -29,13 +29,16 @@ def create_app(config_name='default'):
         api_secret=app.config['CLOUDINARY_API_SECRET']
     )
     
-    # Configure CORS to allow requests from localhost:5173
-    CORS(app, resources={r"/api/*": {
-        "origins": ["http://localhost:5173"],
-        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"],
-        "supports_credentials": True
-    }})
+    # Configure CORS
+    CORS(app, resources={
+        r"/*": {
+            "origins": ["http://localhost:5173"],
+            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            "allow_headers": ["Content-Type", "Authorization"],
+            "supports_credentials": True,
+            "expose_headers": ["Content-Type", "Authorization"]
+        }
+    })
     
     db.init_app(app)
     cache.init_app(app)
@@ -70,8 +73,11 @@ def create_app(config_name='default'):
     return app
 
 def add_headers(response):
-    response.headers['Cross-Origin-Opener-Policy'] = 'same-origin-allow-popups'
-    response.headers['Cross-Origin-Embedder-Policy'] = 'require-corp'  # Optional
+    """Add necessary CORS headers to all responses."""
+    response.headers['Access-Control-Allow-Origin'] = 'http://localhost:5173'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    response.headers['Access-Control-Allow-Credentials'] = 'true'
     return response
 
 if __name__ == "__main__":

@@ -53,13 +53,13 @@ def register_user(data):
 def register_merchant(data):
     """Register a new merchant."""
     try:
-        # Check if user already exists
-        if User.get_by_email(data['email']):
-            return {"error": "Email already registered"}, 409
+        # Check if user already exists with business email
+        if User.get_by_email(data['business_email']):
+            return {"error": "Business email already registered"}, 409
         
         # Create new user with merchant role
         user = User(
-            email=data['email'],
+            email=data['business_email'],  # Use business email as primary email
             first_name=data['first_name'],
             last_name=data['last_name'],
             phone=data.get('phone'),
@@ -73,7 +73,7 @@ def register_merchant(data):
             user_id=user.id,
             business_name=data['business_name'],
             business_description=data.get('business_description'),
-            business_email=data.get('business_email', data['email']),
+            business_email=data['business_email'],
             business_phone=data.get('business_phone', data.get('phone')),
             business_address=data.get('business_address')
         )
@@ -103,9 +103,46 @@ def register_merchant(data):
 def login_user(data):
     """Login a user with email and password."""
     try:
-        # Find user by email
-        user = User.get_by_email(data['email'])
-        if not user or not user.check_password(data['password']):
+        login_email = data['email']
+        password = data['password']
+        
+        # Check if this is a business email login
+        if 'business_email' in data:
+            # First check if this is a merchant's business email
+            merchant = MerchantProfile.query.filter_by(business_email=login_email).first()
+            if merchant:
+                # Get the associated user account
+                user = User.get_by_id(merchant.user_id)
+                if not user or not user.check_password(password):
+                    return {"error": "Invalid business email or password"}, 401
+                
+                if not user.is_active:
+                    return {"error": "Account is disabled"}, 403
+                
+                # Update last login timestamp
+                user.update_last_login()
+                
+                # Generate tokens
+                access_token = create_access_token(identity=user.id)
+                refresh_expires = datetime.utcnow() + current_app.config['JWT_REFRESH_TOKEN_EXPIRES']
+                refresh_token = RefreshToken.create_token(user.id, refresh_expires)
+                
+                return {
+                    "message": "Merchant login successful",
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                    "user": {
+                        "id": user.id,
+                        "email": user.email,
+                        "first_name": user.first_name,
+                        "last_name": user.last_name,
+                        "role": user.role.value
+                    }
+                }, 200
+        
+        # Regular user login with email
+        user = User.get_by_email(login_email)
+        if not user or not user.check_password(password):
             return {"error": "Invalid email or password"}, 401
         
         if not user.is_active:
@@ -134,7 +171,7 @@ def login_user(data):
     except Exception as e:
         current_app.logger.error(f"Login error: {str(e)}")
         return {"error": "Login failed"}, 500
-
+    
 def refresh_access_token(token):
     """Refresh access token using refresh token."""
     try:
@@ -289,7 +326,7 @@ def get_current_user(user_id):
             return {"error": "User not found"}, 404
         
         user_data = {
-            "id": user.id,
+            "id": str(user.id),  # Convert UUID to string
             "email": user.email,
             "first_name": user.first_name,
             "last_name": user.last_name,
@@ -303,11 +340,11 @@ def get_current_user(user_id):
         # Add merchant profile data if applicable
         if user.role == UserRole.MERCHANT and user.merchant_profile:
             user_data["merchant"] = {
-                "id": user.merchant_profile.id,
+                "id": str(user.merchant_profile.id),  # Convert UUID to string
                 "business_name": user.merchant_profile.business_name,
                 "business_description": user.merchant_profile.business_description,
                 "is_verified": user.merchant_profile.is_verified,
-                "verification_status": user.merchant_profile.verification_status,
+                "verification_status": user.merchant_profile.verification_status.value if user.merchant_profile.verification_status else None,
                 "store_url": user.merchant_profile.store_url
             }
         
