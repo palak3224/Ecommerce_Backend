@@ -24,7 +24,6 @@ class VerificationStatus(enum.Enum):
     """Status of merchant verification."""
     PENDING = 'pending'
     EMAIL_VERIFIED = 'email_verified'
-    PHONE_VERIFIED = 'phone_verified'
     DOCUMENTS_SUBMITTED = 'documents_submitted'
     UNDER_REVIEW = 'under_review'
     APPROVED = 'approved'

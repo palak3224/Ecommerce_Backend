@@ -116,9 +116,8 @@ def login():
                         'business_address': merchant.business_address,
                         'gstin': merchant.gstin,
                         'pan_number': merchant.pan_number,
-                        'store_url': merchant.store_url,
-                        'logo_url': merchant.logo_url,
-                        'logo_public_id': merchant.logo_public_id,
+                        'bank_account_number': merchant.bank_account_number,
+                        'bank_ifsc_code': merchant.bank_ifsc_code,
                         'verification_status': merchant.verification_status.value if merchant.verification_status else None,
                         'verification_submitted_at': merchant.verification_submitted_at.isoformat() if merchant.verification_submitted_at else None,
                         'verification_completed_at': merchant.verification_completed_at.isoformat() if merchant.verification_completed_at else None,
@@ -180,8 +179,8 @@ def verify_email_route(token):
             return jsonify({"error": "User not found"}), 404
             
         # Generate tokens
-        access_token = create_access_token(identity=user.id)
-        refresh_token = create_refresh_token(identity=user.id)
+        access_token = create_access_token(identity=str(user.id))
+        refresh_token = create_refresh_token(identity=str(user.id))
         
         return jsonify({
             "message": "Email verified successfully",

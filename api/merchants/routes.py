@@ -20,8 +20,8 @@ class CreateMerchantProfileSchema(Schema):
     business_address = fields.Str(required=True)
     gstin = fields.Str(validate=validate.Length(max=15))
     pan_number = fields.Str(validate=validate.Length(max=10))
-    store_url = fields.Str(validate=validate.Length(max=255))
-    logo_url = fields.Str(validate=validate.Length(max=255))
+    bank_account_number = fields.Str(validate=validate.Length(min=9, max=18))
+    bank_ifsc_code = fields.Str(validate=validate.Length(min=11, max=11))
 
 class UpdateProfileSchema(Schema):
     business_name = fields.Str(validate=validate.Length(min=2, max=200))
@@ -31,8 +31,9 @@ class UpdateProfileSchema(Schema):
     business_address = fields.Str()
     gstin = fields.Str(validate=validate.Length(max=15))
     pan_number = fields.Str(validate=validate.Length(max=10))
-    store_url = fields.Str(validate=validate.Length(max=255))
-    logo_url = fields.Str(validate=validate.Length(max=255))
+    bank_account_number = fields.Str(validate=validate.Length(min=9, max=18))
+    bank_ifsc_code = fields.Str(validate=validate.Length(min=11, max=11))
+    gtin = fields.Str(validate=validate.Length(max=14))
 
 # Create merchants blueprint
 merchants_bp = Blueprint('merchants', __name__)
@@ -64,8 +65,8 @@ def create_profile():
             business_address=data['business_address'],
             gstin=data.get('gstin'),
             pan_number=data.get('pan_number'),
-            store_url=data.get('store_url'),
-            logo_url=data.get('logo_url'),
+            bank_account_number=data.get('bank_account_number'),
+            bank_ifsc_code=data.get('bank_ifsc_code'),
             verification_status=VerificationStatus.PENDING,
             is_verified=False
         )
@@ -108,8 +109,8 @@ def get_profile():
             "business_address": merchant_profile.business_address,
             "gstin": merchant_profile.gstin,
             "pan_number": merchant_profile.pan_number,
-            "store_url": merchant_profile.store_url,
-            "logo_url": merchant_profile.logo_url,
+            "bank_account_number": merchant_profile.bank_account_number,
+            "bank_ifsc_code": merchant_profile.bank_ifsc_code,
             "is_verified": merchant_profile.is_verified,
             "verification_status": merchant_profile.verification_status.value,
             "verification_submitted_at": merchant_profile.verification_submitted_at.isoformat() if merchant_profile.verification_submitted_at else None,

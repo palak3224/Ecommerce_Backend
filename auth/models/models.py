@@ -84,10 +84,9 @@ class MerchantProfile(BaseModel):
     business_phone = db.Column(db.String(20), nullable=False)
     business_address = db.Column(db.Text, nullable=False)
     gstin = db.Column(db.String(15), nullable=True)
-    pan_number = db.Column(db.String(10), nullable=True)
-    store_url = db.Column(db.String(255), nullable=True)
-    logo_url = db.Column(db.String(255), nullable=True)
-    logo_public_id = db.Column(db.String(255), nullable=True)  # Cloudinary public ID
+    pan_number = db.Column(db.String(10), nullable=True)  
+    bank_account_number = db.Column(db.String(18), nullable=True)
+    bank_ifsc_code = db.Column(db.String(11), nullable=True)
     verification_status = db.Column(db.Enum(VerificationStatus), default=VerificationStatus.PENDING, nullable=False)
     verification_submitted_at = db.Column(db.DateTime, nullable=True)
     verification_completed_at = db.Column(db.DateTime, nullable=True)
