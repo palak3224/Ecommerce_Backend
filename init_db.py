@@ -23,23 +23,6 @@ from auth.models.merchant_document import (
     DocumentType,
     DocumentStatus
 )
-# Import catalog models
-from models.catalog import (
-    Category,
-    Brand,
-    BrandAddedBy,
-    Color,
-    ColorAddedBy,
-    Size,
-    Attribute,
-    Product,
-    ProductImage,
-    ProductVideo,
-    ProductAttribute,
-    ProductVariant,
-    VariantImage,
-    VariantAttribute
-)
 
 # Load environment variables
 load_dotenv()

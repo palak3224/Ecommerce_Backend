@@ -11,10 +11,8 @@ from auth.routes import auth_bp
 from auth.document_route import document_bp
 from api.users.routes import users_bp
 from api.merchants.routes import merchants_bp
-from api.routes.catalog_routes import catalog_bp
-from api.routes.product_routes import product_bp
 from auth import email_init
-from api.routes.product_auxiliary_routes import product_aux_bp
+
 
 
 def create_app(config_name='default'):
@@ -41,9 +39,6 @@ def create_app(config_name='default'):
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(users_bp, url_prefix='/api/users')
     app.register_blueprint(merchants_bp, url_prefix='/api/merchants')
-    app.register_blueprint(catalog_bp, url_prefix='/api/catalog')
-    app.register_blueprint(product_bp, url_prefix='/api')
-    app.register_blueprint(product_aux_bp, url_prefix='/api/product-auxiliary')
     app.register_blueprint(document_bp, url_prefix='/api/merchant/documents')
    
     # Test Redis cache endpoint
