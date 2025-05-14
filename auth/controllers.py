@@ -123,6 +123,7 @@ def login_user(data):
                 user.update_last_login()
                 
                 # Generate tokens
+                access_token = create_access_token(identity=str(user.id))
                 access_token = create_access_token(identity=str(user.id))                
                 refresh_expires = datetime.utcnow() + current_app.config['JWT_REFRESH_TOKEN_EXPIRES']
                 refresh_token = RefreshToken.create_token(user.id, refresh_expires)
@@ -152,6 +153,7 @@ def login_user(data):
         user.update_last_login()
         
         # Generate tokens
+        access_token = create_access_token(identity=str(user.id))
         access_token = create_access_token(identity=str(user.id))        
         refresh_expires = datetime.utcnow() + current_app.config['JWT_REFRESH_TOKEN_EXPIRES']
         refresh_token = RefreshToken.create_token(user.id, refresh_expires)
@@ -185,7 +187,7 @@ def refresh_access_token(token):
             return {"error": "Refresh token expired"}, 401
         
         # Generate new access token
-        access_token = create_access_token(identity=refresh_token.user_id)
+        access_token = create_access_token(identity=str(refresh_token.user_id))
         
         return {
             "access_token": access_token
@@ -297,6 +299,7 @@ def google_auth(token_data):
         user.update_last_login()
         
         # Generate tokens
+        access_token = create_access_token(identity=str(user.id))
         access_token = create_access_token(identity=str(user.id))        
         refresh_expires = datetime.utcnow() + current_app.config['JWT_REFRESH_TOKEN_EXPIRES']
         refresh_token = RefreshToken.create_token(user.id, refresh_expires)

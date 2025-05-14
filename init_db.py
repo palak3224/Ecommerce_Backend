@@ -77,6 +77,8 @@ def create_database():
     except mysql.connector.Error as err:
         print(f"Error: {err}")
 
+
+
 def init_database():
     """Initialize database tables and create super admin."""
     app = create_app()
@@ -101,6 +103,8 @@ def init_database():
             admin.set_password(admin_password)
             admin.save()
             print("Super admin user created.")
+        
+    
 
 if __name__ == "__main__":
     create_database()

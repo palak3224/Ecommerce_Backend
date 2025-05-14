@@ -1,0 +1,292 @@
+from flask import Blueprint, request, jsonify
+from flask_jwt_extended import jwt_required, get_jwt_identity
+import cloudinary
+import cloudinary.uploader
+from sqlalchemy.exc import IntegrityError
+from datetime import datetime
+from http import HTTPStatus
+
+from common.database import db
+from auth.models.merchant_document import MerchantDocument, DocumentType, DocumentStatus
+from auth.models.models import User, UserRole
+from auth.models.models import MerchantProfile, VerificationStatus
+
+document_bp = Blueprint('document', __name__, url_prefix='/api/merchant/documents')
+
+# Configure allowed file types and size limit
+ALLOWED_MIME_TYPES = {
+    'application/pdf',
+    'image/jpeg',
+    'image/png'
+}
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+
+def validate_file(file):
+    """Validate uploaded file type and size."""
+    if not file:
+        return False, "No file provided"
+    
+    if file.mimetype not in ALLOWED_MIME_TYPES:
+        return False, f"Invalid file type. Allowed types: {', '.join(ALLOWED_MIME_TYPES)}"
+    
+    # Check file size (read content length or stream)
+    file.seek(0, 2)  # Move to end to get size
+    file_size = file.tell()
+    file.seek(0)  # Reset to start
+    if file_size > MAX_FILE_SIZE:
+        return False, f"File too large. Maximum size is {MAX_FILE_SIZE / (1024 * 1024)}MB"
+    
+    return True, None
+
+@document_bp.route('/upload', methods=['POST'])
+@jwt_required()
+def upload_document():
+    """Upload a document for merchant verification."""
+    try:
+        current_user = User.get_by_id(get_jwt_identity())
+        if not current_user or current_user.role != UserRole.MERCHANT:
+            return jsonify({'message': 'Unauthorized'}), HTTPStatus.FORBIDDEN
+        
+        merchant = MerchantProfile.get_by_user_id(current_user.id)
+        if not merchant:
+            return jsonify({'message': 'Merchant profile not found'}), HTTPStatus.NOT_FOUND
+        
+        # Validate form data
+        if 'file' not in request.files or 'document_type' not in request.form:
+            return jsonify({'message': 'File and document type are required'}), HTTPStatus.BAD_REQUEST
+        
+        file = request.files['file']
+        document_type_str = request.form['document_type']
+        
+        # Validate document type
+        try:
+            document_type = DocumentType(document_type_str)
+        except ValueError:
+            return jsonify({'message': f"Invalid document type. Allowed types: {[t.value for t in DocumentType]}"}), HTTPStatus.BAD_REQUEST
+        
+        # Validate file
+        is_valid, error_message = validate_file(file)
+        if not is_valid:
+            return jsonify({'message': error_message}), HTTPStatus.BAD_REQUEST
+        
+        # Check if document type already exists for merchant
+        existing_doc = MerchantDocument.get_by_merchant_and_type(merchant.id, document_type)
+        if existing_doc:
+            return jsonify({'message': f"Document of type {document_type.value} already exists"}), HTTPStatus.CONFLICT
+        
+        # Upload to Cloudinary
+        upload_result = cloudinary.uploader.upload(
+            file,
+            folder=f"merchant_documents/{merchant.id}",
+            resource_type="raw" if file.mimetype == 'application/pdf' else "image"
+        )
+        
+        # Create document record
+        document = MerchantDocument(
+            merchant_id=merchant.id,
+            document_type=document_type,
+            public_id=upload_result['public_id'],
+            file_url=upload_result['secure_url'],
+            file_name=file.filename,
+            file_size=upload_result['bytes'],
+            mime_type=file.mimetype,
+            status=DocumentStatus.PENDING
+        )
+        db.session.add(document)
+        
+        # Update merchant verification status if necessary
+        if merchant.verification_status == VerificationStatus.EMAIL_VERIFIED:
+            merchant.submit_for_verification()
+        
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'Document uploaded successfully',
+            'document': {
+                'id': document.id,
+                'document_type': document.document_type.value,
+                'file_url': document.file_url,
+                'status': document.status.value
+            }
+        }), HTTPStatus.CREATED
+    
+    except cloudinary.exceptions.Error as e:
+        db.session.rollback()
+        return jsonify({'message': f"Cloudinary upload failed: {str(e)}"}), HTTPStatus.INTERNAL_SERVER_ERROR
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({'message': 'Failed to save document'}), HTTPStatus.INTERNAL_SERVER_ERROR
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'message': f"An error occurred: {str(e)}"}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@document_bp.route('', methods=['GET'])
+@jwt_required()
+def get_documents():
+    """Get all documents for a merchant."""
+    try:
+        current_user = User.get_by_id(get_jwt_identity())
+        if not current_user:
+            return jsonify({'message': 'Unauthorized'}), HTTPStatus.FORBIDDEN
+        
+        merchant = MerchantProfile.get_by_user_id(current_user.id)
+        if not merchant and current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+            return jsonify({'message': 'Merchant profile not found or unauthorized'}), HTTPStatus.FORBIDDEN
+        
+        # Admins can specify merchant_id in query params
+        merchant_id = merchant.id if merchant else request.args.get('merchant_id', type=int)
+        if not merchant_id:
+            return jsonify({'message': 'Merchant ID required for admins'}), HTTPStatus.BAD_REQUEST
+        
+        documents = MerchantDocument.get_by_merchant_id(merchant_id)
+        return jsonify({
+            'documents': [{
+                'id': doc.id,
+                'document_type': doc.document_type.value,
+                'file_url': doc.file_url,
+                'file_name': doc.file_name,
+                'file_size': doc.file_size,
+                'mime_type': doc.mime_type,
+                'status': doc.status.value,
+                'admin_notes': doc.admin_notes,
+                'verified_at': doc.verified_at.isoformat() if doc.verified_at else None
+            } for doc in documents]
+        }), HTTPStatus.OK
+    except Exception as e:
+        return jsonify({'message': f"An error occurred: {str(e)}"}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@document_bp.route('/<int:id>', methods=['GET'])
+@jwt_required()
+def get_document(id):
+    """Get a specific document by ID."""
+    try:
+        current_user = User.get_by_id(get_jwt_identity())
+        if not current_user:
+            return jsonify({'message': 'Unauthorized'}), HTTPStatus.FORBIDDEN
+        
+        document = MerchantDocument.get_by_id(id)
+        if not document:
+            return jsonify({'message': 'Document not found'}), HTTPStatus.NOT_FOUND
+        
+        merchant = MerchantProfile.get_by_user_id(current_user.id)
+        if (merchant and document.merchant_id != merchant.id) and \
+           current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+            return jsonify({'message': 'Unauthorized'}), HTTPStatus.FORBIDDEN
+        
+        return jsonify({
+            'document': {
+                'id': document.id,
+                'document_type': document.document_type.value,
+                'file_url': document.file_url,
+                'file_name': document.file_name,
+                'file_size': document.file_size,
+                'mime_type': document.mime_type,
+                'status': document.status.value,
+                'admin_notes': document.admin_notes,
+                'verified_at': document.verified_at.isoformat() if document.verified_at else None
+            }
+        }), HTTPStatus.OK
+    except Exception as e:
+        return jsonify({'message': f"An error occurred: {str(e)}"}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@document_bp.route('/<int:id>/approve', methods=['POST'])
+@jwt_required()
+def approve_document(id):
+    """Approve a document."""
+    try:
+        current_user = User.get_by_id(get_jwt_identity())
+        if not current_user or current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+            return jsonify({'message': 'Unauthorized'}), HTTPStatus.FORBIDDEN
+        
+        document = MerchantDocument.get_by_id(id)
+        if not document:
+            return jsonify({'message': 'Document not found'}), HTTPStatus.NOT_FOUND
+        
+        if document.status != DocumentStatus.PENDING:
+            return jsonify({'message': 'Document is not pending'}), HTTPStatus.BAD_REQUEST
+        
+        notes = request.json.get('notes') if request.is_json else None
+        document.approve(current_user.id, notes)
+        
+        # Check if all documents are approved to update merchant status
+        merchant = MerchantProfile.get_by_id(document.merchant_id)
+        documents = MerchantDocument.get_by_merchant_id(document.merchant_id)
+        if all(doc.status == DocumentStatus.APPROVED for doc in documents):
+            merchant.update_verification_status(VerificationStatus.APPROVED)
+        
+        return jsonify({
+            'message': 'Document approved successfully',
+            'document': {
+                'id': document.id,
+                'status': document.status.value
+            }
+        }), HTTPStatus.OK
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'message': f"An error occurred: {str(e)}"}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@document_bp.route('/<int:id>/reject', methods=['POST'])
+@jwt_required()
+def reject_document(id):
+    """Reject a document."""
+    try:
+        current_user = User.get_by_id(get_jwt_identity())
+        if not current_user or current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+            return jsonify({'message': 'Unauthorized'}), HTTPStatus.FORBIDDEN
+        
+        document = MerchantDocument.get_by_id(id)
+        if not document:
+            return jsonify({'message': 'Document not found'}), HTTPStatus.NOT_FOUND
+        
+        if document.status != DocumentStatus.PENDING:
+            return jsonify({'message': 'Document is not pending'}), HTTPStatus.BAD_REQUEST
+        
+        notes = request.json.get('notes') if request.is_json else None
+        document.reject(current_user.id, notes)
+        
+        # Update merchant status to rejected if any document is rejected
+        merchant = MerchantProfile.get_by_id(document.merchant_id)
+        merchant.update_verification_status(VerificationStatus.REJECTED, notes)
+        
+        return jsonify({
+            'message': 'Document rejected successfully',
+            'document': {
+                'id': document.id,
+                'status': document.status.value
+            }
+        }), HTTPStatus.OK
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'message': f"An error occurred: {str(e)}"}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@document_bp.route('/<int:id>', methods=['DELETE'])
+@jwt_required()
+def delete_document(id):
+    """Delete a document."""
+    try:
+        current_user = User.get_by_id(get_jwt_identity())
+        if not current_user:
+            return jsonify({'message': 'Unauthorized'}), HTTPStatus.FORBIDDEN
+        
+        document = MerchantDocument.get_by_id(id)
+        if not document:
+            return jsonify({'message': 'Document not found'}), HTTPStatus.NOT_FOUND
+        
+        merchant = MerchantProfile.get_by_user_id(current_user.id)
+        if (merchant and document.merchant_id != merchant.id) and \
+           current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+            return jsonify({'message': 'Unauthorized'}), HTTPStatus.FORBIDDEN
+        
+        # Delete from Cloudinary first
+        try:
+            cloudinary.uploader.destroy(document.public_id)
+        except cloudinary.exceptions.Error as e:
+            return jsonify({'message': f"Failed to delete file from storage: {str(e)}"}), HTTPStatus.INTERNAL_SERVER_ERROR
+        
+        # Delete from database
+        document.delete()
+        
+        return jsonify({'message': 'Document deleted successfully'}), HTTPStatus.OK
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'message': f"An error occurred: {str(e)}"}), HTTPStatus.INTERNAL_SERVER_ERROR

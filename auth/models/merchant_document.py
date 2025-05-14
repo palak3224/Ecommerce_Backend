@@ -24,7 +24,6 @@ class VerificationStatus(enum.Enum):
     """Status of merchant verification."""
     PENDING = 'pending'
     EMAIL_VERIFIED = 'email_verified'
-    PHONE_VERIFIED = 'phone_verified'
     DOCUMENTS_SUBMITTED = 'documents_submitted'
     UNDER_REVIEW = 'under_review'
     APPROVED = 'approved'
@@ -40,6 +39,7 @@ class MerchantDocument(BaseModel):
     """Merchant document model for storing verification documents."""
     __tablename__ = 'merchant_documents'
     
+    id = db.Column(db.Integer, primary_key=True)
     merchant_id = db.Column(db.Integer, db.ForeignKey('merchant_profiles.id'), nullable=False, index=True)
     document_type = db.Column(db.Enum(DocumentType), nullable=False)
     public_id = db.Column(db.String(255), nullable=False)  # Cloudinary public ID
@@ -55,6 +55,11 @@ class MerchantDocument(BaseModel):
     # Relationships
     merchant = db.relationship('MerchantProfile', back_populates='documents')
     verified_by_user = db.relationship('User', foreign_keys=[verified_by])
+    
+    @classmethod
+    def get_by_id(cls, id):
+        """Get a document by ID."""
+        return cls.query.filter_by(id=id).first()
     
     @classmethod
     def get_by_merchant_id(cls, merchant_id):

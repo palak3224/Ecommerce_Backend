@@ -6,7 +6,7 @@ db = SQLAlchemy()
 # Base model with common fields for all tables
 class BaseModel(db.Model):
     """Base model with common fields for all tables."""
-    _abstract_ = True
+    __abstract__ = True
     
     # No default ID field - each model will define its own primary key
     

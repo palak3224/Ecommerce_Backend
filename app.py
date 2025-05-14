@@ -4,40 +4,29 @@ from flask_jwt_extended import JWTManager
 from flask_migrate import Migrate
 from common.cache import cached
 import os
-import cloudinary
-from cloudinary import CloudinaryImage
-import cloudinary.uploader
-import cloudinary.api
-
 from config import get_config
 from common.database import db
 from common.cache import cache
 from auth.routes import auth_bp
+from auth.document_route import document_bp
 from api.users.routes import users_bp
 from api.merchants.routes import merchants_bp
-from routes.superadmin_routes import admin_bp
 from auth import email_init
+
+
 
 def create_app(config_name='default'):
     """Application factory."""
     app = Flask(__name__)
     app.config.from_object(get_config())
     
-    # Configure Cloudinary
-    cloudinary.config(
-        cloud_name=app.config['CLOUDINARY_CLOUD_NAME'],
-        api_key=app.config['CLOUDINARY_API_KEY'],
-        api_secret=app.config['CLOUDINARY_API_SECRET']
-    )
-    
     # Configure CORS
     CORS(app, resources={
         r"/*": {
-            "origins": ["http://localhost:5173"],
+            "origins": ["http://localhost:5173", "http://127.0.0.1:5173"],
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization"],
-            "supports_credentials": True,
-            "expose_headers": ["Content-Type", "Authorization"]
+            "supports_credentials": True
         }
     })
     
@@ -50,8 +39,9 @@ def create_app(config_name='default'):
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(users_bp, url_prefix='/api/users')
     app.register_blueprint(merchants_bp, url_prefix='/api/merchants')
+    app.register_blueprint(document_bp, url_prefix='/api/merchant/documents')
     app.register_blueprint(admin_bp,     url_prefix='/api/admin')
-    
+   
     # Test Redis cache endpoint
     @app.route('/api/test-cache')
     @cached(timeout=30)

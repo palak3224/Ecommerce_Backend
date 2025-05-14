@@ -8,6 +8,7 @@ from datetime import datetime
 from auth.utils import merchant_role_required
 from common.decorators import rate_limit, cache_response
 from auth.models import User, MerchantProfile
+from auth.models.merchant_document import VerificationStatus
 from common.database import db
 
 # Schema definitions
@@ -17,8 +18,10 @@ class CreateMerchantProfileSchema(Schema):
     business_email = fields.Email(required=True)
     business_phone = fields.Str(required=True)
     business_address = fields.Str(required=True)
-    store_url = fields.Str(validate=validate.Length(max=255))
-    logo_url = fields.Str(validate=validate.Length(max=255))
+    gstin = fields.Str(validate=validate.Length(max=15))
+    pan_number = fields.Str(validate=validate.Length(max=10))
+    bank_account_number = fields.Str(validate=validate.Length(min=9, max=18))
+    bank_ifsc_code = fields.Str(validate=validate.Length(min=11, max=11))
 
 class UpdateProfileSchema(Schema):
     business_name = fields.Str(validate=validate.Length(min=2, max=200))
@@ -26,8 +29,11 @@ class UpdateProfileSchema(Schema):
     business_email = fields.Email()
     business_phone = fields.Str()
     business_address = fields.Str()
-    store_url = fields.Str(validate=validate.Length(max=255))
-    logo_url = fields.Str(validate=validate.Length(max=255))
+    gstin = fields.Str(validate=validate.Length(max=15))
+    pan_number = fields.Str(validate=validate.Length(max=10))
+    bank_account_number = fields.Str(validate=validate.Length(min=9, max=18))
+    bank_ifsc_code = fields.Str(validate=validate.Length(min=11, max=11))
+    gtin = fields.Str(validate=validate.Length(max=14))
 
 # Create merchants blueprint
 merchants_bp = Blueprint('merchants', __name__)
@@ -57,10 +63,12 @@ def create_profile():
             business_email=data['business_email'],
             business_phone=data['business_phone'],
             business_address=data['business_address'],
-            store_url=data.get('store_url'),
-            logo_url=data.get('logo_url'),
-            is_verified=False,
-            verification_status='pending'
+            gstin=data.get('gstin'),
+            pan_number=data.get('pan_number'),
+            bank_account_number=data.get('bank_account_number'),
+            bank_ifsc_code=data.get('bank_ifsc_code'),
+            verification_status=VerificationStatus.PENDING,
+            is_verified=False
         )
         
         merchant_profile.save()
@@ -70,7 +78,7 @@ def create_profile():
             "profile": {
                 "business_name": merchant_profile.business_name,
                 "business_email": merchant_profile.business_email,
-                "verification_status": merchant_profile.verification_status
+                "verification_status": merchant_profile.verification_status.value
             }
         }), 201
         
@@ -99,10 +107,15 @@ def get_profile():
             "business_email": merchant_profile.business_email,
             "business_phone": merchant_profile.business_phone,
             "business_address": merchant_profile.business_address,
-            "store_url": merchant_profile.store_url,
-            "logo_url": merchant_profile.logo_url,
+            "gstin": merchant_profile.gstin,
+            "pan_number": merchant_profile.pan_number,
+            "bank_account_number": merchant_profile.bank_account_number,
+            "bank_ifsc_code": merchant_profile.bank_ifsc_code,
             "is_verified": merchant_profile.is_verified,
-            "verification_status": merchant_profile.verification_status
+            "verification_status": merchant_profile.verification_status.value,
+            "verification_submitted_at": merchant_profile.verification_submitted_at.isoformat() if merchant_profile.verification_submitted_at else None,
+            "verification_completed_at": merchant_profile.verification_completed_at.isoformat() if merchant_profile.verification_completed_at else None,
+            "verification_notes": merchant_profile.verification_notes
         }
     }), 200
 
@@ -135,12 +148,35 @@ def update_profile():
             "profile": {
                 "business_name": merchant_profile.business_name,
                 "business_email": merchant_profile.business_email,
-                "verification_status": merchant_profile.verification_status
+                "verification_status": merchant_profile.verification_status.value
             }
         }), 200
         
     except ValidationError as e:
         return jsonify({"error": "Validation error", "details": e.messages}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@merchants_bp.route('/profile/verify', methods=['POST'])
+@jwt_required()
+@merchant_role_required
+def submit_for_verification():
+    """Submit merchant profile for verification."""
+    try:
+        merchant_id = get_jwt_identity()
+        merchant_profile = MerchantProfile.get_by_user_id(merchant_id)
+        
+        if not merchant_profile:
+            return jsonify({"error": "Merchant profile not found"}), 404
+            
+        merchant_profile.submit_for_verification()
+        
+        return jsonify({
+            "message": "Profile submitted for verification",
+            "verification_status": merchant_profile.verification_status.value
+        }), 200
+        
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500

@@ -1,8 +1,18 @@
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from marshmallow import Schema, fields, validate, ValidationError
+from datetime import datetime
 
 from auth.utils import user_role_required
 from common.decorators import rate_limit, cache_response
+from auth.models import User
+from common.database import db
+
+# Schema definitions
+class UpdateUserProfileSchema(Schema):
+    first_name = fields.Str(validate=validate.Length(min=1, max=100))
+    last_name = fields.Str(validate=validate.Length(min=1, max=100))
+    phone = fields.Str(validate=validate.Length(max=20))
 
 # Create users blueprint
 users_bp = Blueprint('users', __name__)
@@ -14,9 +24,61 @@ users_bp = Blueprint('users', __name__)
 def get_profile():
     """Get user profile."""
     user_id = get_jwt_identity()
-    # In a real implementation, fetch user profile from database
-    # This is a placeholder
-    return {"message": f"User profile for ID: {user_id}"}, 200
+    user = User.get_by_id(user_id)
+    
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    
+    return jsonify({
+        "profile": {
+            "email": user.email,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "phone": user.phone,
+            "is_email_verified": user.is_email_verified,
+            "is_phone_verified": user.is_phone_verified,
+            "role": user.role.value,
+            "last_login": user.last_login.isoformat() if user.last_login else None
+        }
+    }), 200
+
+@users_bp.route('/profile', methods=['PUT'])
+@jwt_required()
+@user_role_required
+def update_profile():
+    """Update user profile."""
+    try:
+        # Validate request data
+        schema = UpdateUserProfileSchema()
+        data = schema.load(request.json)
+        
+        user_id = get_jwt_identity()
+        user = User.get_by_id(user_id)
+        
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        
+        # Update profile fields
+        for field, value in data.items():
+            if hasattr(user, field):
+                setattr(user, field, value)
+        
+        db.session.commit()
+        
+        return jsonify({
+            "message": "Profile updated successfully",
+            "profile": {
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "phone": user.phone
+            }
+        }), 200
+        
+    except ValidationError as e:
+        return jsonify({"error": "Validation error", "details": e.messages}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 @users_bp.route('/orders', methods=['GET'])
 @jwt_required()

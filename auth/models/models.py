@@ -21,6 +21,7 @@ class User(BaseModel):
     """User model for all types of users (customers, merchants, admins)."""
     __tablename__ = 'users'
     
+    id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=True)  # Nullable for OAuth users
     first_name = db.Column(db.String(100), nullable=False)
@@ -54,6 +55,11 @@ class User(BaseModel):
         db.session.commit()
     
     @classmethod
+    def get_by_id(cls, id):
+        """Get user by ID."""
+        return cls.query.filter_by(id=id).first()
+    
+    @classmethod
     def get_by_email(cls, email):
         """Get user by email."""
         return cls.query.filter_by(email=email).first()
@@ -70,6 +76,7 @@ class MerchantProfile(BaseModel):
     """Merchant profile model."""
     __tablename__ = 'merchant_profiles'
     
+    id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, unique=True)
     business_name = db.Column(db.String(200), nullable=False)
     business_description = db.Column(db.Text, nullable=True)
@@ -77,10 +84,9 @@ class MerchantProfile(BaseModel):
     business_phone = db.Column(db.String(20), nullable=False)
     business_address = db.Column(db.Text, nullable=False)
     gstin = db.Column(db.String(15), nullable=True)
-    pan_number = db.Column(db.String(10), nullable=True)
-    store_url = db.Column(db.String(255), nullable=True)
-    logo_url = db.Column(db.String(255), nullable=True)
-    logo_public_id = db.Column(db.String(255), nullable=True)  # Cloudinary public ID
+    pan_number = db.Column(db.String(10), nullable=True)  
+    bank_account_number = db.Column(db.String(18), nullable=True)
+    bank_ifsc_code = db.Column(db.String(11), nullable=True)
     verification_status = db.Column(db.Enum(VerificationStatus), default=VerificationStatus.PENDING, nullable=False)
     verification_submitted_at = db.Column(db.DateTime, nullable=True)
     verification_completed_at = db.Column(db.DateTime, nullable=True)
@@ -90,6 +96,11 @@ class MerchantProfile(BaseModel):
     # Relationships
     user = db.relationship('User', back_populates='merchant_profile')
     documents = db.relationship('MerchantDocument', back_populates='merchant', cascade='all, delete-orphan')
+    
+    @classmethod
+    def get_by_id(cls, id):
+        """Get merchant profile by ID."""
+        return cls.query.filter_by(id=id).first()
     
     @classmethod
     def get_by_user_id(cls, user_id):
@@ -126,6 +137,7 @@ class RefreshToken(BaseModel):
     """Refresh token model for JWT authentication."""
     __tablename__ = 'refresh_tokens'
     
+    id = db.Column(db.Integer, primary_key=True)
     token = db.Column(db.String(255), nullable=False, unique=True, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     expires_at = db.Column(db.DateTime, nullable=False)
@@ -133,6 +145,11 @@ class RefreshToken(BaseModel):
     
     # Relationships
     user = db.relationship('User', back_populates='refresh_tokens')
+    
+    @classmethod
+    def get_by_id(cls, id):
+        """Get refresh token by ID."""
+        return cls.query.filter_by(id=id).first()
     
     @classmethod
     def create_token(cls, user_id, expires_at):
@@ -168,10 +185,16 @@ class EmailVerification(BaseModel):
     """Email verification token model."""
     __tablename__ = 'email_verifications'
     
+    id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     token = db.Column(db.String(255), nullable=False, unique=True)
     expires_at = db.Column(db.DateTime, nullable=False)
     is_used = db.Column(db.Boolean, default=False, nullable=False)
+    
+    @classmethod
+    def get_by_id(cls, id):
+        """Get verification by ID."""
+        return cls.query.filter_by(id=id).first()
     
     @classmethod
     def create_token(cls, user_id, expires_at):
@@ -199,11 +222,17 @@ class PhoneVerification(BaseModel):
     """Phone verification OTP model."""
     __tablename__ = 'phone_verifications'
     
+    id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     phone = db.Column(db.String(20), nullable=False)
     otp = db.Column(db.String(6), nullable=False)
     expires_at = db.Column(db.DateTime, nullable=False)
     is_used = db.Column(db.Boolean, default=False, nullable=False)
+    
+    @classmethod
+    def get_by_id(cls, id):
+        """Get verification by ID."""
+        return cls.query.filter_by(id=id).first()
     
     @classmethod
     def create_otp(cls, user_id, phone, expires_at):
