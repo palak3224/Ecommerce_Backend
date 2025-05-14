@@ -19,3 +19,14 @@ class Category(BaseModel):
         back_populates='category',
         cascade='all, delete-orphan'
     )
+    def serialize(self):
+        """Return object data in easily serializable format"""
+        return {
+            'category_id': self.category_id,
+            'parent_id': self.parent_id,
+            'name': self.name,
+            'slug': self.slug,
+            'created_at': self.created_at,
+            'updated_at': self.updated_at,
+            'deleted_at': self.deleted_at
+        }

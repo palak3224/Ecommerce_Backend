@@ -6,9 +6,10 @@ db = SQLAlchemy()
 # Base model with common fields for all tables
 class BaseModel(db.Model):
     """Base model with common fields for all tables."""
-    __abstract__ = True
+    _abstract_ = True
     
-    id = db.Column(db.Integer, primary_key=True)
+    # No default ID field - each model will define its own primary key
+    
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
     updated_at = db.Column(db.DateTime, default=db.func.current_timestamp(),
                           onupdate=db.func.current_timestamp())
@@ -22,11 +23,6 @@ class BaseModel(db.Model):
         """Delete model from database."""
         db.session.delete(self)
         db.session.commit()
-        
-    @classmethod
-    def get_by_id(cls, id):
-        """Get a record by ID."""
-        return cls.query.filter_by(id=id).first()
     
     @classmethod
     def get_all(cls):

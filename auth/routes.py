@@ -180,12 +180,14 @@ def verify_email_route(token):
             return jsonify({"error": "User not found"}), 404
             
         # Generate tokens
-        access_token = create_access_token(identity=user.id)
-        refresh_token = create_refresh_token(identity=user.id)
+        # after
+        access_token = create_access_token(identity=str(user.id))
+
+        refresh_token = create_refresh_token(identity=str(user.id))
         
         return jsonify({
             "message": "Email verified successfully",
-            "access_token": access_token,
+            "access_token":  access_token,
             "refresh_token": refresh_token,
             "user": {
                 "id": user.id,
