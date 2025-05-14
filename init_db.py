@@ -8,6 +8,8 @@ import mysql.connector
 from dotenv import load_dotenv
 from app import create_app
 from common.database import db
+
+# --- Auth models ---
 from auth.models.models import (
     User,
     MerchantProfile,
@@ -24,6 +26,27 @@ from auth.models.merchant_document import (
     DocumentStatus
 )
 
+# --- Superadmin models ---
+from models.category import Category
+from models.brand import Brand
+from models.brand_request import BrandRequest
+from models.attribute import Attribute
+from models.attribute_value import AttributeValue
+from models.category_attribute import CategoryAttribute
+from models.promotion import Promotion
+from models.product_promotion import ProductPromotion
+
+# --- Merchant models ---
+from models.product import Product
+from models.product_meta import ProductMeta
+from models.product_tax import ProductTax
+from models.product_shipping import ProductShipping
+from models.product_media import ProductMedia
+from models.variant import Variant
+from models.variant_stock import VariantStock
+
+from models.review import Review
+from models.product_attribute import ProductAttribute
 # Load environment variables
 load_dotenv()
 
