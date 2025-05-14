@@ -9,6 +9,7 @@ from auth.controllers import (
 )
 from auth.utils import user_role_required, merchant_role_required, admin_role_required
 from auth.models import User, MerchantProfile
+from auth.models.merchant_document import MerchantDocument
 
 # Schema definitions
 class RegisterUserSchema(Schema):
@@ -54,6 +55,74 @@ class PasswordResetSchema(Schema):
 
 # Create auth blueprint
 auth_bp = Blueprint('auth', __name__)
+
+@auth_bp.route('/merchant/profile', methods=['GET'])
+@jwt_required()
+@merchant_role_required
+def get_merchant_profile():
+    """Get merchant profile details including bank details."""
+    try:
+        # Get current user ID from JWT token
+        current_user_id = get_jwt_identity()
+        user = User.get_by_id(current_user_id)
+        
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+            
+        # Get merchant profile
+        merchant_profile = MerchantProfile.get_by_user_id(current_user_id)
+        
+        if not merchant_profile:
+            return jsonify({"error": "Merchant profile not found"}), 404
+            
+        # Get documents
+        documents = MerchantDocument.query.filter_by(merchant_id=merchant_profile.id).all()
+        
+        # Format document data
+        documents_data = {}
+        for doc in documents:
+            documents_data[doc.document_type.value] = {
+                "id": doc.id,
+                "type": doc.document_type.value,
+                "status": doc.status.value,
+                "submitted": True,
+                "imageUrl": doc.file_url,
+                "file_name": doc.file_name,
+                "file_size": doc.file_size,
+                "mime_type": doc.mime_type,
+                "admin_notes": doc.admin_notes,
+                "verified_at": doc.verified_at.isoformat() if doc.verified_at else None
+            }
+            
+        # Format merchant data
+        merchant_data = {
+            "id": merchant_profile.id,
+            "business_name": merchant_profile.business_name,
+            "business_description": merchant_profile.business_description,
+            "business_email": merchant_profile.business_email,
+            "business_phone": merchant_profile.business_phone,
+            "business_address": merchant_profile.business_address,
+            "gstin": merchant_profile.gstin,
+            "pan_number": merchant_profile.pan_number,
+            "bank_account_number": merchant_profile.bank_account_number,
+            "bank_ifsc_code": merchant_profile.bank_ifsc_code,
+            "verification_status": merchant_profile.verification_status.value,
+            "is_verified": merchant_profile.is_verified,
+            "verification_notes": merchant_profile.verification_notes,
+            "verification_submitted_at": merchant_profile.verification_submitted_at.isoformat() if merchant_profile.verification_submitted_at else None,
+            "verification_completed_at": merchant_profile.verification_completed_at.isoformat() if merchant_profile.verification_completed_at else None,
+            "created_at": merchant_profile.created_at.isoformat(),
+            "updated_at": merchant_profile.updated_at.isoformat(),
+            "email": user.email,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "phone": user.phone,
+            "documents": documents_data
+        }
+        
+        return jsonify(merchant_data), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @auth_bp.route('/register', methods=['POST'])
 def register():

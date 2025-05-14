@@ -192,7 +192,7 @@ def get_document(id):
 @document_bp.route('/<int:id>/approve', methods=['POST'])
 @jwt_required()
 def approve_document(id):
-    """Approve a document."""
+    """Approve a document. Can be used to approve a pending document or re-approve a previously rejected document."""
     try:
         current_user = User.get_by_id(get_jwt_identity())
         if not current_user or current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
@@ -202,10 +202,13 @@ def approve_document(id):
         if not document:
             return jsonify({'message': 'Document not found'}), HTTPStatus.NOT_FOUND
         
-        if document.status != DocumentStatus.PENDING:
-            return jsonify({'message': 'Document is not pending'}), HTTPStatus.BAD_REQUEST
-        
+        # Allow approving documents regardless of current status
         notes = request.json.get('notes') if request.is_json else None
+        
+        # Record previous status for response message
+        previous_status = document.status
+        
+        # Approve the document
         document.approve(current_user.id, notes)
         
         # Check if all documents are approved to update merchant status
@@ -214,8 +217,15 @@ def approve_document(id):
         if all(doc.status == DocumentStatus.APPROVED for doc in documents):
             merchant.update_verification_status(VerificationStatus.APPROVED)
         
+        # Customize message based on previous status
+        message = 'Document approved successfully'
+        if previous_status == DocumentStatus.REJECTED:
+            message = 'Document re-approved successfully'
+        elif previous_status == DocumentStatus.APPROVED:
+            message = 'Document approval updated successfully'
+        
         return jsonify({
-            'message': 'Document approved successfully',
+            'message': message,
             'document': {
                 'id': document.id,
                 'status': document.status.value
@@ -228,7 +238,7 @@ def approve_document(id):
 @document_bp.route('/<int:id>/reject', methods=['POST'])
 @jwt_required()
 def reject_document(id):
-    """Reject a document."""
+    """Reject a document. Can be used to reject a pending document or re-reject a previously approved document."""
     try:
         current_user = User.get_by_id(get_jwt_identity())
         if not current_user or current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
@@ -238,18 +248,30 @@ def reject_document(id):
         if not document:
             return jsonify({'message': 'Document not found'}), HTTPStatus.NOT_FOUND
         
-        if document.status != DocumentStatus.PENDING:
-            return jsonify({'message': 'Document is not pending'}), HTTPStatus.BAD_REQUEST
-        
+        # Allow rejecting documents regardless of current status
         notes = request.json.get('notes') if request.is_json else None
+        if not notes:
+            return jsonify({'message': 'Rejection reason is required'}), HTTPStatus.BAD_REQUEST
+        
+        # Record previous status for response message
+        previous_status = document.status
+        
+        # Reject the document
         document.reject(current_user.id, notes)
         
         # Update merchant status to rejected if any document is rejected
         merchant = MerchantProfile.get_by_id(document.merchant_id)
         merchant.update_verification_status(VerificationStatus.REJECTED, notes)
         
+        # Customize message based on previous status
+        message = 'Document rejected successfully'
+        if previous_status == DocumentStatus.APPROVED:
+            message = 'Document status changed from approved to rejected'
+        elif previous_status == DocumentStatus.REJECTED:
+            message = 'Rejection reason updated successfully'
+        
         return jsonify({
-            'message': 'Document rejected successfully',
+            'message': message,
             'document': {
                 'id': document.id,
                 'status': document.status.value
