@@ -111,7 +111,108 @@ merchants_bp = Blueprint('merchants', __name__)
 @jwt_required()
 @merchant_role_required
 def create_profile():
-    """Create initial merchant profile."""
+    """
+    Create initial merchant profile.
+    ---
+    tags:
+      - Merchant
+    security:
+      - Bearer: []
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - business_name
+            - business_description
+            - business_email
+            - business_phone
+            - business_address
+            - country_code
+          properties:
+            business_name:
+              type: string
+              minLength: 2
+              maxLength: 200
+            business_description:
+              type: string
+            business_email:
+              type: string
+              format: email
+            business_phone:
+              type: string
+            business_address:
+              type: string
+            country_code:
+              type: string
+              enum: [IN, US, GB, CA, AU]
+            # Common fields
+            bank_account_number:
+              type: string
+              minLength: 9
+              maxLength: 18
+            bank_name:
+              type: string
+              maxLength: 100
+            bank_branch:
+              type: string
+              maxLength: 100
+            bank_iban:
+              type: string
+              maxLength: 34
+            # India-specific fields
+            gstin:
+              type: string
+              maxLength: 15
+            pan_number:
+              type: string
+              maxLength: 10
+            bank_ifsc_code:
+              type: string
+              minLength: 11
+              maxLength: 11
+            # Global fields
+            tax_id:
+              type: string
+              maxLength: 50
+            vat_number:
+              type: string
+              maxLength: 50
+            sales_tax_number:
+              type: string
+              maxLength: 50
+            bank_swift_code:
+              type: string
+              maxLength: 11
+            bank_routing_number:
+              type: string
+              maxLength: 20
+    responses:
+      201:
+        description: Merchant profile created successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            profile:
+              type: object
+              properties:
+                business_name:
+                  type: string
+                business_email:
+                  type: string
+                country_code:
+                  type: string
+                verification_status:
+                  type: string
+      400:
+        description: Validation error or profile already exists
+      500:
+        description: Internal server error
+    """
     try:
         # Validate request data
         schema = CreateMerchantProfileSchema()
@@ -190,7 +291,87 @@ def create_profile():
 @merchant_role_required
 @cache_response(timeout=60, key_prefix='merchant_profile')
 def get_profile():
-    """Get merchant profile."""
+    """
+    Get merchant profile.
+    ---
+    tags:
+      - Merchant
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: Merchant profile retrieved successfully
+        schema:
+          type: object
+          properties:
+            profile:
+              type: object
+              properties:
+                business_name:
+                  type: string
+                business_description:
+                  type: string
+                business_email:
+                  type: string
+                business_phone:
+                  type: string
+                business_address:
+                  type: string
+                country_code:
+                  type: string
+                state_province:
+                  type: string
+                city:
+                  type: string
+                postal_code:
+                  type: string
+                gstin:
+                  type: string
+                pan_number:
+                  type: string
+                tax_id:
+                  type: string
+                vat_number:
+                  type: string
+                sales_tax_number:
+                  type: string
+                bank_account_number:
+                  type: string
+                bank_name:
+                  type: string
+                bank_branch:
+                  type: string
+                bank_ifsc_code:
+                  type: string
+                bank_swift_code:
+                  type: string
+                bank_routing_number:
+                  type: string
+                bank_iban:
+                  type: string
+                is_verified:
+                  type: boolean
+                verification_status:
+                  type: string
+                verification_submitted_at:
+                  type: string
+                  format: date-time
+                verification_completed_at:
+                  type: string
+                  format: date-time
+                verification_notes:
+                  type: string
+                required_documents:
+                  type: array
+                  items:
+                    type: string
+                submitted_documents:
+                  type: array
+                  items:
+                    type: string
+      404:
+        description: Merchant profile not found
+    """
     merchant_id = get_jwt_identity()
     merchant_profile = MerchantProfile.get_by_user_id(merchant_id)
     
@@ -234,7 +415,108 @@ def get_profile():
 @jwt_required()
 @merchant_role_required
 def update_profile():
-    """Update merchant profile."""
+    """
+    Update merchant profile.
+    ---
+    tags:
+      - Merchant
+    security:
+      - Bearer: []
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            business_name:
+              type: string
+              minLength: 2
+              maxLength: 200
+            business_description:
+              type: string
+            business_email:
+              type: string
+              format: email
+            business_phone:
+              type: string
+            business_address:
+              type: string
+            country_code:
+              type: string
+              enum: [IN, US, GB, CA, AU]
+            state_province:
+              type: string
+            city:
+              type: string
+            postal_code:
+              type: string
+            # Common fields
+            bank_account_number:
+              type: string
+              minLength: 9
+              maxLength: 18
+            bank_name:
+              type: string
+              maxLength: 100
+            bank_branch:
+              type: string
+              maxLength: 100
+            bank_iban:
+              type: string
+              maxLength: 34
+            # India-specific fields
+            gstin:
+              type: string
+              maxLength: 15
+            pan_number:
+              type: string
+              maxLength: 10
+            bank_ifsc_code:
+              type: string
+              maxLength: 11
+            # Global fields
+            tax_id:
+              type: string
+              maxLength: 50
+            vat_number:
+              type: string
+              maxLength: 50
+            sales_tax_number:
+              type: string
+              maxLength: 50
+            bank_swift_code:
+              type: string
+              maxLength: 11
+            bank_routing_number:
+              type: string
+              maxLength: 20
+    responses:
+      200:
+        description: Profile updated successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            profile:
+              type: object
+              properties:
+                business_name:
+                  type: string
+                business_email:
+                  type: string
+                country_code:
+                  type: string
+                verification_status:
+                  type: string
+      400:
+        description: Validation error
+      404:
+        description: Merchant profile not found
+      500:
+        description: Internal server error
+    """
     try:
         logger.debug(f"Received profile update request: {request.json}")
         
@@ -322,7 +604,30 @@ def update_profile():
 @jwt_required()
 @merchant_role_required
 def submit_for_verification():
-    """Submit merchant profile for verification."""
+    """
+    Submit merchant profile for verification.
+    ---
+    tags:
+      - Merchant
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: Profile submitted for verification
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            verification_status:
+              type: string
+      400:
+        description: Validation error - missing required fields
+      404:
+        description: Merchant profile not found
+      500:
+        description: Internal server error
+    """
     try:
         merchant_id = get_jwt_identity()
         merchant_profile = MerchantProfile.get_by_user_id(merchant_id)
@@ -360,7 +665,26 @@ def submit_for_verification():
 @merchant_role_required
 @cache_response(timeout=60, key_prefix='merchant_products')
 def get_products():
-    """Get merchant products."""
+    """
+    Get merchant products.
+    ---
+    tags:
+      - Merchant
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: Products retrieved successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+      401:
+        description: Unauthorized
+      403:
+        description: Forbidden - User is not a merchant
+    """
     merchant_id = get_jwt_identity()
     return {"message": f"Products for merchant ID: {merchant_id}"}, 200
 
@@ -369,7 +693,26 @@ def get_products():
 @merchant_role_required
 @cache_response(timeout=300, key_prefix='merchant_analytics')
 def get_analytics():
-    """Get merchant analytics."""
+    """
+    Get merchant analytics.
+    ---
+    tags:
+      - Merchant
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: Analytics retrieved successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+      401:
+        description: Unauthorized
+      403:
+        description: Forbidden - User is not a merchant
+    """
     merchant_id = get_jwt_identity()
     return {"message": f"Analytics for merchant ID: {merchant_id}"}, 200
 
@@ -377,7 +720,58 @@ def get_analytics():
 @jwt_required()
 @merchant_role_required
 def get_verification_status():
-    """Get merchant verification status and check if documents have been submitted."""
+    """
+    Get merchant verification status and check if documents have been submitted.
+    ---
+    tags:
+      - Merchant
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: Verification status retrieved successfully
+        schema:
+          type: object
+          properties:
+            has_submitted_documents:
+              type: boolean
+            verification_status:
+              type: string
+            verification_submitted_at:
+              type: string
+              format: date-time
+            verification_completed_at:
+              type: string
+              format: date-time
+            verification_notes:
+              type: string
+            required_documents:
+              type: array
+              items:
+                type: string
+            submitted_documents:
+              type: array
+              items:
+                type: string
+            document_details:
+              type: array
+              items:
+                type: object
+                properties:
+                  document_type:
+                    type: string
+                  status:
+                    type: string
+                  admin_notes:
+                    type: string
+                  verified_at:
+                    type: string
+                    format: date-time
+      404:
+        description: Merchant profile not found
+      500:
+        description: Internal server error
+    """
     try:
         merchant_id = get_jwt_identity()
         merchant_profile = MerchantProfile.get_by_user_id(merchant_id)
@@ -385,7 +779,11 @@ def get_verification_status():
         if not merchant_profile:
             return jsonify({
                 "error": "Merchant profile not found",
-                "has_submitted_documents": False
+                "has_submitted_documents": False,
+                "verification_status": "pending",
+                "required_documents": [],
+                "submitted_documents": [],
+                "document_details": []
             }), 404
         
         # Get all documents for the merchant
@@ -393,9 +791,23 @@ def get_verification_status():
         
         # Check if documents have been submitted
         has_submitted_documents = (
-            merchant_profile.verification_status != VerificationStatus.PENDING or
-            merchant_profile.verification_submitted_at is not None
+            merchant_profile.verification_status != VerificationStatus.PENDING and
+            merchant_profile.verification_submitted_at is not None and
+            len(documents) > 0
         )
+        
+        # If no documents are submitted, return early with pending status
+        if not has_submitted_documents:
+            return jsonify({
+                "has_submitted_documents": False,
+                "verification_status": "pending",
+                "verification_submitted_at": None,
+                "verification_completed_at": None,
+                "verification_notes": None,
+                "required_documents": merchant_profile.required_documents,
+                "submitted_documents": [],
+                "document_details": []
+            }), 200
         
         # Prepare document details with admin notes
         document_details = [{
@@ -406,7 +818,7 @@ def get_verification_status():
         } for doc in documents]
         
         return jsonify({
-            "has_submitted_documents": has_submitted_documents,
+            "has_submitted_documents": True,
             "verification_status": merchant_profile.verification_status.value,
             "verification_submitted_at": merchant_profile.verification_submitted_at.isoformat() if merchant_profile.verification_submitted_at else None,
             "verification_completed_at": merchant_profile.verification_completed_at.isoformat() if merchant_profile.verification_completed_at else None,
@@ -421,5 +833,9 @@ def get_verification_status():
         return jsonify({
             "error": "Failed to get verification status",
             "details": str(e),
-            "has_submitted_documents": False
+            "has_submitted_documents": False,
+            "verification_status": "pending",
+            "required_documents": [],
+            "submitted_documents": [],
+            "document_details": []
         }), 500
