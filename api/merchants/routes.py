@@ -9,7 +9,7 @@ import logging
 from auth.utils import merchant_role_required
 from common.decorators import rate_limit, cache_response
 from auth.models import User, MerchantProfile
-from auth.models.merchant_document import VerificationStatus, DocumentType
+from auth.models.merchant_document import VerificationStatus, DocumentType, MerchantDocument
 from auth.models.country_config import CountryConfig, CountryCode
 from common.database import db
 
@@ -372,3 +372,54 @@ def get_analytics():
     """Get merchant analytics."""
     merchant_id = get_jwt_identity()
     return {"message": f"Analytics for merchant ID: {merchant_id}"}, 200
+
+@merchants_bp.route('/verification-status', methods=['GET'])
+@jwt_required()
+@merchant_role_required
+def get_verification_status():
+    """Get merchant verification status and check if documents have been submitted."""
+    try:
+        merchant_id = get_jwt_identity()
+        merchant_profile = MerchantProfile.get_by_user_id(merchant_id)
+        
+        if not merchant_profile:
+            return jsonify({
+                "error": "Merchant profile not found",
+                "has_submitted_documents": False
+            }), 404
+        
+        # Get all documents for the merchant
+        documents = MerchantDocument.get_by_merchant_id(merchant_profile.id)
+        
+        # Check if documents have been submitted
+        has_submitted_documents = (
+            merchant_profile.verification_status != VerificationStatus.PENDING or
+            merchant_profile.verification_submitted_at is not None
+        )
+        
+        # Prepare document details with admin notes
+        document_details = [{
+            'document_type': doc.document_type.value,
+            'status': doc.status.value,
+            'admin_notes': doc.admin_notes,
+            'verified_at': doc.verified_at.isoformat() if doc.verified_at else None
+        } for doc in documents]
+        
+        return jsonify({
+            "has_submitted_documents": has_submitted_documents,
+            "verification_status": merchant_profile.verification_status.value,
+            "verification_submitted_at": merchant_profile.verification_submitted_at.isoformat() if merchant_profile.verification_submitted_at else None,
+            "verification_completed_at": merchant_profile.verification_completed_at.isoformat() if merchant_profile.verification_completed_at else None,
+            "verification_notes": merchant_profile.verification_notes,
+            "required_documents": merchant_profile.required_documents,
+            "submitted_documents": merchant_profile.submitted_documents,
+            "document_details": document_details
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting verification status: {str(e)}", exc_info=True)
+        return jsonify({
+            "error": "Failed to get verification status",
+            "details": str(e),
+            "has_submitted_documents": False
+        }), 500

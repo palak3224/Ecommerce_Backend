@@ -85,8 +85,6 @@ def upload_document():
         description: Unauthorized
       403:
         description: Forbidden - User is not a merchant
-      409:
-        description: Document type already exists
       500:
         description: Internal server error
     """
@@ -119,8 +117,6 @@ def upload_document():
         
         # Check if document type already exists for merchant
         existing_doc = MerchantDocument.get_by_merchant_and_type(merchant.id, document_type)
-        if existing_doc:
-            return jsonify({'message': f"Document of type {document_type.value} already exists"}), HTTPStatus.CONFLICT
         
         # Upload to Cloudinary
         upload_result = cloudinary.uploader.upload(
@@ -129,34 +125,64 @@ def upload_document():
             resource_type="raw" if file.mimetype == 'application/pdf' else "image"
         )
         
-        # Create document record
-        document = MerchantDocument(
-            merchant_id=merchant.id,
-            document_type=document_type,
-            public_id=upload_result['public_id'],
-            file_url=upload_result['secure_url'],
-            file_name=file.filename,
-            file_size=upload_result['bytes'],
-            mime_type=file.mimetype,
-            status=DocumentStatus.PENDING
-        )
-        db.session.add(document)
-        
-        # Update merchant verification status if necessary
-        if merchant.verification_status == VerificationStatus.EMAIL_VERIFIED:
-            merchant.submit_for_verification()
-        
-        db.session.commit()
-        
-        return jsonify({
-            'message': 'Document uploaded successfully',
-            'document': {
-                'id': document.id,
-                'document_type': document.document_type.value,
-                'file_url': document.file_url,
-                'status': document.status.value
-            }
-        }), HTTPStatus.CREATED
+        if existing_doc:
+            # Delete old file from Cloudinary
+            try:
+                cloudinary.uploader.destroy(existing_doc.public_id)
+            except cloudinary.exceptions.Error as e:
+                logger.warning(f"Failed to delete old file from Cloudinary: {str(e)}")
+            
+            # Update existing document
+            existing_doc.public_id = upload_result['public_id']
+            existing_doc.file_url = upload_result['secure_url']
+            existing_doc.file_name = file.filename
+            existing_doc.file_size = upload_result['bytes']
+            existing_doc.mime_type = file.mimetype
+            existing_doc.status = DocumentStatus.PENDING
+            existing_doc.admin_notes = None
+            existing_doc.verified_at = None
+            existing_doc.verified_by = None
+            
+            db.session.commit()
+            
+            return jsonify({
+                'message': 'Document updated successfully',
+                'document': {
+                    'id': existing_doc.id,
+                    'document_type': existing_doc.document_type.value,
+                    'file_url': existing_doc.file_url,
+                    'status': existing_doc.status.value
+                }
+            }), HTTPStatus.OK
+        else:
+            # Create new document record
+            document = MerchantDocument(
+                merchant_id=merchant.id,
+                document_type=document_type,
+                public_id=upload_result['public_id'],
+                file_url=upload_result['secure_url'],
+                file_name=file.filename,
+                file_size=upload_result['bytes'],
+                mime_type=file.mimetype,
+                status=DocumentStatus.PENDING
+            )
+            db.session.add(document)
+            
+            # Update merchant verification status if necessary
+            if merchant.verification_status == VerificationStatus.EMAIL_VERIFIED:
+                merchant.submit_for_verification()
+            
+            db.session.commit()
+            
+            return jsonify({
+                'message': 'Document uploaded successfully',
+                'document': {
+                    'id': document.id,
+                    'document_type': document.document_type.value,
+                    'file_url': document.file_url,
+                    'status': document.status.value
+                }
+            }), HTTPStatus.CREATED
     
     except cloudinary.exceptions.Error as e:
         db.session.rollback()
