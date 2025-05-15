@@ -12,7 +12,7 @@ from auth.document_route import document_bp
 from api.users.routes import users_bp
 from api.merchants.routes import merchants_bp
 from auth import email_init
-from routes.superadmin_routes import admin_bp
+from routes.superadmin_routes import superadmin_bp
 # from routes.merchant_routes import merchant_bp
 
 
@@ -42,7 +42,7 @@ def create_app(config_name='default'):
     app.register_blueprint(users_bp, url_prefix='/api/users')
     app.register_blueprint(merchants_bp, url_prefix='/api/merchants')
     app.register_blueprint(document_bp, url_prefix='/api/merchant/documents')
-    app.register_blueprint(admin_bp,     url_prefix='/api/admin')
+    app.register_blueprint(superadmin_bp,     url_prefix='/api/admin')
     # app.register_blueprint(merchant_bp, url_prefix='/api/merchants')
    
     # Test Redis cache endpoint

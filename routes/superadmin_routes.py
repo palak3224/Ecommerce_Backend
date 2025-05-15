@@ -17,7 +17,7 @@ from controllers.superadmin.brand_request_controller import BrandRequestControll
 from controllers.superadmin.promotion_controller import PromotionController
 from controllers.superadmin.review_controller import ReviewController
 
-admin_bp = Blueprint('admin_bp', __name__)
+superadmin_bp = Blueprint('superadmin_bp', __name__)
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'}
 
@@ -26,7 +26,7 @@ def allowed_file(filename):
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # ── CATEGORY ─────────────────────────────────────────────────────────────────────
-@admin_bp.route('/categories', methods=['GET'])
+@superadmin_bp.route('/categories', methods=['GET'])
 @super_admin_role_required
 def list_categories():
     try:
@@ -36,7 +36,7 @@ def list_categories():
         current_app.logger.error(f"Error listing categories: {e}")
         return jsonify({'message': 'Failed to retrieve categories.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
-@admin_bp.route('/categories', methods=['POST'])
+@superadmin_bp.route('/categories', methods=['POST'])
 @super_admin_role_required
 def create_category():
    
@@ -124,7 +124,7 @@ def create_category():
         return jsonify({'message': f'Could not create category: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 
-@admin_bp.route('/categories/<int:cid>', methods=['PUT'])
+@superadmin_bp.route('/categories/<int:cid>', methods=['PUT'])
 @super_admin_role_required
 def update_category(cid):
    
@@ -160,7 +160,7 @@ def update_category(cid):
         return jsonify({'message': f'Could not update category: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 
-@admin_bp.route('/categories/<int:cid>', methods=['DELETE'])
+@superadmin_bp.route('/categories/<int:cid>', methods=['DELETE'])
 @super_admin_role_required
 def delete_category(cid):
     try:
@@ -175,7 +175,7 @@ def delete_category(cid):
         return jsonify({'message': f'Could not delete category: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 
-@admin_bp.route('/categories/<int:cid>/upload_icon', methods=['POST'])
+@superadmin_bp.route('/categories/<int:cid>/upload_icon', methods=['POST'])
 @super_admin_role_required
 def upload_category_icon(cid):
     try:
@@ -231,7 +231,7 @@ def upload_category_icon(cid):
 
 
 # ── BRAND REQUESTS ────────────────────────────────────────────────────────────────
-@admin_bp.route('/brand-requests', methods=['GET'])
+@superadmin_bp.route('/brand-requests', methods=['GET'])
 @super_admin_role_required
 def list_brand_requests():
     try:
@@ -242,7 +242,7 @@ def list_brand_requests():
         current_app.logger.error(f"Error listing brand requests: {e}")
         return jsonify({'message': 'Failed to retrieve brand requests.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
-@admin_bp.route('/brand-requests/<int:rid>/approve', methods=['POST'])
+@superadmin_bp.route('/brand-requests/<int:rid>/approve', methods=['POST'])
 @super_admin_role_required
 def approve_brand_request(rid):
     user_id = get_jwt_identity()
@@ -291,7 +291,7 @@ def approve_brand_request(rid):
             return jsonify({'message': getattr(e, 'description', str(e))}), e.code
         return jsonify({'message': f'Could not approve brand request: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
-@admin_bp.route('/brand-requests/<int:rid>/reject', methods=['POST'])
+@superadmin_bp.route('/brand-requests/<int:rid>/reject', methods=['POST'])
 @super_admin_role_required
 def reject_brand_request(rid):
     user_id = get_jwt_identity()
@@ -316,7 +316,7 @@ def reject_brand_request(rid):
         return jsonify({'message': f'Could not reject brand request: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 # ── BRANDS ────────────────────────────────────────────────────────────────────────
-@admin_bp.route('/brands', methods=['GET'])
+@superadmin_bp.route('/brands', methods=['GET'])
 @super_admin_role_required
 def list_brands():
     try:
@@ -327,7 +327,7 @@ def list_brands():
         current_app.logger.error(f"Error listing brands: {e}")
         return jsonify({'message': 'Failed to retrieve brands.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
-@admin_bp.route('/brands', methods=['POST'])
+@superadmin_bp.route('/brands', methods=['POST'])
 @super_admin_role_required
 def create_brand_directly(): 
     name = request.form.get('name', '').strip()
@@ -406,7 +406,7 @@ def create_brand_directly():
         current_app.logger.error(f"Error creating brand directly: {e}")
         return jsonify({'message': f'Could not create brand: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
-@admin_bp.route('/brands/<int:bid>/upload_icon', methods=['POST'])
+@superadmin_bp.route('/brands/<int:bid>/upload_icon', methods=['POST'])
 @super_admin_role_required
 def upload_brand_icon(bid):
     try:
@@ -457,7 +457,7 @@ def upload_brand_icon(bid):
         current_app.logger.error(f"Error uploading icon for brand {bid}: {e}")
         return jsonify({'message': f"An unexpected error occurred: {str(e)}"}), HTTPStatus.INTERNAL_SERVER_ERROR
 
-@admin_bp.route('/brands/<int:bid>', methods=['PUT'])
+@superadmin_bp.route('/brands/<int:bid>', methods=['PUT'])
 @super_admin_role_required
 def update_brand(bid):
     data = request.get_json()
@@ -490,7 +490,7 @@ def update_brand(bid):
         current_app.logger.error(f"Error updating brand {bid}: {e}")
         return jsonify({'message': f'Could not update brand: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
-@admin_bp.route('/brands/<int:bid>', methods=['DELETE'])
+@superadmin_bp.route('/brands/<int:bid>', methods=['DELETE'])
 @super_admin_role_required
 def delete_brand(bid):
     try:
@@ -504,7 +504,7 @@ def delete_brand(bid):
         current_app.logger.error(f"Error deleting brand {bid}: {e}")
         return jsonify({'message': f'Could not delete brand: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
-@admin_bp.route('/brands/<int:bid>/restore', methods=['POST']) # Or PUT
+@superadmin_bp.route('/brands/<int:bid>/restore', methods=['POST']) # Or PUT
 @super_admin_role_required
 def restore_brand(bid):
     try:
@@ -519,40 +519,40 @@ def restore_brand(bid):
 
 
 # ── PROMOTIONS ────────────────────────────────────────────────────────────────────
-@admin_bp.route('/promotions', methods=['GET'])
+@superadmin_bp.route('/promotions', methods=['GET'])
 @super_admin_role_required
 def list_promotions():
     ps = PromotionController.list_all()
     return jsonify([p.serialize() for p in ps]), 200
 
-@admin_bp.route('/promotions', methods=['POST'])
+@superadmin_bp.route('/promotions', methods=['POST'])
 @super_admin_role_required
 def create_promotion():
     data = request.get_json()
     p = PromotionController.create(data)
     return jsonify(p.serialize()), 201
 
-@admin_bp.route('/promotions/<int:pid>', methods=['PUT'])
+@superadmin_bp.route('/promotions/<int:pid>', methods=['PUT'])
 @super_admin_role_required
 def update_promotion(pid):
     data = request.get_json()
     p = PromotionController.update(pid, data)
     return jsonify(p.serialize()), 200
 
-@admin_bp.route('/promotions/<int:pid>', methods=['DELETE'])
+@superadmin_bp.route('/promotions/<int:pid>', methods=['DELETE'])
 @super_admin_role_required
 def delete_promotion(pid):
     p = PromotionController.soft_delete(pid)
     return jsonify(p.serialize()), 200
 
 # ── REVIEWS ──────────────────────────────────────────────────────────────────────
-@admin_bp.route('/reviews', methods=['GET'])
+@superadmin_bp.route('/reviews', methods=['GET'])
 @super_admin_role_required
 def list_reviews():
     rs = ReviewController.list_recent()
     return jsonify([r.serialize() for r in rs]), 200
 
-@admin_bp.route('/reviews/<int:rid>', methods=['DELETE'])
+@superadmin_bp.route('/reviews/<int:rid>', methods=['DELETE'])
 @super_admin_role_required
 def delete_review(rid):
     r = ReviewController.delete(rid)
@@ -562,7 +562,7 @@ def delete_review(rid):
 # ── ATTRIBUTE VALUES ─────────────────────────────────────────────────────────────
 from controllers.superadmin.attribute_value_controller import AttributeValueController
 
-@admin_bp.route('/attribute-values', methods=['GET'])
+@superadmin_bp.route('/attribute-values', methods=['GET'])
 @super_admin_role_required
 def list_attribute_values():
     avs = AttributeValueController.list_all()
@@ -572,7 +572,7 @@ def list_attribute_values():
         'value_label': av.value_label
     } for av in avs]), 200
 
-@admin_bp.route('/attribute-values/<int:aid>', methods=['GET'])
+@superadmin_bp.route('/attribute-values/<int:aid>', methods=['GET'])
 @super_admin_role_required
 def list_values_for_attribute(aid):
     avs = AttributeValueController.list_for_attribute(aid)
@@ -582,7 +582,7 @@ def list_values_for_attribute(aid):
         'value_label': av.value_label
     } for av in avs]), 200
 
-@admin_bp.route('/attribute-values', methods=['POST'])
+@superadmin_bp.route('/attribute-values', methods=['POST'])
 @super_admin_role_required
 def create_attribute_value():
     data = request.get_json()
@@ -593,7 +593,7 @@ def create_attribute_value():
         'value_label': av.value_label
     }), 201
 
-@admin_bp.route('/attribute-values/<int:aid>/<value_code>', methods=['PUT'])
+@superadmin_bp.route('/attribute-values/<int:aid>/<value_code>', methods=['PUT'])
 @super_admin_role_required
 def update_attribute_value(aid, value_code):
     data = request.get_json()
@@ -604,7 +604,7 @@ def update_attribute_value(aid, value_code):
         'value_label': av.value_label
     }), 200
 
-@admin_bp.route('/attribute-values/<int:aid>/<value_code>', methods=['DELETE'])
+@superadmin_bp.route('/attribute-values/<int:aid>/<value_code>', methods=['DELETE'])
 @super_admin_role_required
 def delete_attribute_value(aid, value_code):
     AttributeValueController.delete(aid, value_code)
