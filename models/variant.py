@@ -14,3 +14,15 @@ class Variant(BaseModel):
     updated_at    = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     deleted_at    = db.Column(db.DateTime)
     product       = db.relationship('Product', backref='variants')
+    # models/variant.py
+    def serialize(self):
+        return {
+            "variant_id": self.variant_id,
+            "product_id": self.product_id,
+            "attribute": self.attribute,
+            "value": self.value,
+            "sku": self.sku,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None
+        }

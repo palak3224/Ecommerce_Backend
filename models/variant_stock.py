@@ -11,3 +11,12 @@ class VariantStock(BaseModel):
     pending_qty         = db.Column(db.Integer, default=0, nullable=False)
     reserved_qty        = db.Column(db.Integer, default=0, nullable=False)
     variant             = db.relationship('Variant', backref=db.backref('stock', uselist=False))
+    # models/variant_stock.py
+    def serialize(self):
+        return {
+            "variant_id": self.variant_id,
+            "stock_qty": self.stock_qty,
+            "low_stock_threshold": self.low_stock_threshold,
+            "pending_qty": self.pending_qty,
+            "reserved_qty": self.reserved_qty
+        }

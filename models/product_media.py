@@ -17,3 +17,15 @@ class ProductMedia(BaseModel):
     updated_at    = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     deleted_at    = db.Column(db.DateTime)
     product       = db.relationship('Product', backref='media')
+    # models/product_media.py
+    def serialize(self):
+        return {
+            "media_id": self.media_id,
+            "product_id": self.product_id,
+            "type": self.type.value,
+            "url": self.url,
+            "sort_order": self.sort_order,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+            "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None
+        }

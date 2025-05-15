@@ -18,3 +18,18 @@ class BrandRequest(BaseModel):
 
     merchant     = db.relationship('MerchantProfile', backref='brand_requests')
     reviewer     = db.relationship('User', foreign_keys=[reviewer_id])
+    
+    def serialize(self):
+        return {
+            "request_id":    self.request_id,
+            "merchant_id":   self.merchant_id,
+            "name":          self.name,
+            "status":        self.status.value,
+            "reviewer_id":   self.reviewer_id,
+            "requested_at":  self.requested_at.isoformat() if self.requested_at else None,
+            "reviewed_at":   self.reviewed_at.isoformat() if self.reviewed_at else None,
+            "created_at":    self.created_at.isoformat() if self.created_at else None,
+            "updated_at":    self.updated_at.isoformat() if self.updated_at else None,
+            "deleted_at":    self.deleted_at.isoformat() if self.deleted_at else None,
+            
+        }

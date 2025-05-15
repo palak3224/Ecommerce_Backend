@@ -13,8 +13,12 @@ from auth.country_route import country_bp
 from api.users.routes import users_bp
 from api.merchants.routes import merchants_bp
 from auth import email_init
+
+from routes.superadmin_routes import superadmin_bp
+
 from auth.admin_routes import admin_bp
 from flasgger import Swagger
+
 
 
 def create_app(config_name='default'):
@@ -85,8 +89,14 @@ def create_app(config_name='default'):
     app.register_blueprint(users_bp, url_prefix='/api/users')
     app.register_blueprint(merchants_bp, url_prefix='/api/merchants')
     app.register_blueprint(document_bp, url_prefix='/api/merchant/documents')
+
+    app.register_blueprint(superadmin_bp,     url_prefix='/api/superadmin')
+    # app.register_blueprint(merchant_bp, url_prefix='/api/merchants')
+   
+
     app.register_blueprint(country_bp)  # Country routes are already prefixed with /api/merchants
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
+
     # Test Redis cache endpoint
     @app.route('/api/test-cache')
     @cached(timeout=30)

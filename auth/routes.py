@@ -587,6 +587,10 @@ def verify_email_route(token):
         # Generate tokens
         access_token = create_access_token(identity=str(user.id))
         refresh_token = create_refresh_token(identity=str(user.id))
+        # after
+        access_token = create_access_token(identity=str(user.id))
+
+        refresh_token = create_refresh_token(identity=str(user.id))
         
         return jsonify({
             "message": "Email verified successfully",
