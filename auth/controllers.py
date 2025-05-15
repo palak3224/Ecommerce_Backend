@@ -75,9 +75,22 @@ def register_merchant(data):
             business_description=data.get('business_description'),
             business_email=data['business_email'],
             business_phone=data.get('business_phone', data.get('phone')),
-            business_address=data.get('business_address')
+            business_address=data.get('business_address'),
+            country_code=data['country_code'],
+            state_province=data['state_province'],
+            city=data['city'],
+            postal_code=data['postal_code']
         )
-        merchant.save()
+        
+        # Initialize required documents based on country
+        merchant.update_required_documents()
+        
+        try:
+            merchant.save()
+        except Exception as e:
+            # If merchant profile creation fails, delete the user
+            user.delete()
+            raise e
         
         # Create email verification token
         expires_at = datetime.utcnow() + timedelta(days=1)
@@ -91,13 +104,14 @@ def register_merchant(data):
             "user_id": user.id,
             "merchant_id": merchant.id
         }, 201
-    except IntegrityError:
+    except IntegrityError as e:
         db.session.rollback()
-        return {"error": "Database error occurred"}, 500
+        current_app.logger.error(f"Database error during merchant registration: {str(e)}")
+        return {"error": "Database error occurred", "details": str(e)}, 500
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Registration error: {str(e)}")
-        return {"error": "Registration failed"}, 500
+        return {"error": "Registration failed", "details": str(e)}, 500
     
 
 def login_user(data):

@@ -9,11 +9,15 @@ from common.database import db
 from common.cache import cache
 from auth.routes import auth_bp
 from auth.document_route import document_bp
+from auth.country_route import country_bp
 from api.users.routes import users_bp
 from api.merchants.routes import merchants_bp
 from auth import email_init
+
 from routes.superadmin_routes import superadmin_bp
-# from routes.merchant_routes import merchant_bp
+
+from auth.admin_routes import admin_bp
+from flasgger import Swagger
 
 
 
@@ -21,6 +25,49 @@ def create_app(config_name='default'):
     """Application factory."""
     app = Flask(__name__)
     app.config.from_object(get_config())
+    
+    # Configure Swagger
+    swagger_config = {
+        "headers": [],
+        "specs": [
+            {
+                "endpoint": 'apispec',
+                "route": '/apispec.json',
+                "rule_filter": lambda rule: True,
+                "model_filter": lambda tag: True,
+            }
+        ],
+        "static_url_path": "/flasgger_static",
+        "swagger_ui": True,
+        "specs_route": "/docs"
+    }
+    
+    swagger_template = {
+        "swagger": "2.0",
+        "info": {
+            "title": "Ecommerce Backend API",
+            "description": "API documentation for Ecommerce Backend",
+            "version": "1.0.0",
+            "contact": {
+                "email": "your-email@example.com"
+            }
+        },
+        "securityDefinitions": {
+            "Bearer": {
+                "type": "apiKey",
+                "name": "Authorization",
+                "in": "header",
+                "description": "JWT Authorization header using the Bearer scheme. Example: \"Authorization: Bearer {token}\""
+            }
+        },
+        "security": [
+            {
+                "Bearer": []
+            }
+        ]
+    }
+    
+    Swagger(app, config=swagger_config, template=swagger_template)
     
     # Configure CORS
     CORS(app, resources={
@@ -42,9 +89,14 @@ def create_app(config_name='default'):
     app.register_blueprint(users_bp, url_prefix='/api/users')
     app.register_blueprint(merchants_bp, url_prefix='/api/merchants')
     app.register_blueprint(document_bp, url_prefix='/api/merchant/documents')
+
     app.register_blueprint(superadmin_bp,     url_prefix='/api/superadmin')
     # app.register_blueprint(merchant_bp, url_prefix='/api/merchants')
    
+
+    app.register_blueprint(country_bp)  # Country routes are already prefixed with /api/merchants
+    app.register_blueprint(admin_bp, url_prefix='/api/admin')
+
     # Test Redis cache endpoint
     @app.route('/api/test-cache')
     @cached(timeout=30)

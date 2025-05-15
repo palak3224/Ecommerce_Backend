@@ -41,7 +41,53 @@ def validate_file(file):
 @document_bp.route('/upload', methods=['POST'])
 @jwt_required()
 def upload_document():
-    """Upload a document for merchant verification."""
+    """
+    Upload a document for merchant verification.
+    ---
+    tags:
+      - Documents
+    security:
+      - Bearer: []
+    parameters:
+      - in: formData
+        name: file
+        type: file
+        required: true
+        description: Document file (PDF, JPEG, or PNG)
+      - in: formData
+        name: document_type
+        type: string
+        required: true
+        description: Type of document being uploaded
+        enum: [BUSINESS_LICENSE, TAX_CERTIFICATE, ID_PROOF, ADDRESS_PROOF, BANK_STATEMENT]
+    responses:
+      201:
+        description: Document uploaded successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            document:
+              type: object
+              properties:
+                id:
+                  type: integer
+                document_type:
+                  type: string
+                file_url:
+                  type: string
+                status:
+                  type: string
+      400:
+        description: Invalid request or file
+      401:
+        description: Unauthorized
+      403:
+        description: Forbidden - User is not a merchant
+      500:
+        description: Internal server error
+    """
     try:
         current_user = User.get_by_id(get_jwt_identity())
         if not current_user or current_user.role != UserRole.MERCHANT:
@@ -71,8 +117,6 @@ def upload_document():
         
         # Check if document type already exists for merchant
         existing_doc = MerchantDocument.get_by_merchant_and_type(merchant.id, document_type)
-        if existing_doc:
-            return jsonify({'message': f"Document of type {document_type.value} already exists"}), HTTPStatus.CONFLICT
         
         # Upload to Cloudinary
         upload_result = cloudinary.uploader.upload(
@@ -81,34 +125,64 @@ def upload_document():
             resource_type="raw" if file.mimetype == 'application/pdf' else "image"
         )
         
-        # Create document record
-        document = MerchantDocument(
-            merchant_id=merchant.id,
-            document_type=document_type,
-            public_id=upload_result['public_id'],
-            file_url=upload_result['secure_url'],
-            file_name=file.filename,
-            file_size=upload_result['bytes'],
-            mime_type=file.mimetype,
-            status=DocumentStatus.PENDING
-        )
-        db.session.add(document)
-        
-        # Update merchant verification status if necessary
-        if merchant.verification_status == VerificationStatus.EMAIL_VERIFIED:
-            merchant.submit_for_verification()
-        
-        db.session.commit()
-        
-        return jsonify({
-            'message': 'Document uploaded successfully',
-            'document': {
-                'id': document.id,
-                'document_type': document.document_type.value,
-                'file_url': document.file_url,
-                'status': document.status.value
-            }
-        }), HTTPStatus.CREATED
+        if existing_doc:
+            # Delete old file from Cloudinary
+            try:
+                cloudinary.uploader.destroy(existing_doc.public_id)
+            except cloudinary.exceptions.Error as e:
+                logger.warning(f"Failed to delete old file from Cloudinary: {str(e)}")
+            
+            # Update existing document
+            existing_doc.public_id = upload_result['public_id']
+            existing_doc.file_url = upload_result['secure_url']
+            existing_doc.file_name = file.filename
+            existing_doc.file_size = upload_result['bytes']
+            existing_doc.mime_type = file.mimetype
+            existing_doc.status = DocumentStatus.PENDING
+            existing_doc.admin_notes = None
+            existing_doc.verified_at = None
+            existing_doc.verified_by = None
+            
+            db.session.commit()
+            
+            return jsonify({
+                'message': 'Document updated successfully',
+                'document': {
+                    'id': existing_doc.id,
+                    'document_type': existing_doc.document_type.value,
+                    'file_url': existing_doc.file_url,
+                    'status': existing_doc.status.value
+                }
+            }), HTTPStatus.OK
+        else:
+            # Create new document record
+            document = MerchantDocument(
+                merchant_id=merchant.id,
+                document_type=document_type,
+                public_id=upload_result['public_id'],
+                file_url=upload_result['secure_url'],
+                file_name=file.filename,
+                file_size=upload_result['bytes'],
+                mime_type=file.mimetype,
+                status=DocumentStatus.PENDING
+            )
+            db.session.add(document)
+            
+            # Update merchant verification status if necessary
+            if merchant.verification_status == VerificationStatus.EMAIL_VERIFIED:
+                merchant.submit_for_verification()
+            
+            db.session.commit()
+            
+            return jsonify({
+                'message': 'Document uploaded successfully',
+                'document': {
+                    'id': document.id,
+                    'document_type': document.document_type.value,
+                    'file_url': document.file_url,
+                    'status': document.status.value
+                }
+            }), HTTPStatus.CREATED
     
     except cloudinary.exceptions.Error as e:
         db.session.rollback()
@@ -123,7 +197,55 @@ def upload_document():
 @document_bp.route('', methods=['GET'])
 @jwt_required()
 def get_documents():
-    """Get all documents for a merchant."""
+    """
+    Get all documents for a merchant.
+    ---
+    tags:
+      - Documents
+    security:
+      - Bearer: []
+    parameters:
+      - in: query
+        name: merchant_id
+        type: integer
+        description: Merchant ID (required for admin users)
+    responses:
+      200:
+        description: List of documents retrieved successfully
+        schema:
+          type: object
+          properties:
+            documents:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  document_type:
+                    type: string
+                  file_url:
+                    type: string
+                  file_name:
+                    type: string
+                  file_size:
+                    type: integer
+                  mime_type:
+                    type: string
+                  status:
+                    type: string
+                  admin_notes:
+                    type: string
+                  verified_at:
+                    type: string
+                    format: date-time
+      401:
+        description: Unauthorized
+      403:
+        description: Forbidden
+      500:
+        description: Internal server error
+    """
     try:
         current_user = User.get_by_id(get_jwt_identity())
         if not current_user:
@@ -158,7 +280,56 @@ def get_documents():
 @document_bp.route('/<int:id>', methods=['GET'])
 @jwt_required()
 def get_document(id):
-    """Get a specific document by ID."""
+    """
+    Get a specific document by ID.
+    ---
+    tags:
+      - Documents
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: id
+        type: integer
+        required: true
+        description: Document ID
+    responses:
+      200:
+        description: Document retrieved successfully
+        schema:
+          type: object
+          properties:
+            document:
+              type: object
+              properties:
+                id:
+                  type: integer
+                document_type:
+                  type: string
+                file_url:
+                  type: string
+                file_name:
+                  type: string
+                file_size:
+                  type: integer
+                mime_type:
+                  type: string
+                status:
+                  type: string
+                admin_notes:
+                  type: string
+                verified_at:
+                  type: string
+                  format: date-time
+      401:
+        description: Unauthorized
+      403:
+        description: Forbidden
+      404:
+        description: Document not found
+      500:
+        description: Internal server error
+    """
     try:
         current_user = User.get_by_id(get_jwt_identity())
         if not current_user:
@@ -192,7 +363,51 @@ def get_document(id):
 @document_bp.route('/<int:id>/approve', methods=['POST'])
 @jwt_required()
 def approve_document(id):
-    """Approve a document."""
+    """
+    Approve a document.
+    ---
+    tags:
+      - Documents
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: id
+        type: integer
+        required: true
+        description: Document ID
+      - in: body
+        name: body
+        schema:
+          type: object
+          properties:
+            notes:
+              type: string
+              description: Optional notes for the approval
+    responses:
+      200:
+        description: Document approved successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            document:
+              type: object
+              properties:
+                id:
+                  type: integer
+                status:
+                  type: string
+      401:
+        description: Unauthorized
+      403:
+        description: Forbidden - User is not an admin
+      404:
+        description: Document not found
+      500:
+        description: Internal server error
+    """
     try:
         current_user = User.get_by_id(get_jwt_identity())
         if not current_user or current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
@@ -202,10 +417,13 @@ def approve_document(id):
         if not document:
             return jsonify({'message': 'Document not found'}), HTTPStatus.NOT_FOUND
         
-        if document.status != DocumentStatus.PENDING:
-            return jsonify({'message': 'Document is not pending'}), HTTPStatus.BAD_REQUEST
-        
+        # Allow approving documents regardless of current status
         notes = request.json.get('notes') if request.is_json else None
+        
+        # Record previous status for response message
+        previous_status = document.status
+        
+        # Approve the document
         document.approve(current_user.id, notes)
         
         # Check if all documents are approved to update merchant status
@@ -214,8 +432,15 @@ def approve_document(id):
         if all(doc.status == DocumentStatus.APPROVED for doc in documents):
             merchant.update_verification_status(VerificationStatus.APPROVED)
         
+        # Customize message based on previous status
+        message = 'Document approved successfully'
+        if previous_status == DocumentStatus.REJECTED:
+            message = 'Document re-approved successfully'
+        elif previous_status == DocumentStatus.APPROVED:
+            message = 'Document approval updated successfully'
+        
         return jsonify({
-            'message': 'Document approved successfully',
+            'message': message,
             'document': {
                 'id': document.id,
                 'status': document.status.value
@@ -228,7 +453,55 @@ def approve_document(id):
 @document_bp.route('/<int:id>/reject', methods=['POST'])
 @jwt_required()
 def reject_document(id):
-    """Reject a document."""
+    """
+    Reject a document.
+    ---
+    tags:
+      - Documents
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: id
+        type: integer
+        required: true
+        description: Document ID
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - notes
+          properties:
+            notes:
+              type: string
+              description: Reason for rejection
+    responses:
+      200:
+        description: Document rejected successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            document:
+              type: object
+              properties:
+                id:
+                  type: integer
+                status:
+                  type: string
+      400:
+        description: Missing rejection reason
+      401:
+        description: Unauthorized
+      403:
+        description: Forbidden - User is not an admin
+      404:
+        description: Document not found
+      500:
+        description: Internal server error
+    """
     try:
         current_user = User.get_by_id(get_jwt_identity())
         if not current_user or current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
@@ -238,18 +511,30 @@ def reject_document(id):
         if not document:
             return jsonify({'message': 'Document not found'}), HTTPStatus.NOT_FOUND
         
-        if document.status != DocumentStatus.PENDING:
-            return jsonify({'message': 'Document is not pending'}), HTTPStatus.BAD_REQUEST
-        
+        # Allow rejecting documents regardless of current status
         notes = request.json.get('notes') if request.is_json else None
+        if not notes:
+            return jsonify({'message': 'Rejection reason is required'}), HTTPStatus.BAD_REQUEST
+        
+        # Record previous status for response message
+        previous_status = document.status
+        
+        # Reject the document
         document.reject(current_user.id, notes)
         
         # Update merchant status to rejected if any document is rejected
         merchant = MerchantProfile.get_by_id(document.merchant_id)
         merchant.update_verification_status(VerificationStatus.REJECTED, notes)
         
+        # Customize message based on previous status
+        message = 'Document rejected successfully'
+        if previous_status == DocumentStatus.APPROVED:
+            message = 'Document status changed from approved to rejected'
+        elif previous_status == DocumentStatus.REJECTED:
+            message = 'Rejection reason updated successfully'
+        
         return jsonify({
-            'message': 'Document rejected successfully',
+            'message': message,
             'document': {
                 'id': document.id,
                 'status': document.status.value
@@ -262,7 +547,36 @@ def reject_document(id):
 @document_bp.route('/<int:id>', methods=['DELETE'])
 @jwt_required()
 def delete_document(id):
-    """Delete a document."""
+    """
+    Delete a document.
+    ---
+    tags:
+      - Documents
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: id
+        type: integer
+        required: true
+        description: Document ID
+    responses:
+      200:
+        description: Document deleted successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+      401:
+        description: Unauthorized
+      403:
+        description: Forbidden
+      404:
+        description: Document not found
+      500:
+        description: Internal server error
+    """
     try:
         current_user = User.get_by_id(get_jwt_identity())
         if not current_user:

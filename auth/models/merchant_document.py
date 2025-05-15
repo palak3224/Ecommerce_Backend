@@ -5,19 +5,61 @@ from common.database import db, BaseModel
 
 class DocumentType(enum.Enum):
     """Types of documents required for merchant verification."""
-    BUSINESS_REGISTRATION = 'business_registration'
-    PAN_CARD = 'pan_card'
-    GSTIN = 'gstin'
-    ADDRESS_PROOF = 'address_proof'
-    IDENTITY_PROOF = 'identity_proof'
-    CANCELLED_CHEQUE = 'cancelled_cheque'
+    # Business Registration Documents
+    BUSINESS_REGISTRATION_IN = 'business_registration_in'  # Shop & Establishment Certificate
+    BUSINESS_REGISTRATION_GLOBAL = 'business_registration_global'  # Business License/Incorporation Certificate
+    
+    # Tax Identification Documents
+    PAN_CARD = 'pan_card'  # Indian PAN
+    TAX_ID_GLOBAL = 'tax_id_global'  # TIN/EIN/VAT ID
+    
+    # GST Related
+    GSTIN = 'gstin'  # Indian GSTIN
+    VAT_ID = 'vat_id'  # Global VAT ID
+    SALES_TAX_REG = 'sales_tax_reg'  # Sales Tax Registration
+    IMPORT_EXPORT_LICENSE = 'import_export_license'
+    
+    # Identity & Address Proof
+    AADHAR = 'aadhar'  # Indian Aadhar
+    VOTER_ID = 'voter_id'  # Indian Voter ID
+    PASSPORT = 'passport'  # Global Passport
+    NATIONAL_ID = 'national_id'  # Global National ID
+    DRIVING_LICENSE = 'driving_license'  # Global Driver's License
+    
+    # Business Address Proof
+    BUSINESS_ADDRESS_PROOF_IN = 'business_address_proof_in'  # Indian Business Address Proof
+    BUSINESS_ADDRESS_PROOF_GLOBAL = 'business_address_proof_global'  # Utility Bill/Lease Agreement/Bank Statement
+    
+    # Bank Account Details
+    CANCELLED_CHEQUE = 'cancelled_cheque'  # Indian Cancelled Cheque
+    BANK_STATEMENT = 'bank_statement'  # Global Bank Statement
+    VOID_CHEQUE = 'void_cheque'  # Global Void Cheque
+    BANK_LETTER = 'bank_letter'  # Letter from Bank
+    
+    # Bank Account Information
+    BANK_ACCOUNT_IN = 'bank_account_in'  # Indian Bank Account (with IFSC)
+    BANK_ACCOUNT_GLOBAL = 'bank_account_global'  # Global Bank Account (with SWIFT/IBAN)
+    
+    # Tax Compliance
+    GST_CERTIFICATE = 'gst_certificate'  # Indian GST Certificate
+    VAT_CERTIFICATE = 'vat_certificate'  # Global VAT Certificate
+    SALES_TAX_PERMIT = 'sales_tax_permit'  # Sales Tax Permit
+    
+    # Business Certification
+    MSME_CERTIFICATE = 'msme_certificate'  # Indian MSME Certificate
+    SMALL_BUSINESS_CERT = 'small_business_cert'  # Global Small Business Certification
+    
+    # Digital Signatures
+    DSC = 'dsc'  # Indian Digital Signature Certificate
+    ESIGN_CERTIFICATE = 'esign_certificate'  # Global eSign Certificate
+    
+    # Required Business Documents
+    RETURN_POLICY = 'return_policy'  # Required for all merchants
+    SHIPPING_DETAILS = 'shipping_details'  # Required for all merchants
+    
+    # Other Documents
     BRAND_AUTHORIZATION = 'brand_authorization'
     PRODUCT_IMAGES = 'product_images'
-    GST_CERTIFICATE = 'gst_certificate'
-    MSME_CERTIFICATE = 'msme_certificate'
-    DIGITAL_SIGNATURE = 'digital_signature'
-    RETURN_POLICY = 'return_policy'
-    SHIPPING_DETAILS = 'shipping_details'
     OTHER = 'other'
 
 class VerificationStatus(enum.Enum):

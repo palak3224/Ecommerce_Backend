@@ -9,6 +9,8 @@ from auth.controllers import (
 )
 from auth.utils import user_role_required, merchant_role_required, admin_role_required
 from auth.models import User, MerchantProfile
+from auth.models.merchant_document import MerchantDocument
+from auth.models.country_config import CountryConfig, CountryCode
 
 # Schema definitions
 class RegisterUserSchema(Schema):
@@ -28,6 +30,10 @@ class RegisterMerchantSchema(Schema):
     business_email = fields.Email(required=True)
     business_phone = fields.Str()
     business_address = fields.Str()
+    country_code = fields.Str(required=True, validate=validate.OneOf([c.value for c in CountryCode]))
+    state_province = fields.Str(required=True)
+    city = fields.Str(required=True)
+    postal_code = fields.Str(required=True)
 
 class LoginSchema(Schema):
     email = fields.Email(required=False)
@@ -55,9 +61,213 @@ class PasswordResetSchema(Schema):
 # Create auth blueprint
 auth_bp = Blueprint('auth', __name__)
 
+@auth_bp.route('/merchant/profile', methods=['GET'])
+@jwt_required()
+@merchant_role_required
+def get_merchant_profile():
+    """
+    Get merchant profile details including bank details.
+    ---
+    tags:
+      - Merchant
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: Merchant profile retrieved successfully
+        schema:
+          type: object
+          properties:
+            id:
+              type: integer
+            business_name:
+              type: string
+            business_description:
+              type: string
+            business_email:
+              type: string
+            business_phone:
+              type: string
+            business_address:
+              type: string
+            country_code:
+              type: string
+            state_province:
+              type: string
+            city:
+              type: string
+            postal_code:
+              type: string
+            verification_status:
+              type: string
+            is_verified:
+              type: boolean
+      401:
+        description: Unauthorized
+      404:
+        description: Merchant profile not found
+      500:
+        description: Internal server error
+    """
+    try:
+        # Get current user ID from JWT token
+        current_user_id = get_jwt_identity()
+        user = User.get_by_id(current_user_id)
+        
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+            
+        # Get merchant profile
+        merchant_profile = MerchantProfile.get_by_user_id(current_user_id)
+        
+        if not merchant_profile:
+            return jsonify({"error": "Merchant profile not found"}), 404
+            
+        # Get documents
+        documents = MerchantDocument.query.filter_by(merchant_id=merchant_profile.id).all()
+        
+        # Get country configuration
+        country_config = {
+            'required_documents': [doc.value for doc in CountryConfig.get_required_documents(merchant_profile.country_code)],
+            'field_validations': CountryConfig.get_field_validations(merchant_profile.country_code),
+            'bank_fields': CountryConfig.get_bank_fields(merchant_profile.country_code),
+            'tax_fields': CountryConfig.get_tax_fields(merchant_profile.country_code),
+            'country_name': CountryConfig.get_country_name(merchant_profile.country_code)
+        }
+        
+        # Format document data
+        documents_data = {}
+        for doc in documents:
+            documents_data[doc.document_type.value] = {
+                "id": doc.id,
+                "type": doc.document_type.value,
+                "status": doc.status.value,
+                "submitted": True,
+                "imageUrl": doc.file_url,
+                "file_name": doc.file_name,
+                "file_size": doc.file_size,
+                "mime_type": doc.mime_type,
+                "admin_notes": doc.admin_notes,
+                "verified_at": doc.verified_at.isoformat() if doc.verified_at else None
+            }
+            
+        # Format merchant data
+        merchant_data = {
+            "id": merchant_profile.id,
+            "business_name": merchant_profile.business_name,
+            "business_description": merchant_profile.business_description,
+            "business_email": merchant_profile.business_email,
+            "business_phone": merchant_profile.business_phone,
+            "business_address": merchant_profile.business_address,
+            "country_code": merchant_profile.country_code,
+            "country_name": country_config['country_name'],
+            "state_province": merchant_profile.state_province,
+            "city": merchant_profile.city,
+            "postal_code": merchant_profile.postal_code,
+            "gstin": merchant_profile.gstin,
+            "pan_number": merchant_profile.pan_number,
+            "tax_id": merchant_profile.tax_id,
+            "vat_number": merchant_profile.vat_number,
+            "bank_account_number": merchant_profile.bank_account_number,
+            "bank_name": merchant_profile.bank_name,
+            "bank_branch": merchant_profile.bank_branch,
+            "bank_ifsc_code": merchant_profile.bank_ifsc_code,
+            "bank_swift_code": merchant_profile.bank_swift_code,
+            "bank_iban": merchant_profile.bank_iban,
+            "verification_status": merchant_profile.verification_status.value,
+            "is_verified": merchant_profile.is_verified,
+            "verification_notes": merchant_profile.verification_notes,
+            "verification_submitted_at": merchant_profile.verification_submitted_at.isoformat() if merchant_profile.verification_submitted_at else None,
+            "verification_completed_at": merchant_profile.verification_completed_at.isoformat() if merchant_profile.verification_completed_at else None,
+            "created_at": merchant_profile.created_at.isoformat(),
+            "updated_at": merchant_profile.updated_at.isoformat(),
+            "email": user.email,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "phone": user.phone,
+            "documents": documents_data,
+            "country_config": country_config
+        }
+        
+        return jsonify(merchant_data), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@auth_bp.route('/countries', methods=['GET'])
+def get_supported_countries():
+    """
+    Get list of supported countries with their configurations.
+    ---
+    tags:
+      - Countries
+    responses:
+      200:
+        description: List of supported countries
+        schema:
+          type: object
+          properties:
+            countries:
+              type: array
+              items:
+                type: object
+                properties:
+                  code:
+                    type: string
+                  name:
+                    type: string
+                  required_documents:
+                    type: array
+                    items:
+                      type: string
+      500:
+        description: Internal server error
+    """
+    try:
+        countries = CountryConfig.get_supported_countries()
+        return jsonify({
+            'countries': countries
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @auth_bp.route('/register', methods=['POST'])
 def register():
-    """Register a new user."""
+    """
+    Register a new user.
+    ---
+    tags:
+      - Authentication
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - email
+            - password
+            - first_name
+            - last_name
+          properties:
+            email:
+              type: string
+              format: email
+            password:
+              type: string
+              minLength: 8
+            first_name:
+              type: string
+            last_name:
+              type: string
+            phone:
+              type: string
+    responses:
+      201:
+        description: User registered successfully
+      400:
+        description: Validation error
+      500:
+        description: Internal server error
+    """
     try:
         # Validate request data
         schema = RegisterUserSchema()
@@ -71,7 +281,63 @@ def register():
 
 @auth_bp.route('/register/merchant', methods=['POST'])
 def register_merchant_route():
-    """Register a new merchant."""
+    """
+    Register a new merchant.
+    ---
+    tags:
+      - Merchant
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - password
+            - first_name
+            - last_name
+            - business_name
+            - business_email
+            - country_code
+            - state_province
+            - city
+            - postal_code
+          properties:
+            password:
+              type: string
+              minLength: 8
+            first_name:
+              type: string
+            last_name:
+              type: string
+            phone:
+              type: string
+            business_name:
+              type: string
+            business_description:
+              type: string
+            business_email:
+              type: string
+              format: email
+            business_phone:
+              type: string
+            business_address:
+              type: string
+            country_code:
+              type: string
+            state_province:
+              type: string
+            city:
+              type: string
+            postal_code:
+              type: string
+    responses:
+      201:
+        description: Merchant registered successfully
+      400:
+        description: Validation error
+      500:
+        description: Internal server error
+    """
     try:
         # Validate request data
         schema = RegisterMerchantSchema()
@@ -85,7 +351,56 @@ def register_merchant_route():
 
 @auth_bp.route('/login', methods=['POST'])
 def login():
-    """Login a user."""
+    """
+    Login a user.
+    ---
+    tags:
+      - Authentication
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - password
+          properties:
+            email:
+              type: string
+              format: email
+            business_email:
+              type: string
+              format: email
+            password:
+              type: string
+              minLength: 8
+    responses:
+      200:
+        description: Login successful
+        schema:
+          type: object
+          properties:
+            access_token:
+              type: string
+            refresh_token:
+              type: string
+            user:
+              type: object
+              properties:
+                id:
+                  type: integer
+                email:
+                  type: string
+                first_name:
+                  type: string
+                last_name:
+                  type: string
+      400:
+        description: Validation error
+      401:
+        description: Invalid credentials
+      500:
+        description: Internal server error
+    """
     try:
         # Validate request data
         schema = LoginSchema()
@@ -133,7 +448,36 @@ def login():
     
 @auth_bp.route('/refresh', methods=['POST'])
 def refresh():
-    """Refresh access token."""
+    """
+    Refresh access token.
+    ---
+    tags:
+      - Authentication
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - refresh_token
+          properties:
+            refresh_token:
+              type: string
+    responses:
+      200:
+        description: Token refreshed successfully
+        schema:
+          type: object
+          properties:
+            access_token:
+              type: string
+      400:
+        description: Validation error
+      401:
+        description: Invalid refresh token
+      500:
+        description: Internal server error
+    """
     try:
         # Validate request data
         schema = RefreshTokenSchema()
@@ -147,7 +491,29 @@ def refresh():
 
 @auth_bp.route('/logout', methods=['POST'])
 def logout():
-    """Logout a user."""
+    """
+    Logout a user.
+    ---
+    tags:
+      - Authentication
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - refresh_token
+          properties:
+            refresh_token:
+              type: string
+    responses:
+      200:
+        description: Logout successful
+      400:
+        description: Validation error
+      500:
+        description: Internal server error
+    """
     try:
         # Validate request data
         schema = RefreshTokenSchema()
@@ -161,7 +527,47 @@ def logout():
 
 @auth_bp.route('/verify-email/<token>', methods=['GET'])
 def verify_email_route(token):
-    """Verify user email and return tokens for automatic login."""
+    """
+    Verify user email and return tokens for automatic login.
+    ---
+    tags:
+      - Authentication
+    parameters:
+      - name: token
+        in: path
+        type: string
+        required: true
+        description: Email verification token
+    responses:
+      200:
+        description: Email verified successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            access_token:
+              type: string
+            refresh_token:
+              type: string
+            user:
+              type: object
+              properties:
+                id:
+                  type: integer
+                email:
+                  type: string
+                first_name:
+                  type: string
+                last_name:
+                  type: string
+                is_verified:
+                  type: boolean
+      400:
+        description: Invalid token
+      404:
+        description: User not found
+    """
     try:
         # Verify email and get response
         response, status_code = verify_email(token)
@@ -203,7 +609,49 @@ def verify_email_route(token):
 
 @auth_bp.route('/google', methods=['POST'])
 def google_auth_route():
-    """Authenticate with Google OAuth."""
+    """
+    Authenticate with Google OAuth.
+    ---
+    tags:
+      - Authentication
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - id_token
+          properties:
+            id_token:
+              type: string
+    responses:
+      200:
+        description: Google authentication successful
+        schema:
+          type: object
+          properties:
+            access_token:
+              type: string
+            refresh_token:
+              type: string
+            user:
+              type: object
+              properties:
+                id:
+                  type: integer
+                email:
+                  type: string
+                first_name:
+                  type: string
+                last_name:
+                  type: string
+      400:
+        description: Validation error
+      401:
+        description: Invalid Google token
+      500:
+        description: Internal server error
+    """
     try:
         # Validate request data
         schema = GoogleAuthSchema()
@@ -218,7 +666,36 @@ def google_auth_route():
 @auth_bp.route('/me', methods=['GET'])
 @jwt_required()
 def me():
-    """Get current user information."""
+    """
+    Get current user information.
+    ---
+    tags:
+      - User
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: User information retrieved successfully
+        schema:
+          type: object
+          properties:
+            id:
+              type: integer
+            email:
+              type: string
+            first_name:
+              type: string
+            last_name:
+              type: string
+            phone:
+              type: string
+            is_verified:
+              type: boolean
+      401:
+        description: Invalid or expired token
+      500:
+        description: Internal server error
+    """
     try:
         user_id = get_jwt_identity()
         if not user_id:
@@ -234,7 +711,32 @@ def me():
 
 @auth_bp.route('/password/reset-request', methods=['POST'])
 def password_reset_request():
-    """Request password reset."""
+    """
+    Request password reset.
+    ---
+    tags:
+      - Authentication
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - email
+          properties:
+            email:
+              type: string
+              format: email
+    responses:
+      200:
+        description: Password reset email sent
+      400:
+        description: Validation error
+      404:
+        description: User not found
+      500:
+        description: Internal server error
+    """
     try:
         # Validate request data
         schema = PasswordResetRequestSchema()
@@ -248,7 +750,35 @@ def password_reset_request():
 
 @auth_bp.route('/password/reset', methods=['POST'])
 def password_reset():
-    """Reset password with token."""
+    """
+    Reset password with token.
+    ---
+    tags:
+      - Authentication
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - token
+            - new_password
+          properties:
+            token:
+              type: string
+            new_password:
+              type: string
+              minLength: 8
+    responses:
+      200:
+        description: Password reset successful
+      400:
+        description: Validation error or invalid token
+      404:
+        description: User not found
+      500:
+        description: Internal server error
+    """
     try:
         # Validate request data
         schema = PasswordResetSchema()
