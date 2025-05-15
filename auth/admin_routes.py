@@ -11,7 +11,90 @@ admin_bp = Blueprint('admin', __name__)
 @jwt_required()
 @admin_role_required
 def get_all_merchants():
-    """Get all merchants for admin dashboard."""
+    """
+    Get all merchants for admin dashboard.
+    ---
+    tags:
+      - Admin
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of merchants retrieved successfully
+        schema:
+          type: object
+          properties:
+            merchants:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  user_id:
+                    type: integer
+                  business_name:
+                    type: string
+                  business_description:
+                    type: string
+                  business_email:
+                    type: string
+                  business_phone:
+                    type: string
+                  business_address:
+                    type: string
+                  verification_status:
+                    type: string
+                  verification_submitted_at:
+                    type: string
+                    format: date-time
+                  verification_completed_at:
+                    type: string
+                    format: date-time
+                  verification_notes:
+                    type: string
+                  created_at:
+                    type: string
+                    format: date-time
+                  updated_at:
+                    type: string
+                    format: date-time
+                  user:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      email:
+                        type: string
+                      first_name:
+                        type: string
+                      last_name:
+                        type: string
+                      role:
+                        type: string
+                  documents:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        document_type:
+                          type: string
+                        status:
+                          type: string
+                        file_url:
+                          type: string
+                        created_at:
+                          type: string
+                          format: date-time
+      401:
+        description: Unauthorized
+      403:
+        description: Forbidden - User is not an admin
+      500:
+        description: Internal server error
+    """
     try:
         # Get all merchant profiles
         merchant_profiles = MerchantProfile.query.all()
@@ -70,7 +153,36 @@ def get_all_merchants():
 @jwt_required()
 @admin_role_required
 def approve_merchant(id):
-    """Approve a merchant."""
+    """
+    Approve a merchant.
+    ---
+    tags:
+      - Admin
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: id
+        type: integer
+        required: true
+        description: Merchant ID
+    responses:
+      200:
+        description: Merchant approved successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+      401:
+        description: Unauthorized
+      403:
+        description: Forbidden - User is not an admin
+      404:
+        description: Merchant not found
+      500:
+        description: Internal server error
+    """
     try:
         merchant = MerchantProfile.query.get_or_404(id)
         merchant.approve()
@@ -82,7 +194,44 @@ def approve_merchant(id):
 @jwt_required()
 @admin_role_required
 def reject_merchant(id):
-    """Reject a merchant."""
+    """
+    Reject a merchant.
+    ---
+    tags:
+      - Admin
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: id
+        type: integer
+        required: true
+        description: Merchant ID
+      - in: body
+        name: body
+        schema:
+          type: object
+          properties:
+            reason:
+              type: string
+              description: Reason for rejection
+    responses:
+      200:
+        description: Merchant rejected successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+      401:
+        description: Unauthorized
+      403:
+        description: Forbidden - User is not an admin
+      404:
+        description: Merchant not found
+      500:
+        description: Internal server error
+    """
     try:
         data = request.json
         reason = data.get('reason', 'No reason provided')
@@ -97,7 +246,113 @@ def reject_merchant(id):
 @jwt_required()
 @admin_role_required
 def get_merchant_details(id):
-    """Get detailed information for a specific merchant."""
+    """
+    Get detailed information for a specific merchant.
+    ---
+    tags:
+      - Admin
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: id
+        type: integer
+        required: true
+        description: Merchant ID
+    responses:
+      200:
+        description: Merchant details retrieved successfully
+        schema:
+          type: object
+          properties:
+            id:
+              type: integer
+            business_name:
+              type: string
+            business_description:
+              type: string
+            business_email:
+              type: string
+            business_phone:
+              type: string
+            business_address:
+              type: string
+            gstin:
+              type: string
+            pan_number:
+              type: string
+            bank_account_number:
+              type: string
+            bank_ifsc_code:
+              type: string
+            verification_status:
+              type: string
+            is_verified:
+              type: boolean
+            verification_notes:
+              type: string
+            verification_submitted_at:
+              type: string
+              format: date-time
+            verification_completed_at:
+              type: string
+              format: date-time
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+            user:
+              type: object
+              properties:
+                id:
+                  type: integer
+                email:
+                  type: string
+                first_name:
+                  type: string
+                last_name:
+                  type: string
+                phone:
+                  type: string
+                role:
+                  type: string
+            documents:
+              type: object
+              additionalProperties:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  type:
+                    type: string
+                  status:
+                    type: string
+                  submitted:
+                    type: boolean
+                  imageUrl:
+                    type: string
+                  file_name:
+                    type: string
+                  file_size:
+                    type: integer
+                  mime_type:
+                    type: string
+                  admin_notes:
+                    type: string
+                  verified_at:
+                    type: string
+                    format: date-time
+      401:
+        description: Unauthorized
+      403:
+        description: Forbidden - User is not an admin
+      404:
+        description: Merchant not found
+      500:
+        description: Internal server error
+    """
     try:
         # Get merchant profile
         merchant_profile = MerchantProfile.query.get_or_404(id)

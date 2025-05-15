@@ -41,7 +41,55 @@ def validate_file(file):
 @document_bp.route('/upload', methods=['POST'])
 @jwt_required()
 def upload_document():
-    """Upload a document for merchant verification."""
+    """
+    Upload a document for merchant verification.
+    ---
+    tags:
+      - Documents
+    security:
+      - Bearer: []
+    parameters:
+      - in: formData
+        name: file
+        type: file
+        required: true
+        description: Document file (PDF, JPEG, or PNG)
+      - in: formData
+        name: document_type
+        type: string
+        required: true
+        description: Type of document being uploaded
+        enum: [BUSINESS_LICENSE, TAX_CERTIFICATE, ID_PROOF, ADDRESS_PROOF, BANK_STATEMENT]
+    responses:
+      201:
+        description: Document uploaded successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            document:
+              type: object
+              properties:
+                id:
+                  type: integer
+                document_type:
+                  type: string
+                file_url:
+                  type: string
+                status:
+                  type: string
+      400:
+        description: Invalid request or file
+      401:
+        description: Unauthorized
+      403:
+        description: Forbidden - User is not a merchant
+      409:
+        description: Document type already exists
+      500:
+        description: Internal server error
+    """
     try:
         current_user = User.get_by_id(get_jwt_identity())
         if not current_user or current_user.role != UserRole.MERCHANT:
@@ -123,7 +171,55 @@ def upload_document():
 @document_bp.route('', methods=['GET'])
 @jwt_required()
 def get_documents():
-    """Get all documents for a merchant."""
+    """
+    Get all documents for a merchant.
+    ---
+    tags:
+      - Documents
+    security:
+      - Bearer: []
+    parameters:
+      - in: query
+        name: merchant_id
+        type: integer
+        description: Merchant ID (required for admin users)
+    responses:
+      200:
+        description: List of documents retrieved successfully
+        schema:
+          type: object
+          properties:
+            documents:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  document_type:
+                    type: string
+                  file_url:
+                    type: string
+                  file_name:
+                    type: string
+                  file_size:
+                    type: integer
+                  mime_type:
+                    type: string
+                  status:
+                    type: string
+                  admin_notes:
+                    type: string
+                  verified_at:
+                    type: string
+                    format: date-time
+      401:
+        description: Unauthorized
+      403:
+        description: Forbidden
+      500:
+        description: Internal server error
+    """
     try:
         current_user = User.get_by_id(get_jwt_identity())
         if not current_user:
@@ -158,7 +254,56 @@ def get_documents():
 @document_bp.route('/<int:id>', methods=['GET'])
 @jwt_required()
 def get_document(id):
-    """Get a specific document by ID."""
+    """
+    Get a specific document by ID.
+    ---
+    tags:
+      - Documents
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: id
+        type: integer
+        required: true
+        description: Document ID
+    responses:
+      200:
+        description: Document retrieved successfully
+        schema:
+          type: object
+          properties:
+            document:
+              type: object
+              properties:
+                id:
+                  type: integer
+                document_type:
+                  type: string
+                file_url:
+                  type: string
+                file_name:
+                  type: string
+                file_size:
+                  type: integer
+                mime_type:
+                  type: string
+                status:
+                  type: string
+                admin_notes:
+                  type: string
+                verified_at:
+                  type: string
+                  format: date-time
+      401:
+        description: Unauthorized
+      403:
+        description: Forbidden
+      404:
+        description: Document not found
+      500:
+        description: Internal server error
+    """
     try:
         current_user = User.get_by_id(get_jwt_identity())
         if not current_user:
@@ -192,7 +337,51 @@ def get_document(id):
 @document_bp.route('/<int:id>/approve', methods=['POST'])
 @jwt_required()
 def approve_document(id):
-    """Approve a document. Can be used to approve a pending document or re-approve a previously rejected document."""
+    """
+    Approve a document.
+    ---
+    tags:
+      - Documents
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: id
+        type: integer
+        required: true
+        description: Document ID
+      - in: body
+        name: body
+        schema:
+          type: object
+          properties:
+            notes:
+              type: string
+              description: Optional notes for the approval
+    responses:
+      200:
+        description: Document approved successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            document:
+              type: object
+              properties:
+                id:
+                  type: integer
+                status:
+                  type: string
+      401:
+        description: Unauthorized
+      403:
+        description: Forbidden - User is not an admin
+      404:
+        description: Document not found
+      500:
+        description: Internal server error
+    """
     try:
         current_user = User.get_by_id(get_jwt_identity())
         if not current_user or current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
@@ -238,7 +427,55 @@ def approve_document(id):
 @document_bp.route('/<int:id>/reject', methods=['POST'])
 @jwt_required()
 def reject_document(id):
-    """Reject a document. Can be used to reject a pending document or re-reject a previously approved document."""
+    """
+    Reject a document.
+    ---
+    tags:
+      - Documents
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: id
+        type: integer
+        required: true
+        description: Document ID
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - notes
+          properties:
+            notes:
+              type: string
+              description: Reason for rejection
+    responses:
+      200:
+        description: Document rejected successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            document:
+              type: object
+              properties:
+                id:
+                  type: integer
+                status:
+                  type: string
+      400:
+        description: Missing rejection reason
+      401:
+        description: Unauthorized
+      403:
+        description: Forbidden - User is not an admin
+      404:
+        description: Document not found
+      500:
+        description: Internal server error
+    """
     try:
         current_user = User.get_by_id(get_jwt_identity())
         if not current_user or current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
@@ -284,7 +521,36 @@ def reject_document(id):
 @document_bp.route('/<int:id>', methods=['DELETE'])
 @jwt_required()
 def delete_document(id):
-    """Delete a document."""
+    """
+    Delete a document.
+    ---
+    tags:
+      - Documents
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: id
+        type: integer
+        required: true
+        description: Document ID
+    responses:
+      200:
+        description: Document deleted successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+      401:
+        description: Unauthorized
+      403:
+        description: Forbidden
+      404:
+        description: Document not found
+      500:
+        description: Internal server error
+    """
     try:
         current_user = User.get_by_id(get_jwt_identity())
         if not current_user:

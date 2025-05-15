@@ -2,9 +2,11 @@ import bcrypt
 import uuid
 from datetime import datetime
 from enum import Enum
+import re
 
 from common.database import db, BaseModel
 from auth.models.merchant_document import VerificationStatus, DocumentType
+from .country_config import CountryConfig, CountryCode
 
 class UserRole(Enum):
     USER = 'user'
@@ -83,19 +85,90 @@ class MerchantProfile(BaseModel):
     business_email = db.Column(db.String(120), nullable=False)
     business_phone = db.Column(db.String(20), nullable=False)
     business_address = db.Column(db.Text, nullable=False)
-    gstin = db.Column(db.String(15), nullable=True)
-    pan_number = db.Column(db.String(10), nullable=True)  
-    bank_account_number = db.Column(db.String(18), nullable=True)
-    bank_ifsc_code = db.Column(db.String(11), nullable=True)
+    
+    # Country and Region Information
+    country_code = db.Column(db.String(10), nullable=False, default=CountryCode.INDIA.value)
+    state_province = db.Column(db.String(100), nullable=False)
+    city = db.Column(db.String(100), nullable=False)
+    postal_code = db.Column(db.String(20), nullable=False)
+    
+    # Tax Information
+    tax_id = db.Column(db.String(50), nullable=True)  # For GLOBAL: TIN/EIN/VAT ID
+    gstin = db.Column(db.String(15), nullable=True)  # For IN: GSTIN
+    pan_number = db.Column(db.String(10), nullable=True)  # For IN: PAN
+    vat_number = db.Column(db.String(50), nullable=True)  # For GLOBAL: VAT Number
+    sales_tax_number = db.Column(db.String(50), nullable=True)  # For GLOBAL: Sales Tax Number
+    
+    
+    # Bank Account Information
+    bank_account_number = db.Column(db.String(50), nullable=True)
+    bank_name = db.Column(db.String(100), nullable=True)
+    bank_branch = db.Column(db.String(100), nullable=True)
+    bank_ifsc_code = db.Column(db.String(11), nullable=True)  # For IN: IFSC Code
+    bank_swift_code = db.Column(db.String(11), nullable=True)  # For GLOBAL: SWIFT Code
+    bank_iban = db.Column(db.String(34), nullable=True)  # For GLOBAL: IBAN
+    bank_routing_number = db.Column(db.String(20), nullable=True)  # For GLOBAL: Routing Number
+    
+    # Verification Status
     verification_status = db.Column(db.Enum(VerificationStatus), default=VerificationStatus.PENDING, nullable=False)
     verification_submitted_at = db.Column(db.DateTime, nullable=True)
     verification_completed_at = db.Column(db.DateTime, nullable=True)
     verification_notes = db.Column(db.Text, nullable=True)
     is_verified = db.Column(db.Boolean, default=False, nullable=False)
     
+    # Document Verification Tracking
+    required_documents = db.Column(db.JSON, nullable=True)  # List of required document types based on country
+    submitted_documents = db.Column(db.JSON, nullable=True)  # List of submitted document types
+    
     # Relationships
     user = db.relationship('User', back_populates='merchant_profile')
     documents = db.relationship('MerchantDocument', back_populates='merchant', cascade='all, delete-orphan')
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.update_required_documents()
+    
+    def update_required_documents(self):
+        """Update required documents based on country code."""
+        self.required_documents = [
+            doc.value for doc in CountryConfig.get_required_documents(self.country_code)
+        ]
+    
+    def get_required_documents(self):
+        """Get list of required documents based on country."""
+        return CountryConfig.get_required_documents(self.country_code)
+    
+    def get_field_validations(self):
+        """Get field validation rules based on country."""
+        return CountryConfig.get_field_validations(self.country_code)
+    
+    def get_required_bank_fields(self):
+        """Get required bank fields based on country."""
+        return CountryConfig.get_bank_fields(self.country_code)
+    
+    def get_required_tax_fields(self):
+        """Get required tax fields based on country."""
+        return CountryConfig.get_tax_fields(self.country_code)
+    
+    def get_country_name(self):
+        """Get full country name."""
+        return CountryConfig.get_country_name(self.country_code)
+    
+    def is_indian_merchant(self):
+        """Check if merchant is from India."""
+        return self.country_code == CountryCode.INDIA.value
+    
+    def validate_country_specific_fields(self):
+        """Validate country-specific fields."""
+        validations = self.get_field_validations()
+        errors = {}
+        
+        for field, rules in validations.items():
+            value = getattr(self, field)
+            if value and not re.match(rules['pattern'], value):
+                errors[field] = rules['message']
+        
+        return errors
     
     @classmethod
     def get_by_id(cls, id):
