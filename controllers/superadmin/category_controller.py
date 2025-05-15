@@ -14,11 +14,10 @@ class CategoryController:
     @staticmethod
     def create(data):
         cat = Category(
-            category_id=data['category_id'],
             name=data['name'],
             slug=data['slug'],
             parent_id=data.get('parent_id'),
-            
+            icon_url=data.get('icon_url')  
         )
         cat.save()
         return cat
@@ -29,6 +28,7 @@ class CategoryController:
         cat.name = data.get('name', cat.name)
         cat.slug = data.get('slug', cat.slug)
         cat.parent_id = data.get('parent_id', cat.parent_id)
+        cat.icon_url = data.get('icon_url', cat.icon_url)  
         db.session.commit()
         return cat
 

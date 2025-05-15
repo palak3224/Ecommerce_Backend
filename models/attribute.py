@@ -16,3 +16,12 @@ class Attribute(BaseModel):
         back_populates='attribute',
         cascade='all, delete-orphan'
     )
+    def serialize(self):
+        """Turn this Attribute into a JSON‑friendly dict."""
+        return {
+            'attribute_id': self.attribute_id,
+            'code': self.code,
+            'name': self.name,
+            'input_type': self.input_type.value,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }

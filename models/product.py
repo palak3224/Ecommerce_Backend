@@ -25,3 +25,23 @@ class Product(BaseModel):
     merchant      = db.relationship('MerchantProfile', backref='products')
     category      = db.relationship('Category', backref='products')
     brand         = db.relationship('Brand', backref='products')
+    def serialize(self):
+        return {
+            "product_id":      self.product_id,
+            "merchant_id":     self.merchant_id,
+            "category_id":     self.category_id,
+            "brand_id":        self.brand_id,
+            "sku":             self.sku,
+            "cost_price":      float(self.cost_price),
+            "selling_price":   float(self.selling_price),
+            "discount_pct":    float(self.discount_pct),
+            "special_price":   float(self.special_price) if self.special_price is not None else None,
+            "special_start":   self.special_start.isoformat() if self.special_start else None,
+            "special_end":     self.special_end.isoformat() if self.special_end else None,
+            "active_flag":     bool(self.active_flag),
+            "created_at":      self.created_at.isoformat() if self.created_at else None,
+            "updated_at":      self.updated_at.isoformat() if self.updated_at else None,
+            "deleted_at":      self.deleted_at.isoformat() if self.deleted_at else None,
+            # optional backrefs, e.g. meta, tax, shipping, media, variants
+            # "meta": self.meta.serialize() if self.meta else None,
+        }

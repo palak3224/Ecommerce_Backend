@@ -17,3 +17,11 @@ class ProductAttribute(BaseModel):
         ),
         {}
     )
+    # models/product_attribute.py
+    def serialize(self):
+        return {
+            "product_id": self.product_id,
+            "attribute_id": self.attribute_id,
+            "value_code": self.value_code,
+            "value_text": self.value_text
+        }
