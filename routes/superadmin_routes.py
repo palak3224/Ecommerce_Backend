@@ -5,6 +5,9 @@ import cloudinary
 import cloudinary.uploader
 from common.database import db
 from models.brand import Brand
+from models.category import Category
+from models.attribute import Attribute
+from models.category_attribute import CategoryAttribute
 from sqlalchemy.exc import IntegrityError
 from http import HTTPStatus
 from datetime import datetime, timezone 
@@ -322,7 +325,7 @@ def update_category(cid):
 @super_admin_role_required
 def delete_category(cid):
     """
-    Delete (soft delete) a category.
+    Delete a category from the database.
     ---
     tags:
       - SuperAdmin - Categories
@@ -340,7 +343,7 @@ def delete_category(cid):
         schema:
           type: object
           properties:
-            id:
+            category_id:
               type: integer
             name:
               type: string
@@ -356,17 +359,13 @@ def delete_category(cid):
             updated_at:
               type: string
               format: date-time
-            deleted_at:
-              type: string
-              format: date-time
       404:
         description: Category not found
       500:
         description: Internal server error
     """
     try:
-        
-        cat = CategoryController.soft_delete(cid)
+        cat = CategoryController.delete(cid)
         return jsonify(cat.serialize()), HTTPStatus.OK
     except FileNotFoundError: 
         return jsonify({'message': 'Category not found'}), HTTPStatus.NOT_FOUND
@@ -433,8 +432,7 @@ def upload_category_icon(cid):
     """
     try:
         
-        from models.category import Category 
-        category = Category.query.filter_by(id=cid, deleted_at=None).first()
+        category = Category.query.filter_by(id=cid).first()
         if not category:
             return jsonify({'message': 'Category not found or has been deleted'}), HTTPStatus.NOT_FOUND
 
@@ -959,7 +957,7 @@ def upload_brand_icon(bid):
     """
     try:
         
-        brand = Brand.query.filter_by(brand_id=bid, deleted_at=None).first()
+        brand = Brand.query.filter_by(brand_id=bid).first()
         if not brand:
             return jsonify({'message': 'Brand not found or has been deleted'}), HTTPStatus.NOT_FOUND
 
@@ -1760,3 +1758,280 @@ def delete_attribute_value(aid, value_code):
     """
     AttributeValueController.delete(aid, value_code)
     return '', 204
+
+# ── ATTRIBUTES ───────────────────────────────────────────────────────────────────
+@superadmin_bp.route('/attributes', methods=['GET'])
+@super_admin_role_required
+def list_attributes():
+    """
+    Get list of all attributes.
+    ---
+    tags:
+      - SuperAdmin - Attributes
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of attributes retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              attribute_id:
+                type: integer
+              code:
+                type: string
+              name:
+                type: string
+              input_type:
+                type: string
+                enum: [text, number, select, multiselect, boolean]
+              created_at:
+                type: string
+                format: date-time
+    """
+    try:
+        attrs = AttributeController.list_all()
+        return jsonify([a.serialize() for a in attrs]), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error listing attributes: {e}")
+        return jsonify({'message': 'Failed to retrieve attributes.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/attributes', methods=['POST'])
+@super_admin_role_required
+def create_attribute():
+    """
+    Create a new attribute.
+    ---
+    tags:
+      - SuperAdmin - Attributes
+    security:
+      - Bearer: []
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - code
+            - name
+            - input_type
+          properties:
+            code:
+              type: string
+              description: Unique code for the attribute
+            name:
+              type: string
+              description: Display name for the attribute
+            input_type:
+              type: string
+              enum: [text, number, select, multiselect, boolean]
+              description: Type of input for this attribute
+    responses:
+      201:
+        description: Attribute created successfully
+        schema:
+          type: object
+          properties:
+            attribute_id:
+              type: integer
+            code:
+              type: string
+            name:
+              type: string
+            input_type:
+              type: string
+            created_at:
+              type: string
+              format: date-time
+      400:
+        description: Bad request - Invalid input data
+      409:
+        description: Conflict - Attribute with this code already exists
+      500:
+        description: Internal server error
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({'message': 'No data provided'}), HTTPStatus.BAD_REQUEST
+
+    # Validate required fields
+    required_fields = ['code', 'name', 'input_type']
+    missing_fields = [field for field in required_fields if field not in data or not data[field]]
+    if missing_fields:
+        return jsonify({
+            'message': f'Missing required fields: {", ".join(missing_fields)}'
+        }), HTTPStatus.BAD_REQUEST
+
+    # Validate input_type
+    valid_input_types = ['text', 'number', 'select', 'multiselect', 'boolean']
+    if data['input_type'] not in valid_input_types:
+        return jsonify({
+            'message': f'Invalid input type. Must be one of: {", ".join(valid_input_types)}'
+        }), HTTPStatus.BAD_REQUEST
+
+    try:
+        attr = AttributeController.create(data)
+        return jsonify(attr.serialize()), HTTPStatus.CREATED
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+    except IntegrityError as e:
+        db.session.rollback()
+        current_app.logger.error(f"IntegrityError creating attribute: {e}")
+        if "unique constraint" in str(e.orig).lower():
+            return jsonify({'message': 'An attribute with this code already exists.'}), HTTPStatus.CONFLICT
+        return jsonify({'message': 'Failed to create attribute due to a data conflict.'}), HTTPStatus.CONFLICT
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error creating attribute: {e}")
+        return jsonify({'message': f'Could not create attribute: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/attributes/<int:aid>', methods=['DELETE'])
+@super_admin_role_required
+def delete_attribute(aid):
+    """
+    Delete an attribute.
+    ---
+    tags:
+      - SuperAdmin - Attributes
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: aid
+        type: integer
+        required: true
+        description: Attribute ID
+    responses:
+      200:
+        description: Attribute deleted successfully
+        schema:
+          type: object
+          properties:
+            attribute_id:
+              type: integer
+            code:
+              type: string
+            name:
+              type: string
+            input_type:
+              type: string
+            deleted_at:
+              type: string
+              format: date-time
+      404:
+        description: Attribute not found
+      500:
+        description: Internal server error
+    """
+    try:
+        attr = AttributeController.delete(aid)
+        return jsonify(attr.serialize()), HTTPStatus.OK
+    except FileNotFoundError:
+        return jsonify({'message': 'Attribute not found'}), HTTPStatus.NOT_FOUND
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error deleting attribute {aid}: {e}")
+        return jsonify({'message': f'Could not delete attribute: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+# ── CATEGORY ATTRIBUTES ─────────────────────────────────────────────────────────
+@superadmin_bp.route('/categories/<int:cid>/assign-attribute', methods=['POST'])
+@super_admin_role_required
+def assign_attribute_to_category(cid):
+    """
+    Assign an attribute to a category.
+    ---
+    tags:
+      - SuperAdmin - Categories
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: cid
+        type: integer
+        required: true
+        description: Category ID
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - attribute_id
+          properties:
+            attribute_id:
+              type: integer
+              description: ID of the attribute to assign
+            required_flag:
+              type: boolean
+              description: Whether this attribute is required for the category
+    responses:
+      200:
+        description: Attribute assigned to category successfully
+        schema:
+          type: object
+          properties:
+            category_id:
+              type: integer
+            attribute_id:
+              type: integer
+            required_flag:
+              type: boolean
+      400:
+        description: Bad request - Invalid input data
+      404:
+        description: Category or attribute not found
+      409:
+        description: Conflict - Attribute already assigned to category
+      500:
+        description: Internal server error
+    """
+    try:
+        data = request.get_json()
+        if not data or 'attribute_id' not in data:
+            return jsonify({'message': 'Attribute ID is required'}), HTTPStatus.BAD_REQUEST
+
+        attribute_id = data.get('attribute_id')
+        required_flag = data.get('required_flag', False)
+
+        # Get the category - removed deleted_at filter
+        category = Category.query.filter_by(category_id=cid).first()
+        if not category:
+            return jsonify({'message': 'Category not found'}), HTTPStatus.NOT_FOUND
+
+        # Get the attribute - removed deleted_at filter
+        attribute = Attribute.query.filter_by(attribute_id=attribute_id).first()
+        if not attribute:
+            return jsonify({'message': 'Attribute not found'}), HTTPStatus.NOT_FOUND
+
+        # Check if attribute is already assigned to category
+        existing = CategoryAttribute.query.filter_by(
+            category_id=cid,
+            attribute_id=attribute_id
+        ).first()
+
+        if existing:
+            return jsonify({'message': 'Attribute is already assigned to this category'}), HTTPStatus.CONFLICT
+
+        # Create new category attribute
+        category_attribute = CategoryAttribute(
+            category_id=cid,
+            attribute_id=attribute_id,
+            required_flag=required_flag
+        )
+
+        db.session.add(category_attribute)
+        db.session.commit()
+
+        return jsonify({
+            'category_id': category_attribute.category_id,
+            'attribute_id': category_attribute.attribute_id,
+            'required_flag': category_attribute.required_flag
+        }), HTTPStatus.OK
+
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error assigning attribute to category: {e}")
+        return jsonify({'message': f'Could not assign attribute to category: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR

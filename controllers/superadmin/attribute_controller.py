@@ -1,5 +1,6 @@
 from models.attribute import Attribute
 from common.database import db
+from models.enums import AttributeInputType
 
 class AttributeController:
     @staticmethod
@@ -8,10 +9,17 @@ class AttributeController:
 
     @staticmethod
     def create(data):
+        # Validate and convert input_type to enum
+        try:
+            input_type = AttributeInputType(data['input_type'])
+        except ValueError:
+            valid_types = [t.value for t in AttributeInputType]
+            raise ValueError(f"Invalid input type. Must be one of: {', '.join(valid_types)}")
+
         attr = Attribute(
             code=data['code'],
             name=data['name'],
-            input_type=data['input_type']
+            input_type=input_type
         )
         attr.save()
         return attr
@@ -19,8 +27,17 @@ class AttributeController:
     @staticmethod
     def update(attribute_id, data):
         attr = Attribute.query.get_or_404(attribute_id)
-        attr.name = data.get('name', attr.name)
-        attr.input_type = data.get('input_type', attr.input_type)
+        
+        if 'name' in data:
+            attr.name = data['name']
+        
+        if 'input_type' in data:
+            try:
+                attr.input_type = AttributeInputType(data['input_type'])
+            except ValueError:
+                valid_types = [t.value for t in AttributeInputType]
+                raise ValueError(f"Invalid input type. Must be one of: {', '.join(valid_types)}")
+
         db.session.commit()
         return attr
 

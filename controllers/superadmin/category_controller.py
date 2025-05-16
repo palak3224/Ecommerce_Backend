@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 class CategoryController:
     @staticmethod
     def list_all():
-        return Category.query.filter_by(deleted_at=None).all()
+        return Category.query.all()
 
     @staticmethod
     def get(category_id):
@@ -33,8 +33,8 @@ class CategoryController:
         return cat
 
     @staticmethod
-    def soft_delete(category_id):
+    def delete(category_id):
         cat = Category.query.get_or_404(category_id)
-        cat.deleted_at = db.func.current_timestamp()
+        db.session.delete(cat)
         db.session.commit()
         return cat

@@ -12,7 +12,6 @@ class Category(BaseModel):
     updated_at  = db.Column(db.DateTime, nullable=False,
                             default=db.func.current_timestamp(),
                             onupdate=db.func.current_timestamp())
-    deleted_at  = db.Column(db.DateTime, nullable=True)
 
     # ←— Association to CategoryAttribute
     attributes = db.relationship(
@@ -30,6 +29,5 @@ class Category(BaseModel):
             'slug': self.slug,
             'icon_url': self.icon_url,  
             'created_at': self.created_at,
-            'updated_at': self.updated_at,
-            'deleted_at': self.deleted_at
+            'updated_at': self.updated_at
         }
