@@ -16,6 +16,8 @@ from controllers.superadmin.brand_controller import BrandController
 from controllers.superadmin.brand_request_controller import BrandRequestController
 from controllers.superadmin.promotion_controller import PromotionController
 from controllers.superadmin.review_controller import ReviewController
+from controllers.superadmin.category_attribute_controller import CategoryAttributeController 
+
 
 superadmin_bp = Blueprint('superadmin_bp', __name__)
 
@@ -609,3 +611,224 @@ def update_attribute_value(aid, value_code):
 def delete_attribute_value(aid, value_code):
     AttributeValueController.delete(aid, value_code)
     return '', 204
+
+
+
+# ── ATTRIBUTES ───────────────────────────────────────────────────────────────────
+# (This section was missing and is now added)
+
+@superadmin_bp.route('/attributes', methods=['GET'])
+@super_admin_role_required
+def list_attributes():
+    try:
+        attributes = AttributeController.list_all()
+      
+        return jsonify([attr.serialize() for attr in attributes]), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error listing attributes: {e}")
+        return jsonify({'message': 'Failed to retrieve attributes.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/attributes', methods=['POST'])
+@super_admin_role_required
+def create_attribute():
+    data = request.get_json()
+    if not data:
+        return jsonify({'message': 'No input data provided'}), HTTPStatus.BAD_REQUEST
+
+    required_fields = ['code', 'name', 'input_type']
+    for field in required_fields:
+        if field not in data or not data[field]:
+            return jsonify({'message': f'{field.capitalize()} is required'}), HTTPStatus.BAD_REQUEST
+
+    try:
+        attribute = AttributeController.create(data)
+
+
+        return jsonify(attribute.serialize()), HTTPStatus.CREATED
+    except IntegrityError as e: # e.g. if 'code' must be unique
+        db.session.rollback()
+        current_app.logger.error(f"IntegrityError creating attribute: {e}")
+        if "unique constraint" in str(e.orig).lower() or \
+           (hasattr(e.orig, 'pgcode') and e.orig.pgcode == '23505'):
+             return jsonify({'message': 'An attribute with this code already exists.'}), HTTPStatus.CONFLICT
+        return jsonify({'message': 'Failed to create attribute due to a data conflict.'}), HTTPStatus.CONFLICT
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error creating attribute: {e}")
+        return jsonify({'message': f'Could not create attribute: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/attributes/<int:attribute_id>', methods=['GET'])
+@super_admin_role_required
+def get_attribute(attribute_id):
+    try:
+       
+        from models.attribute import Attribute 
+        attr = Attribute.query.get_or_404(attribute_id)
+        return jsonify(attr.serialize()), HTTPStatus.OK
+    except FileNotFoundError: 
+        return jsonify({'message': 'Attribute not found'}), HTTPStatus.NOT_FOUND
+    except Exception as e:
+        current_app.logger.error(f"Error fetching attribute {attribute_id}: {e}")
+        return jsonify({'message': 'Could not retrieve attribute.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+@superadmin_bp.route('/attributes/<int:attribute_id>', methods=['PUT'])
+@super_admin_role_required
+def update_attribute(attribute_id):
+    data = request.get_json()
+    if not data:
+        return jsonify({'message': 'No input data provided for update'}), HTTPStatus.BAD_REQUEST
+
+ 
+    if not data.get('name') and not data.get('input_type'):
+        return jsonify({'message': 'No fields to update provided (name, input_type).'}), HTTPStatus.BAD_REQUEST
+
+    try:
+        attribute = AttributeController.update(attribute_id, data)
+        return jsonify(attribute.serialize()), HTTPStatus.OK
+    except FileNotFoundError: 
+        return jsonify({'message': 'Attribute not found'}), HTTPStatus.NOT_FOUND
+   
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error updating attribute {attribute_id}: {e}")
+        return jsonify({'message': f'Could not update attribute: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/attributes/<int:attribute_id>', methods=['DELETE'])
+@super_admin_role_required
+def delete_attribute(attribute_id):
+    try:
+        success = AttributeController.delete(attribute_id)
+        if success:
+            return jsonify({'message': 'Attribute deleted successfully'}), HTTPStatus.OK 
+        else:
+           
+            return jsonify({'message': 'Attribute deletion failed'}), HTTPStatus.INTERNAL_SERVER_ERROR
+    except FileNotFoundError: 
+        return jsonify({'message': 'Attribute not found'}), HTTPStatus.NOT_FOUND
+    except Exception as e: 
+        db.session.rollback()
+        current_app.logger.error(f"Error deleting attribute {attribute_id}: {e}")
+        
+        if isinstance(e, IntegrityError) and "foreign key constraint" in str(e.orig).lower():
+            return jsonify({'message': 'Cannot delete attribute. It is currently in use by other records (e.g., attribute values, product attributes).'}), HTTPStatus.CONFLICT
+        return jsonify({'message': f'Could not delete attribute: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+    
+
+
+
+    # ── CATEGORY ATTRIBUTES (Associations) ───────────────────────────────────────────
+@superadmin_bp.route('/categories/<int:cid>/attributes', methods=['GET'])
+@super_admin_role_required
+def list_category_attributes_for_category(cid):
+    """Lists attributes associated with a specific category."""
+    try:
+        associations = CategoryAttributeController.list_attributes_for_category(cid)
+       
+        result = []
+        for assoc in associations:
+            
+            attribute_data = None
+            if assoc.attribute: 
+                 attribute_data = {
+                     'attribute_id': assoc.attribute.attribute_id, 
+                     'name': assoc.attribute.name, 
+                     'code': assoc.attribute.code
+                 }
+
+            result.append({
+                'category_id': assoc.category_id,
+                'attribute_id': assoc.attribute_id,
+                'required_flag': assoc.required_flag,
+                'attribute_details': attribute_data 
+            })
+        return jsonify(result), HTTPStatus.OK
+    except FileNotFoundError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.NOT_FOUND
+    except Exception as e:
+        current_app.logger.error(f"Error listing attributes for category {cid}: {e}")
+        return jsonify({'message': str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/categories/<int:cid>/attributes', methods=['POST'])
+@super_admin_role_required
+def add_attribute_to_a_category(cid):
+    """Adds an attribute to a category."""
+    data = request.get_json()
+    if not data:
+        return jsonify({'message': 'Request body is missing or not JSON.'}), HTTPStatus.BAD_REQUEST
+    
+    try:
+        association = CategoryAttributeController.add_attribute_to_category(cid, data)
+       
+        attribute_data = None
+        if association.attribute:
+             attribute_data = {
+                 'attribute_id': association.attribute.attribute_id,
+                 'name': association.attribute.name,
+                 'code': association.attribute.code
+             }
+        return jsonify({
+            'category_id': association.category_id,
+            'attribute_id': association.attribute_id,
+            'required_flag': association.required_flag,
+            'attribute_details': attribute_data
+        }), HTTPStatus.CREATED
+    except FileNotFoundError as e: 
+        return jsonify({'message': str(e)}), HTTPStatus.NOT_FOUND
+    except ValueError as e: 
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+    except IntegrityError as e: 
+        db.session.rollback()
+       
+        msg = e.args[0] if e.args and isinstance(e.args[0], str) else str(e.orig) if hasattr(e, 'orig') else "Data integrity conflict (e.g., association already exists)."
+        return jsonify({'message': msg}), HTTPStatus.CONFLICT
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error adding attribute to category {cid}: {e}")
+        return jsonify({'message': str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/categories/<int:cid>/attributes/<int:aid>', methods=['PUT'])
+@super_admin_role_required
+def update_attribute_for_category(cid, aid):
+    """Updates the required_flag of an attribute for a category."""
+    data = request.get_json()
+    if not data:
+        return jsonify({'message': 'Request body is missing or not JSON.'}), HTTPStatus.BAD_REQUEST
+
+    try:
+        association = CategoryAttributeController.update_category_attribute(cid, aid, data)
+        attribute_data = None
+        if association.attribute:
+             attribute_data = {
+                 'attribute_id': association.attribute.attribute_id,
+                 'name': association.attribute.name,
+                 'code': association.attribute.code
+             }
+        return jsonify({
+            'category_id': association.category_id,
+            'attribute_id': association.attribute_id,
+            'required_flag': association.required_flag,
+            'attribute_details': attribute_data
+        }), HTTPStatus.OK
+    except FileNotFoundError as e: 
+        return jsonify({'message': str(e)}), HTTPStatus.NOT_FOUND
+    except ValueError as e: 
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error updating attribute {aid} for category {cid}: {e}")
+        return jsonify({'message': str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/categories/<int:cid>/attributes/<int:aid>', methods=['DELETE'])
+@super_admin_role_required
+def remove_attribute_from_a_category(cid, aid):
+    """Removes an attribute from a category."""
+    try:
+        CategoryAttributeController.remove_attribute_from_category(cid, aid)
+        return '', HTTPStatus.NO_CONTENT
+    except FileNotFoundError as e: 
+        return jsonify({'message': str(e)}), HTTPStatus.NOT_FOUND
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error removing attribute {aid} from category {cid}: {e}")
+        return jsonify({'message': str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
