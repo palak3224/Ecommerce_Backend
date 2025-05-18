@@ -2,6 +2,9 @@
 from flask import Blueprint, request, jsonify, current_app
 from http import HTTPStatus
 from auth.utils import merchant_role_required
+from common.database import db
+import cloudinary
+import cloudinary.uploader
 from controllers.merchant.brand_request_controller import MerchantBrandRequestController
 from controllers.merchant.brand_controller         import MerchantBrandController
 from controllers.merchant.category_controller      import MerchantCategoryController
@@ -13,6 +16,13 @@ from controllers.merchant.product_media_controller import MerchantProductMediaCo
 from controllers.merchant.variant_controller       import MerchantVariantController
 from controllers.merchant.variant_stock_controller import MerchantVariantStockController
 from controllers.merchant.product_attribute_controller import MerchantProductAttributeController
+
+ALLOWED_MEDIA_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'mov', 'avi'} 
+
+def allowed_media_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_MEDIA_EXTENSIONS
+
 
 
 merchant_dashboard_bp = Blueprint('merchant_dashboard_bp', __name__)
@@ -149,21 +159,116 @@ def upsert_product_shipping(pid):
 @merchant_dashboard_bp.route('/products/<int:pid>/media', methods=['GET'])
 @merchant_role_required
 def list_product_media(pid):
-    m = MerchantProductMediaController.list(pid)
-    return jsonify([x.serialize() for x in m]), 200
+    try:
+        m = MerchantProductMediaController.list(pid)
+        return jsonify([x.serialize() for x in m]), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Merchant: Error listing media for product {pid}: {e}")
+        if hasattr(e, 'code') and isinstance(e.code, int):
+            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
+        return jsonify({'message': "Failed to retrieve product media."}), HTTPStatus.INTERNAL_SERVER_ERROR
+
 
 @merchant_dashboard_bp.route('/products/<int:pid>/media', methods=['POST'])
 @merchant_role_required
 def create_product_media(pid):
-    data = request.get_json()
-    m = MerchantProductMediaController.create(pid, data)
-    return jsonify(m.serialize()), 201
+   
+    
+    if 'media_file' not in request.files:
+        return jsonify({'message': 'No media file part in the request'}), HTTPStatus.BAD_REQUEST
+    
+    file = request.files['media_file']
+
+    if file.filename == '':
+        return jsonify({'message': 'No selected file'}), HTTPStatus.BAD_REQUEST
+
+    
+    if not allowed_media_file(file.filename):
+        return jsonify({'message': f"Invalid file type. Allowed types: {', '.join(ALLOWED_MEDIA_EXTENSIONS)}"}), HTTPStatus.BAD_REQUEST
+
+  
+    file_mimetype = file.mimetype.lower()
+    media_type_str = "IMAGE" 
+    if file_mimetype.startswith('video/'):
+        media_type_str = "VIDEO"
+    elif not file_mimetype.startswith('image/'):
+       
+        return jsonify({'message': f"Unsupported file content type: {file.mimetype}"}), HTTPStatus.BAD_REQUEST
+
+   
+    media_type_from_form = request.form.get('type', media_type_str).upper()
+
+
+    sort_order_str = request.form.get('sort_order', '0')
+    try:
+        sort_order = int(sort_order_str)
+    except ValueError:
+        return jsonify({'message': 'Invalid sort_order format, must be an integer.'}), HTTPStatus.BAD_REQUEST
+    
+   
+   
+    cloudinary_url = None
+    cloudinary_public_id = None 
+    resource_type_for_cloudinary = "image" if media_type_from_form == "IMAGE" else "video"
+
+    try:
+        
+        upload_result = cloudinary.uploader.upload(
+            file,
+            folder=f"product_media/{pid}",  
+            resource_type=resource_type_for_cloudinary
+        )
+        cloudinary_url = upload_result.get('secure_url')
+        cloudinary_public_id = upload_result.get('public_id') 
+
+        if not cloudinary_url:
+            current_app.logger.error("Cloudinary upload for product media succeeded but no secure_url was returned.")
+            return jsonify({'message': 'Cloudinary upload succeeded but did not return a URL.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+    
+    except cloudinary.exceptions.Error as e:
+        current_app.logger.error(f"Cloudinary upload failed for product media (product {pid}): {e}")
+        return jsonify({'message': f"Cloudinary media upload failed: {str(e)}"}), HTTPStatus.INTERNAL_SERVER_ERROR
+    except Exception as e:
+        current_app.logger.error(f"Error during product media file upload (product {pid}): {e}")
+        return jsonify({'message': f"An error occurred during media file upload: {str(e)}"}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+   
+    media_data = {
+        'url': cloudinary_url,
+        'type': media_type_from_form, 
+        'sort_order': sort_order,
+       
+    }
+
+   
+    try:
+       
+        new_media = MerchantProductMediaController.create(pid, media_data)
+        return jsonify(new_media.serialize()), HTTPStatus.CREATED
+    except ValueError as e: 
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+    except RuntimeError as e: 
+        return jsonify({'message': str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
+    except Exception as e:
+        db.session.rollback() 
+        current_app.logger.error(f"Error saving product media to DB for product {pid}: {e}")
+       
+        return jsonify({'message': 'Failed to save product media information.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
 
 @merchant_dashboard_bp.route('/products/media/<int:mid>', methods=['DELETE'])
 @merchant_role_required
 def delete_product_media(mid):
-    m = MerchantProductMediaController.delete(mid)
-    return jsonify(m.serialize()), 200
+    try:
+       
+        m = MerchantProductMediaController.delete(mid)
+        return jsonify(m.serialize()), HTTPStatus.OK 
+    except Exception as e:
+      
+        current_app.logger.error(f"Merchant: Error deleting media {mid}: {e}")
+        if hasattr(e, 'code') and isinstance(e.code, int):
+            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
+        return jsonify({'message': "Failed to delete product media."}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 # VARIANTS
 @merchant_dashboard_bp.route('/products/<int:pid>/variants', methods=['GET'])
