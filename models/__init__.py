@@ -17,3 +17,4 @@ from .review import Review
 from .brand import Brand
 from .brand_request import BrandRequest
 from .product_attribute import ProductAttribute
+

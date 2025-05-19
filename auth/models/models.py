@@ -120,9 +120,13 @@ class MerchantProfile(BaseModel):
     required_documents = db.Column(db.JSON, nullable=True)  # List of required document types based on country
     submitted_documents = db.Column(db.JSON, nullable=True)  # List of submitted document types
     
+    # --- NEW FIELD for Premium Placement Subscription ---
+    can_place_premium = db.Column(db.Boolean, default=False, nullable=False, server_default=db.false())
+
     # Relationships
     user = db.relationship('User', back_populates='merchant_profile')
     documents = db.relationship('MerchantDocument', back_populates='merchant', cascade='all, delete-orphan')
+    product_placements = db.relationship('ProductPlacement', back_populates='merchant', lazy='dynamic', cascade='all, delete-orphan')
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

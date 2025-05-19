@@ -19,3 +19,7 @@ class BrandRequestStatus(Enum):
     PENDING = 'pending'
     APPROVED = 'approved'
     REJECTED = 'rejected'
+
+class PlacementTypeEnum(Enum):
+    FEATURED = "featured"
+    PROMOTED = "promoted"
