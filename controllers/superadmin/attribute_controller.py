@@ -1,60 +1,73 @@
-
 from models.attribute import Attribute
 from common.database import db
-from sqlalchemy.exc import IntegrityError 
+from sqlalchemy.exc import IntegrityError
+from models.enums import AttributeInputType
 
 class AttributeController:
     @staticmethod
     def list_all():
-        
         return Attribute.query.all()
 
     @staticmethod
-    def get(attribute_id): 
-        
+    def get(attribute_id):
         attr = Attribute.query.get_or_404(attribute_id)
         return attr
 
     @staticmethod
     def create(data):
-        
+        # Check for existing attribute
         existing_attribute = Attribute.query.filter_by(code=data['code']).first()
         if existing_attribute:
-           
-            pass
+            # Handle duplication case (can raise error or return a message)
+            raise ValueError(f"Attribute with code '{data['code']}' already exists.")
+
+        # Validate and convert input_type to enum
+        try:
+            input_type = AttributeInputType(data['input_type'])
+        except ValueError:
+            valid_types = [t.value for t in AttributeInputType]
+            raise ValueError(f"Invalid input type. Must be one of: {', '.join(valid_types)}")
 
         attr = Attribute(
             code=data['code'],
             name=data['name'],
-            input_type=data['input_type'] 
+            input_type=input_type
         )
-       
+
         db.session.add(attr)
         try:
-            db.session.commit() 
+            db.session.commit()
         except IntegrityError as e:
             db.session.rollback()
-            raise e 
+            raise e
+
         return attr
 
     @staticmethod
     def update(attribute_id, data):
-       
         attr = Attribute.query.get_or_404(attribute_id)
-        attr.name = data.get('name', attr.name)
-       
-        attr.input_type = data.get('input_type', attr.input_type)
+
+        if 'name' in data:
+            attr.name = data['name']
+
+        if 'input_type' in data:
+            try:
+                attr.input_type = AttributeInputType(data['input_type'])
+            except ValueError:
+                valid_types = [t.value for t in AttributeInputType]
+                raise ValueError(f"Invalid input type. Must be one of: {', '.join(valid_types)}")
+
         db.session.commit()
         return attr
 
     @staticmethod
     def delete(attribute_id):
-       
         attr = Attribute.query.get_or_404(attribute_id)
         db.session.delete(attr)
         try:
             db.session.commit()
-        except IntegrityError as e: 
+        except IntegrityError as e:
             db.session.rollback()
-            raise e 
-        return True 
+            raise e
+
+        return True

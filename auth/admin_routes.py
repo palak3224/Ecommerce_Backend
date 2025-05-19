@@ -277,13 +277,34 @@ def get_merchant_details(id):
               type: string
             business_address:
               type: string
+            country_code:
+              type: string
+            # India-specific fields
             gstin:
               type: string
             pan_number:
               type: string
+            bank_ifsc_code:
+              type: string
+            # Global fields
+            tax_id:
+              type: string
+            vat_number:
+              type: string
+            sales_tax_number:
+              type: string
+            bank_swift_code:
+              type: string
+            bank_routing_number:
+              type: string
+            bank_iban:
+              type: string
+            # Common fields
             bank_account_number:
               type: string
-            bank_ifsc_code:
+            bank_name:
+              type: string
+            bank_branch:
               type: string
             verification_status:
               type: string
@@ -381,7 +402,7 @@ def get_merchant_details(id):
                 "verified_at": doc.verified_at.isoformat() if doc.verified_at else None
             }
             
-        # Format merchant data
+        # Format merchant data with country-specific fields
         merchant_data = {
             "id": merchant_profile.id,
             "business_name": merchant_profile.business_name,
@@ -389,10 +410,7 @@ def get_merchant_details(id):
             "business_email": merchant_profile.business_email,
             "business_phone": merchant_profile.business_phone,
             "business_address": merchant_profile.business_address,
-            "gstin": merchant_profile.gstin,
-            "pan_number": merchant_profile.pan_number,
-            "bank_account_number": merchant_profile.bank_account_number,
-            "bank_ifsc_code": merchant_profile.bank_ifsc_code,
+            "country_code": merchant_profile.country_code,
             "verification_status": merchant_profile.verification_status.value,
             "is_verified": merchant_profile.is_verified,
             "verification_notes": merchant_profile.verification_notes,
@@ -408,8 +426,42 @@ def get_merchant_details(id):
                 "phone": user.phone,
                 "role": user.role.value
             },
-            "documents": documents_data
+            "documents": documents_data,
+            # Common fields
+            "bank_account_number": merchant_profile.bank_account_number,
+            "bank_name": merchant_profile.bank_name,
+            "bank_branch": merchant_profile.bank_branch,
         }
+
+        # Add country-specific fields
+        if merchant_profile.country_code == 'IN':
+            # India-specific fields
+            merchant_data.update({
+                "gstin": merchant_profile.gstin,
+                "pan_number": merchant_profile.pan_number,
+                "bank_ifsc_code": merchant_profile.bank_ifsc_code,
+                # Set global fields to null for Indian merchants
+                "tax_id": None,
+                "vat_number": None,
+                "sales_tax_number": None,
+                "bank_swift_code": None,
+                "bank_routing_number": None,
+                "bank_iban": None
+            })
+        else:
+            # Global fields
+            merchant_data.update({
+                "tax_id": merchant_profile.tax_id,
+                "vat_number": merchant_profile.vat_number,
+                "sales_tax_number": merchant_profile.sales_tax_number,
+                "bank_swift_code": merchant_profile.bank_swift_code,
+                "bank_routing_number": merchant_profile.bank_routing_number,
+                "bank_iban": merchant_profile.bank_iban,
+                # Set Indian fields to null for global merchants
+                "gstin": None,
+                "pan_number": None,
+                "bank_ifsc_code": None
+            })
         
         return jsonify(merchant_data), 200
     except Exception as e:

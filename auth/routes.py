@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token, create_refresh_token
 from marshmallow import Schema, fields, validate, ValidationError, validates_schema
 
@@ -34,6 +34,7 @@ class RegisterMerchantSchema(Schema):
     state_province = fields.Str(required=True)
     city = fields.Str(required=True)
     postal_code = fields.Str(required=True)
+    role = fields.Str(load_only=True)
 
 class LoginSchema(Schema):
     email = fields.Email(required=False)
@@ -339,15 +340,47 @@ def register_merchant_route():
         description: Internal server error
     """
     try:
+        # Log incoming request data (excluding password)
+        request_data = request.json.copy() if request.json else {}
+        if 'password' in request_data:
+            request_data['password'] = '[REDACTED]'
+        current_app.logger.debug(f"Received merchant registration request: {request_data}")
+
         # Validate request data
         schema = RegisterMerchantSchema()
-        data = schema.load(request.json)
+        try:
+            data = schema.load(request.json)
+            current_app.logger.debug("Request data validation successful")
+        except ValidationError as e:
+            current_app.logger.error(f"Validation error in merchant registration: {str(e.messages)}")
+            return jsonify({
+                "error": "Validation error",
+                "details": e.messages,
+                "validation_errors": e.messages
+            }), 400
         
         # Register merchant
         response, status_code = register_merchant(data)
+        
+        if status_code == 201:
+            current_app.logger.info(f"Merchant registered successfully: {data.get('business_email')}")
+        else:
+            current_app.logger.error(f"Failed to register merchant: {response.get('error')}")
+            
         return jsonify(response), status_code
     except ValidationError as e:
-        return jsonify({"error": "Validation error", "details": e.messages}), 400
+        current_app.logger.error(f"Validation error in merchant registration: {str(e.messages)}")
+        return jsonify({
+            "error": "Validation error",
+            "details": e.messages,
+            "validation_errors": e.messages
+        }), 400
+    except Exception as e:
+        current_app.logger.error(f"Unexpected error in merchant registration: {str(e)}")
+        return jsonify({
+            "error": "Internal server error",
+            "details": str(e)
+        }), 500
 
 @auth_bp.route('/login', methods=['POST'])
 def login():
