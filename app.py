@@ -15,6 +15,7 @@ from api.merchants.routes import merchants_bp
 from auth import email_init
 
 from routes.superadmin_routes import superadmin_bp
+from routes.merchant_routes import merchant_dashboard_bp
 
 from auth.admin_routes import admin_bp
 from flasgger import Swagger
@@ -91,7 +92,7 @@ def create_app(config_name='default'):
     app.register_blueprint(document_bp, url_prefix='/api/merchant/documents')
 
     app.register_blueprint(superadmin_bp,     url_prefix='/api/superadmin')
-    # app.register_blueprint(merchant_bp, url_prefix='/api/merchants')
+    app.register_blueprint(merchant_dashboard_bp, url_prefix='/api/merchant-dashboard')
    
 
     app.register_blueprint(country_bp)  # Country routes are already prefixed with /api/merchants

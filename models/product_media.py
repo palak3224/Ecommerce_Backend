@@ -13,6 +13,7 @@ class ProductMedia(BaseModel):
     type          = db.Column(db.Enum(MediaType), nullable=False)
     url           = db.Column(db.String(255), nullable=False)
     sort_order    = db.Column(db.Integer, default=0, nullable=False)
+    public_id = db.Column(db.String(255), nullable=True)
     created_at    = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at    = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     deleted_at    = db.Column(db.DateTime)
@@ -25,6 +26,7 @@ class ProductMedia(BaseModel):
             "type": self.type.value,
             "url": self.url,
             "sort_order": self.sort_order,
+            "public_id": self.public_id,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None

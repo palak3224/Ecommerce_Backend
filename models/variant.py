@@ -1,8 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timezone 
 from common.database import db, BaseModel
-from auth.models.models import MerchantProfile
-from models.category import Category
-from models.brand import Brand
+
 class Variant(BaseModel):
     __tablename__ = 'variants'
     variant_id    = db.Column(db.Integer, primary_key=True)
@@ -10,11 +8,12 @@ class Variant(BaseModel):
     attribute     = db.Column(db.String(50), nullable=False)
     value         = db.Column(db.String(50), nullable=False)
     sku           = db.Column(db.String(60), unique=True, nullable=False)
-    created_at    = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    updated_at    = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-    deleted_at    = db.Column(db.DateTime)
-    product       = db.relationship('Product', backref='variants')
-    # models/variant.py
+    price         = db.Column(db.Numeric(10, 2), nullable=True) 
+    created_at    = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at    = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    deleted_at    = db.Column(db.DateTime, nullable=True) 
+    product       = db.relationship('Product', backref='variants') 
+
     def serialize(self):
         return {
             "variant_id": self.variant_id,
@@ -22,6 +21,7 @@ class Variant(BaseModel):
             "attribute": self.attribute,
             "value": self.value,
             "sku": self.sku,
+            "price": str(self.price) if self.price is not None else None, 
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None
