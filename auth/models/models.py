@@ -41,6 +41,57 @@ class User(BaseModel):
     merchant_profile = db.relationship('MerchantProfile', back_populates='user', uselist=False)
     refresh_tokens = db.relationship('RefreshToken', back_populates='user', cascade='all, delete-orphan')
     
+    # For UserProfile 
+    customer_specific_profile = db.relationship(
+        'CustomerProfile', 
+        back_populates='user', 
+        uselist=False, 
+        cascade='all, delete-orphan'
+    )
+
+    
+    addresses = db.relationship(
+        'UserAddress', 
+        back_populates='user', 
+        lazy='dynamic', 
+        cascade='all, delete-orphan',
+        order_by='UserAddress.is_default_shipping.desc(), UserAddress.is_default_billing.desc(), UserAddress.address_id' # Example ordering
+    )
+
+    
+    wishlist_items = db.relationship(
+        'WishlistItem', 
+        back_populates='user', 
+        lazy='dynamic', 
+        cascade='all, delete-orphan'
+    )
+
+  
+    cart = db.relationship(
+        'Cart', 
+        back_populates='user', 
+        uselist=False, 
+        cascade='all, delete-orphan'
+    )
+
+   
+    orders = db.relationship(
+        'Order', 
+        back_populates='user', 
+        lazy='dynamic',
+        order_by='Order.order_date.desc()' 
+    )
+
+    # For OrderStatusHistory (changed_by_user_id, one-to-many, 'changed_by_user' is defined in OrderStatusHistory)
+    
+    order_status_changes_made = db.relationship(
+        'OrderStatusHistory',
+        foreign_keys='OrderStatusHistory.changed_by_user_id', 
+        back_populates='changed_by_user',
+        lazy='dynamic'
+    )
+
+
     def set_password(self, password):
         """Hash password."""
         self.password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -128,6 +179,20 @@ class MerchantProfile(BaseModel):
     documents = db.relationship('MerchantDocument', back_populates='merchant', cascade='all, delete-orphan')
     product_placements = db.relationship('ProductPlacement', back_populates='merchant', lazy='dynamic', cascade='all, delete-orphan')
     
+    sold_order_items = db.relationship(
+        'OrderItem', 
+        foreign_keys='OrderItem.merchant_id',
+        back_populates='merchant', 
+        lazy='dynamic'
+    )
+    
+    shipments_handled = db.relationship(
+        'Shipment', 
+        foreign_keys='Shipment.merchant_id', 
+        back_populates='merchant', 
+        lazy='dynamic'
+    )
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.update_required_documents()

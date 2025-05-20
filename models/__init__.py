@@ -17,4 +17,9 @@ from .review import Review
 from .brand import Brand
 from .brand_request import BrandRequest
 from .product_attribute import ProductAttribute
-
+from .customer_profile import CustomerProfile
+from .user_address import UserAddress
+from .wishlist_item import WishlistItem
+from .cart import Cart, CartItem
+from .order import Order, OrderItem, OrderStatusHistory
+from .shipment import Shipment, ShipmentItem
