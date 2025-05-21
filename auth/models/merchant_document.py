@@ -2,6 +2,7 @@ import enum
 from datetime import datetime
 
 from common.database import db, BaseModel
+from flask import current_app 
 
 class DocumentType(enum.Enum):
     """Types of documents required for merchant verification."""
@@ -126,12 +127,36 @@ class MerchantDocument(BaseModel):
         db.session.commit()
     
     def reject(self, admin_id, notes=None):
-        """Reject document."""
+        """Reject document and notify merchant."""
+        from auth.email_utils import send_merchant_document_rejection_email
+        from auth.models.models import User
         self.status = DocumentStatus.REJECTED
         self.verified_at = datetime.utcnow()
         self.verified_by = admin_id
         if notes:
             self.admin_notes = notes
+        
+        
+        merchant_profile = self.merchant
+        if not merchant_profile:
+            
+            current_app.logger.error(f"MerchantDocument ID {self.id} has no associated merchant profile. Cannot send email.")
+            db.session.commit() # Commit status change even if email fails
+            return
+
+        merchant_user = merchant_profile.user
+        if not merchant_user:
+            merchant_user = User.get_by_id(merchant_profile.user_id)
+            if not merchant_user:
+                current_app.logger.error(f"MerchantProfile ID {merchant_profile.id} has no associated user. Cannot send email for document rejection.")
+                db.session.commit() 
+                return
+        
+        try:
+            send_merchant_document_rejection_email(merchant_user, merchant_profile, self, notes)
+        except Exception as e:
+            current_app.logger.error(f"Failed to send document rejection email to merchant {merchant_user.email} for document {self.document_type.value}: {str(e)}")
+            
         db.session.commit()
     
     def delete(self):

@@ -5,6 +5,7 @@ from auth.utils import merchant_role_required
 from common.database import db
 import cloudinary
 import cloudinary.uploader
+from werkzeug.exceptions import NotFound
 from controllers.merchant.brand_request_controller import MerchantBrandRequestController
 from controllers.merchant.brand_controller         import MerchantBrandController
 from controllers.merchant.category_controller      import MerchantCategoryController
@@ -18,8 +19,12 @@ from controllers.merchant.variant_controller       import MerchantVariantControl
 from controllers.merchant.variant_stock_controller import MerchantVariantStockController
 from controllers.merchant.variant_media_controller import MerchantVariantMediaController
 from controllers.merchant.product_attribute_controller import MerchantProductAttributeController
+
+from controllers.merchant.product_placement_controller import MerchantProductPlacementController
+
 from controllers.merchant.tax_category_controller  import MerchantTaxCategoryController
 from controllers.merchant.product_stock_controller import MerchantProductStockController
+
 
 ALLOWED_MEDIA_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'mov', 'avi'} 
 

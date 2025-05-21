@@ -3,6 +3,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from flask import current_app, render_template_string
 
+
 def send_email(to_email, subject, template_str, context):
     """
     Send an email using SMTP.
@@ -259,3 +260,185 @@ def send_password_reset_email(user, token):
         template,
         context
     )
+
+
+def send_merchant_docs_submitted_to_admin(merchant_profile, admin_email_list=None): 
+    """
+    Notify super admins that a merchant has submitted documents.
+    """
+    from .utils import get_super_admin_emails 
+
+    if admin_email_list is None: 
+        admin_email_list = get_super_admin_emails()
+
+    if not admin_email_list:
+        current_app.logger.info("No super admin emails found to send merchant submission notice.")
+        return False
+    
+    if not admin_email_list:
+        current_app.logger.info("No super admin emails found to send merchant submission notice.")
+        return False
+
+    frontend_url = current_app.config['FRONTEND_URL']
+   
+    merchant_user = merchant_profile.user 
+    merchant_name = f"{merchant_user.first_name} {merchant_user.last_name}" if merchant_user else "N/A"
+
+
+    subject = f"Merchant Document Submission: {merchant_profile.business_name}"
+    admin_link = f"{frontend_url}//superadmin/merchant-management" 
+
+    template = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style> /* Basic styles, similar to other templates */ </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header"><h2>Merchant Document Submission</h2></div>
+            <div class="content">
+                <p>Hello Admin,</p>
+                <p>The merchant '<strong>{{ business_name }}</strong>' (User: {{ merchant_name }}) has submitted their documents for verification.</p>
+                <p>Please review their submission in the admin panel:</p>
+                <p style="text-align: center;">
+                    <a href="{{ admin_link }}" class="button">Review Documents</a>
+                </p>
+                <p>Or copy and paste this link into your browser:</p>
+                <p>{{ admin_link }}</p>
+                <p>Thank you.</p>
+            </div>
+            <div class="footer">Automated Notification</div>
+        </div>
+    </body>
+    </html>
+    """
+    context = {
+        'business_name': merchant_profile.business_name,
+        'merchant_name': merchant_name,
+        'admin_link': admin_link
+    }
+
+    all_sent = True
+    for admin_email in admin_email_list:
+        if not send_email(admin_email, subject, template, context):
+            all_sent = False
+            current_app.logger.error(f"Failed to send submission notice to admin {admin_email} for merchant {merchant_profile.business_name}")
+    return all_sent
+
+def send_merchant_document_rejection_email(merchant_user, merchant_profile, document, admin_notes):
+    """
+    Notify merchant about a specific document rejection.
+    """
+    frontend_url = current_app.config['FRONTEND_URL']
+    merchant_dashboard_link = f"{frontend_url}/business/verification" 
+    
+    subject = f"Action Required: Document Rejected for {merchant_profile.business_name}"
+    template = """
+    <!DOCTYPE html>
+    <html>
+    <head> <style> /* Basic styles */ </style> </head>
+    <body>
+        <div class="container">
+            <div class="header"><h2>Document Rejection Notice</h2></div>
+            <div class="content">
+                <p>Dear {{ user_name }},</p>
+                <p>We are writing to inform you that your submitted document, <strong>{{ document_type }}</strong>, for your merchant profile '<strong>{{ business_name }}</strong>' has been rejected.</p>
+                <p><strong>Reason for rejection:</strong></p>
+                <p>{{ admin_notes }}</p>
+                <p>Please log in to your merchant dashboard to review the details and upload the corrected document(s).</p>
+                <p style="text-align: center;">
+                    <a href="{{ merchant_link }}" class="button">Go to Dashboard</a>
+                </p>
+                <p>If you have any questions, please contact our support team.</p>
+                <p>Sincerely,<br>The Verification Team</p>
+            </div>
+            <div class="footer">Automated Notification</div>
+        </div>
+    </body>
+    </html>
+    """
+    context = {
+        'user_name': f"{merchant_user.first_name} {merchant_user.last_name}",
+        'business_name': merchant_profile.business_name,
+        'document_type': document.document_type.value.replace('_', ' ').title(),
+        'admin_notes': admin_notes or "No specific reason provided. Please check your dashboard.",
+        'merchant_link': merchant_dashboard_link
+    }
+    return send_email(merchant_user.email, subject, template, context)
+
+def send_merchant_profile_rejection_email(merchant_user, merchant_profile, reason):
+    """
+    Notify merchant about overall profile rejection.
+    """
+    frontend_url = current_app.config['FRONTEND_URL']
+    merchant_dashboard_link = f"{frontend_url}/business/verification" 
+
+    subject = f"Important: Your Merchant Profile for {merchant_profile.business_name} was Rejected"
+    template = """
+    <!DOCTYPE html>
+    <html>
+    <head> <style> /* Basic styles */ </style> </head>
+    <body>
+        <div class="container">
+            <div class="header"><h2>Merchant Profile Rejection</h2></div>
+            <div class="content">
+                <p>Dear {{ user_name }},</p>
+                <p>We regret to inform you that your merchant profile '<strong>{{ business_name }}</strong>' has been rejected.</p>
+                <p><strong>Reason for rejection:</strong></p>
+                <p>{{ reason }}</p>
+                <p>Please review the feedback and contact our support team if you have questions or wish to re-apply after addressing the issues.</p>
+                 <p style="text-align: center;">
+                    <a href="{{ merchant_link }}" class="button">Visit Dashboard</a>
+                </p>
+                <p>Sincerely,<br>The Verification Team</p>
+            </div>
+            <div class="footer">Automated Notification</div>
+        </div>
+    </body>
+    </html>
+    """
+    context = {
+        'user_name': f"{merchant_user.first_name} {merchant_user.last_name}",
+        'business_name': merchant_profile.business_name,
+        'reason': reason or "Please check your merchant dashboard for details or contact support.",
+        'merchant_link': merchant_dashboard_link
+    }
+    return send_email(merchant_user.email, subject, template, context)
+
+def send_merchant_profile_approval_email(merchant_user, merchant_profile):
+    """
+    Notify merchant about profile approval.
+    """
+    frontend_url = current_app.config['FRONTEND_URL']
+    merchant_dashboard_link = f"{frontend_url}/business/verification" 
+
+    subject = f"Congratulations! Your Merchant Profile for {merchant_profile.business_name} is Approved"
+    template = """
+    <!DOCTYPE html>
+    <html>
+    <head> <style> /* Basic styles */ </style> </head>
+    <body>
+        <div class="container">
+            <div class="header"><h2>Merchant Profile Approved!</h2></div>
+            <div class="content">
+                <p>Dear {{ user_name }},</p>
+                <p>Congratulations! We are pleased to inform you that your merchant profile '<strong>{{ business_name }}</strong>' has been successfully verified and approved.</p>
+                <p>You can now access all merchant features and start managing your store.</p>
+                <p style="text-align: center;">
+                    <a href="{{ merchant_link }}" class="button">Go to Your Dashboard</a>
+                </p>
+                <p>Welcome aboard!</p>
+                <p>Sincerely,<br>The Team</p>
+            </div>
+            <div class="footer">Automated Notification</div>
+        </div>
+    </body>
+    </html>
+    """
+    context = {
+        'user_name': f"{merchant_user.first_name} {merchant_user.last_name}",
+        'business_name': merchant_profile.business_name,
+        'merchant_link': merchant_dashboard_link
+    }
+    return send_email(merchant_user.email, subject, template, context)
