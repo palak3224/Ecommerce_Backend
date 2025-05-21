@@ -41,6 +41,8 @@ class MerchantProductController:
             category_id=data['category_id'],
             brand_id=data['brand_id'],
             sku=data['sku'],
+            product_name=data['product_name'],
+            product_description=data['product_description'],
             cost_price=data['cost_price'],
             selling_price=data['selling_price'],
             discount_pct=data.get('discount_pct', 0),
@@ -64,8 +66,9 @@ class MerchantProductController:
         ).first_or_404()
 
         for field in (
-            'category_id','brand_id','sku','cost_price','selling_price',
-            'discount_pct','special_price','special_start','special_end','active_flag'
+            'category_id','brand_id','sku','product_name','product_description',
+            'cost_price','selling_price','discount_pct','special_price',
+            'special_start','special_end','active_flag'
         ):
             if field in data:
                 setattr(p, field, data[field])

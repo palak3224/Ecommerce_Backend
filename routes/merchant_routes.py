@@ -9,6 +9,7 @@ from werkzeug.exceptions import NotFound
 from controllers.merchant.brand_request_controller import MerchantBrandRequestController
 from controllers.merchant.brand_controller         import MerchantBrandController
 from controllers.merchant.category_controller      import MerchantCategoryController
+from controllers.merchant.category_attribute_controller import MerchantCategoryAttributeController
 from controllers.merchant.product_controller       import MerchantProductController
 from controllers.merchant.product_meta_controller  import MerchantProductMetaController
 from controllers.merchant.product_tax_controller   import MerchantProductTaxController
@@ -16,8 +17,14 @@ from controllers.merchant.product_shipping_controller import MerchantProductShip
 from controllers.merchant.product_media_controller import MerchantProductMediaController
 from controllers.merchant.variant_controller       import MerchantVariantController
 from controllers.merchant.variant_stock_controller import MerchantVariantStockController
+from controllers.merchant.variant_media_controller import MerchantVariantMediaController
 from controllers.merchant.product_attribute_controller import MerchantProductAttributeController
+
 from controllers.merchant.product_placement_controller import MerchantProductPlacementController
+
+from controllers.merchant.tax_category_controller  import MerchantTaxCategoryController
+from controllers.merchant.product_stock_controller import MerchantProductStockController
+
 
 ALLOWED_MEDIA_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'mov', 'avi'} 
 
@@ -25,7 +32,11 @@ def allowed_media_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_MEDIA_EXTENSIONS
 
-
+def calculate_discount_percentage(cost_price, selling_price):
+    """Calculate discount percentage based on cost and selling price."""
+    if not cost_price or not selling_price or cost_price <= 0:
+        return 0
+    return round(((cost_price - selling_price) / cost_price) * 100, 2)
 
 merchant_dashboard_bp = Blueprint('merchant_dashboard_bp', __name__)
 
@@ -63,19 +74,98 @@ def list_merchant_categories():
         current_app.logger.error(f"Merchant: Error listing categories: {e}")
         return jsonify({'message': 'Failed to retrieve categories.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
+@merchant_dashboard_bp.route('/attributes/<int:aid>/values', methods=['GET'])
+@merchant_role_required
+def list_attribute_values(aid):
+    """
+    Get all values for a specific attribute
+    ---
+    tags:
+      - Merchant - Attributes
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: aid
+        type: integer
+        required: true
+        description: Attribute ID
+    responses:
+      200:
+        description: List of attribute values retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              value_code:
+                type: string
+              value_label:
+                type: string
+      404:
+        description: Attribute not found
+      500:
+        description: Internal server error
+    """
+    try:
+        from controllers.merchant.attribute_controller import MerchantAttributeController
+        values = MerchantAttributeController.get_values(aid)
+        return jsonify([v.serialize() for v in values]), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Merchant: Error fetching values for attribute {aid}: {e}")
+        if hasattr(e, 'code') and isinstance(e.code, int):
+            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
+        return jsonify({'message': 'An error occurred while retrieving attribute values.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
 @merchant_dashboard_bp.route('/categories/<int:cid>/attributes', methods=['GET'])
 @merchant_role_required
 def list_attributes_for_merchant_category_view(cid):
     """
-    Allows a merchant to view attributes associated with a specific category.
+    Get all attributes associated with a specific category
+    ---
+    tags:
+      - Merchant - Categories
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: cid
+        type: integer
+        required: true
+        description: Category ID
+    responses:
+      200:
+        description: List of attributes retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              attribute_id:
+                type: integer
+              name:
+                type: string
+              type:
+                type: string
+              options:
+                type: array
+                items:
+                  type: string
+              help_text:
+                type: string
+              required:
+                type: boolean
+      404:
+        description: Category not found
+      500:
+        description: Internal server error
     """
     try:
-       
-        attributes_data = MerchantCategoryController.list_attributes_for_category(cid)
-        return jsonify(attributes_data), HTTPStatus.OK
+        attributes = MerchantCategoryAttributeController.get_attributes_for_category(cid)
+        return jsonify(attributes), HTTPStatus.OK
     except Exception as e:
         current_app.logger.error(f"Merchant: Error fetching attributes for category {cid}: {e}")
-        if hasattr(e, 'code') and isinstance(e.code, int): 
+        if hasattr(e, 'code') and isinstance(e.code, int):
             return jsonify({'message': getattr(e, 'description', str(e))}), e.code
         return jsonify({'message': 'An error occurred while retrieving category attributes.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
@@ -91,6 +181,14 @@ def list_products():
 @merchant_role_required
 def create_product():
     data = request.get_json()
+    
+    # Calculate discount percentage if not provided
+    if 'discount_percentage' not in data and 'cost_price' in data and 'selling_price' in data:
+        data['discount_percentage'] = calculate_discount_percentage(
+            float(data['cost_price']),
+            float(data['selling_price'])
+        )
+    
     p = MerchantProductController.create(data)
     return jsonify(p.serialize()), 201
 
@@ -104,6 +202,14 @@ def get_product(pid):
 @merchant_role_required
 def update_product(pid):
     data = request.get_json()
+    
+    # Calculate discount percentage if not provided
+    if 'discount_percentage' not in data and 'cost_price' in data and 'selling_price' in data:
+        data['discount_percentage'] = calculate_discount_percentage(
+            float(data['cost_price']),
+            float(data['selling_price'])
+        )
+    
     p = MerchantProductController.update(pid, data)
     return jsonify(p.serialize()), 200
 
@@ -170,6 +276,22 @@ def list_product_media(pid):
             return jsonify({'message': getattr(e, 'description', str(e))}), e.code
         return jsonify({'message': "Failed to retrieve product media."}), HTTPStatus.INTERNAL_SERVER_ERROR
 
+@merchant_dashboard_bp.route('/products/<int:pid>/media/stats', methods=['GET'])
+@merchant_role_required
+def get_product_media_stats(pid):
+    try:
+        media_list = MerchantProductMediaController.list(pid)
+        stats = {
+            'total_count': len(media_list),
+            'image_count': len([m for m in media_list if m.type == 'IMAGE']),
+            'video_count': len([m for m in media_list if m.type == 'VIDEO']),
+            'max_allowed': 5,  # This should match the frontend maxFiles
+            'remaining_slots': 5 - len(media_list)
+        }
+        return jsonify(stats), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Merchant: Error getting media stats for product {pid}: {e}")
+        return jsonify({'message': "Failed to retrieve product media statistics."}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @merchant_dashboard_bp.route('/products/<int:pid>/media', methods=['POST'])
 @merchant_role_required
@@ -341,138 +463,311 @@ def upsert_variant_stock(vid):
 @merchant_dashboard_bp.route('/products/<int:pid>/attributes', methods=['GET'])
 @merchant_role_required
 def list_product_attributes(pid):
-    pas = MerchantProductAttributeController.list(pid)
-    return jsonify([p.serialize() for p in pas]), 200
+    try:
+        pas = MerchantProductAttributeController.list(pid)
+        return jsonify([p.serialize() for p in pas]), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error listing product attributes for product {pid}: {e}")
+        return jsonify({'message': 'Failed to retrieve product attributes.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
-@merchant_dashboard_bp.route('/products/<int:pid>/attributes', methods=['POST'])
+@merchant_dashboard_bp.route('/products/<int:pid>/attributes/values', methods=['POST'])
 @merchant_role_required
-def create_product_attribute(pid):
-    data = request.get_json()
-    pa = MerchantProductAttributeController.create(pid, data)
-    return jsonify(pa.serialize()), 201
+def set_product_attribute_values(pid):
+    try:
+        data = request.get_json()
+        if not data or not isinstance(data, dict):
+            return jsonify({
+                'message': 'Invalid data format. Expected a dictionary of attribute values.',
+                'error': 'INVALID_FORMAT'
+            }), HTTPStatus.BAD_REQUEST
+
+        # Format: { attribute_id: value }
+        # value can be string, string[], or null
+        for attribute_id, value in data.items():
+            try:
+                attribute_id = int(attribute_id)
+                
+                # Skip if value is null or empty
+                if value is None or (isinstance(value, list) and len(value) == 0):
+                    continue
+                    
+                # Create or update the attribute value
+                MerchantProductAttributeController.upsert(pid, attribute_id, value)
+            except ValueError as e:
+                return jsonify({
+                    'message': str(e),
+                    'error': 'INVALID_VALUE',
+                    'attribute_id': attribute_id
+                }), HTTPStatus.BAD_REQUEST
+            except Exception as e:
+                current_app.logger.error(f"Error setting attribute value for product {pid}, attribute {attribute_id}: {e}")
+                return jsonify({
+                    'message': f'Failed to set attribute value: {str(e)}',
+                    'error': 'SERVER_ERROR',
+                    'attribute_id': attribute_id
+                }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+        # Return updated attributes
+        updated_attributes = MerchantProductAttributeController.list(pid)
+        return jsonify({
+            'message': 'Attribute values updated successfully',
+            'attributes': [p.serialize() for p in updated_attributes]
+        }), HTTPStatus.OK
+
+    except Exception as e:
+        current_app.logger.error(f"Error setting product attribute values for product {pid}: {e}")
+        return jsonify({
+            'message': 'Failed to set product attribute values.',
+            'error': 'SERVER_ERROR'
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @merchant_dashboard_bp.route('/products/<int:pid>/attributes/<int:aid>/<value_code>', methods=['PUT'])
 @merchant_role_required
 def update_product_attribute(pid, aid, value_code):
-    data = request.get_json()
-    pa = MerchantProductAttributeController.update(pid, aid, value_code, data)
-    return jsonify(pa.serialize()), 200
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'message': 'No data provided for update.'}), HTTPStatus.BAD_REQUEST
+            
+        pa = MerchantProductAttributeController.update(pid, aid, value_code, data)
+        return jsonify(pa.serialize()), HTTPStatus.OK
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+    except Exception as e:
+        current_app.logger.error(f"Error updating product attribute for product {pid}, attribute {aid}: {e}")
+        return jsonify({'message': 'Failed to update product attribute.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @merchant_dashboard_bp.route('/products/<int:pid>/attributes/<int:aid>/<value_code>', methods=['DELETE'])
 @merchant_role_required
 def delete_product_attribute(pid, aid, value_code):
-    MerchantProductAttributeController.delete(pid, aid, value_code)
-    return '', 204
-
-
-
-# ── MERCHANT PRODUCT PLACEMENTS (Featured/Promoted Products) ──────────────────
-@merchant_dashboard_bp.route('/product-placements', methods=['GET'])
-@merchant_role_required
-def list_merchant_product_placements():
-    """Lists all product placements (active and inactive) for the current merchant."""
     try:
-        # Optionally allow filtering by placement_type via query parameter
-        placement_type_filter = request.args.get('type', None)
-        placements = MerchantProductPlacementController.list_placements(placement_type_filter)
-        return jsonify([p.serialize() for p in placements]), HTTPStatus.OK
-    except ValueError as e: 
-        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
-    except NotFound as e:
-        return jsonify({'message': getattr(e, 'description', str(e))}), HTTPStatus.NOT_FOUND
-    except Exception as e:
-        current_app.logger.error(f"Merchant: Error listing product placements: {e}")
-        return jsonify({'message': "Failed to retrieve product placements."}), HTTPStatus.INTERNAL_SERVER_ERROR
-
-@merchant_dashboard_bp.route('/product-placements/<int:placement_id>', methods=['GET'])
-@merchant_role_required
-def get_merchant_product_placement(placement_id):
-    """Gets details of a specific product placement owned by the current merchant."""
-    try:
-        placement = MerchantProductPlacementController.get_placement_details(placement_id)
-        return jsonify(placement.serialize()), HTTPStatus.OK
-    except NotFound as e: 
-        return jsonify({'message': getattr(e, 'description', str(e))}), HTTPStatus.NOT_FOUND
-    except Exception as e:
-        current_app.logger.error(f"Merchant: Error retrieving product placement {placement_id}: {e}")
-        return jsonify({'message': "Failed to retrieve product placement details."}), HTTPStatus.INTERNAL_SERVER_ERROR
-
-@merchant_dashboard_bp.route('/product-placements', methods=['POST'])
-@merchant_role_required
-def add_merchant_product_to_placement():
-    """Adds one of the merchant's products to a specified placement type."""
-    data = request.get_json()
-    if not data:
-        return jsonify({'message': 'Request body is missing or not JSON.'}), HTTPStatus.BAD_REQUEST
-
-    product_id = data.get('product_id')
-    placement_type_str = data.get('placement_type') #  "FEATURED" or "PROMOTED"
-    sort_order = data.get('sort_order', 0) 
-    
-    
-
-    if not product_id or not placement_type_str:
-        return jsonify({'message': 'product_id and placement_type are required.'}), HTTPStatus.BAD_REQUEST
-
-    try:
-        new_placement = MerchantProductPlacementController.add_product_to_placement(
-            product_id=int(product_id),
-            placement_type_str=placement_type_str,
-            sort_order=sort_order
-           
-        )
-        return jsonify(new_placement.serialize()), HTTPStatus.CREATED
-    except PermissionError as e: 
-        return jsonify({'message': str(e)}), HTTPStatus.FORBIDDEN
+        MerchantProductAttributeController.delete(pid, aid, value_code)
+        return '', HTTPStatus.NO_CONTENT
     except ValueError as e:
         return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
-    except NotFound as e: 
-        return jsonify({'message': getattr(e, 'description', str(e))}), HTTPStatus.NOT_FOUND
-    except RuntimeError as e: 
-        return jsonify({'message': str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
     except Exception as e:
-        db.session.rollback() 
-        current_app.logger.error(f"Merchant: Error adding product to placement: {e}")
-        return jsonify({'message': "An unexpected error occurred."}), HTTPStatus.INTERNAL_SERVER_ERROR
+        current_app.logger.error(f"Error deleting product attribute for product {pid}, attribute {aid}: {e}")
+        return jsonify({'message': 'Failed to delete product attribute.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
-@merchant_dashboard_bp.route('/product-placements/<int:placement_id>/sort-order', methods=['PUT'])
+# TAX CATEGORIES
+@merchant_dashboard_bp.route('/tax-categories', methods=['GET'])
 @merchant_role_required
-def update_merchant_product_placement_sort_order(placement_id):
-    """Updates the sort order of a specific product placement."""
-    data = request.get_json()
-    if not data or 'sort_order' not in data:
-        return jsonify({'message': 'Missing sort_order in request body.'}), HTTPStatus.BAD_REQUEST
+def list_tax_categories():
+    try:
+        categories = MerchantTaxCategoryController.list_all()
+        return jsonify(categories), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Merchant: Error listing tax categories: {e}")
+        return jsonify({'message': 'Failed to retrieve tax categories.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+# ── BRAND CATEGORIES ────────────────────────────────────────────────────────────
+@merchant_dashboard_bp.route('/brands/categories/<int:cid>', methods=['GET'])
+@merchant_role_required
+def get_brands_for_category(cid):
+    """
+    Get all brands associated with a specific category.
+    ---
+    tags:
+      - Merchant - Brands
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: cid
+        type: integer
+        required: true
+        description: Category ID
+    responses:
+      200:
+        description: List of brands retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              brand_id:
+                type: integer
+              name:
+                type: string
+              slug:
+                type: string
+              icon_url:
+                type: string
+      404:
+        description: Category not found
+      500:
+        description: Internal server error
+    """
+    try:
+        brands = MerchantBrandController.get_brands_for_category(cid)
+        return jsonify([b.serialize() for b in brands]), HTTPStatus.OK
+    except FileNotFoundError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.NOT_FOUND
+    except Exception as e:
+        current_app.logger.error(f"Error getting brands for category {cid}: {e}")
+        return jsonify({'message': f'Could not get brands for category: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+# PRODUCT STOCK
+@merchant_dashboard_bp.route('/products/<int:pid>/stock', methods=['GET'])
+@merchant_role_required
+def get_product_stock(pid):
+    try:
+        stock = MerchantProductStockController.get(pid)
+        return jsonify(stock.serialize()), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Merchant: Error getting stock for product {pid}: {e}")
+        return jsonify({'message': 'Failed to retrieve product stock.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchant_dashboard_bp.route('/products/<int:pid>/stock', methods=['PUT'])
+@merchant_role_required
+def update_product_stock(pid):
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'message': 'No data provided'}), HTTPStatus.BAD_REQUEST
+        
+        stock = MerchantProductStockController.update(pid, data)
+        return jsonify(stock.serialize()), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Merchant: Error updating stock for product {pid}: {e}")
+        return jsonify({'message': 'Failed to update product stock.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchant_dashboard_bp.route('/products/<int:pid>/stock/bulk-update', methods=['POST'])
+@merchant_role_required
+def bulk_update_product_stock(pid):
+    try:
+        data = request.get_json()
+        if not data or not isinstance(data, list):
+            return jsonify({'message': 'Invalid data format'}), HTTPStatus.BAD_REQUEST
+        
+        results = MerchantProductStockController.bulk_update(pid, data)
+        return jsonify([stock.serialize() for stock in results]), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Merchant: Error bulk updating stock for product {pid}: {e}")
+        return jsonify({'message': 'Failed to bulk update product stock.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchant_dashboard_bp.route('/products/stock/low-stock', methods=['GET'])
+@merchant_role_required
+def get_low_stock_products():
+    try:
+        low_stock = MerchantProductStockController.get_low_stock()
+        return jsonify([stock.serialize() for stock in low_stock]), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Merchant: Error getting low stock products: {e}")
+        return jsonify({'message': 'Failed to retrieve low stock products.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+# VARIANT MEDIA
+@merchant_dashboard_bp.route('/products/variants/<int:vid>/media', methods=['GET'])
+@merchant_role_required
+def list_variant_media(vid):
+    try:
+        m = MerchantVariantMediaController.list(vid)
+        return jsonify([x.serialize() for x in m]), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Merchant: Error listing media for variant {vid}: {e}")
+        if hasattr(e, 'code') and isinstance(e.code, int):
+            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
+        return jsonify({'message': "Failed to retrieve variant media."}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchant_dashboard_bp.route('/products/variants/<int:vid>/media/stats', methods=['GET'])
+@merchant_role_required
+def get_variant_media_stats(vid):
+    try:
+        media_list = MerchantVariantMediaController.list(vid)
+        stats = {
+            'total_count': len(media_list),
+            'image_count': len([m for m in media_list if m.media_type == 'IMAGE']),
+            'video_count': len([m for m in media_list if m.media_type == 'VIDEO']),
+            'max_allowed': 5,  # This should match the frontend maxFiles
+            'remaining_slots': 5 - len(media_list)
+        }
+        return jsonify(stats), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Merchant: Error getting media stats for variant {vid}: {e}")
+        return jsonify({'message': "Failed to retrieve variant media statistics."}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchant_dashboard_bp.route('/products/variants/<int:vid>/media', methods=['POST'])
+@merchant_role_required
+def create_variant_media(vid):
+    if 'media_file' not in request.files:
+        return jsonify({'message': 'No media file part in the request'}), HTTPStatus.BAD_REQUEST
+    
+    file = request.files['media_file']
+
+    if file.filename == '':
+        return jsonify({'message': 'No selected file'}), HTTPStatus.BAD_REQUEST
+
+    if not allowed_media_file(file.filename):
+        return jsonify({'message': f"Invalid file type. Allowed types: {', '.join(ALLOWED_MEDIA_EXTENSIONS)}"}), HTTPStatus.BAD_REQUEST
+
+    file_mimetype = file.mimetype.lower()
+    media_type_str = "IMAGE" 
+    if file_mimetype.startswith('video/'):
+        media_type_str = "VIDEO"
+    elif not file_mimetype.startswith('image/'):
+        return jsonify({'message': f"Unsupported file content type: {file.mimetype}"}), HTTPStatus.BAD_REQUEST
+
+    media_type_from_form = request.form.get('type', media_type_str).upper()
+    display_order_str = request.form.get('display_order', '0')
+    try:
+        display_order = int(display_order_str)
+    except ValueError:
+        return jsonify({'message': 'Invalid display_order format, must be an integer.'}), HTTPStatus.BAD_REQUEST
+    
+    is_primary = request.form.get('is_primary', 'false').lower() == 'true'
+    
+    cloudinary_url = None
+    cloudinary_public_id = None 
+    resource_type_for_cloudinary = "image" if media_type_from_form == "IMAGE" else "video"
 
     try:
-        new_sort_order = int(data['sort_order'])
-        updated_placement = MerchantProductPlacementController.update_placement_sort_order(
-            placement_id=placement_id,
-            new_sort_order=new_sort_order
+        upload_result = cloudinary.uploader.upload(
+            file,
+            folder=f"variant_media/{vid}",
+            resource_type=resource_type_for_cloudinary
         )
-        return jsonify(updated_placement.serialize()), HTTPStatus.OK
-    except ValueError as e: 
-        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
-    except NotFound as e: 
-        return jsonify({'message': getattr(e, 'description', str(e))}), HTTPStatus.NOT_FOUND
-    except RuntimeError as e: 
-        return jsonify({'message': str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Merchant: Error updating sort order for placement {placement_id}: {e}")
-        return jsonify({'message': "An unexpected error occurred."}), HTTPStatus.INTERNAL_SERVER_ERROR
+        cloudinary_url = upload_result.get('secure_url')
+        cloudinary_public_id = upload_result.get('public_id') 
 
-@merchant_dashboard_bp.route('/product-placements/<int:placement_id>', methods=['DELETE'])
-@merchant_role_required
-def remove_merchant_product_from_placement(placement_id):
-    """Hard deletes a product placement, freeing up a slot for the merchant."""
+        if not cloudinary_url:
+            current_app.logger.error("Cloudinary upload for variant media succeeded but no secure_url was returned.")
+            return jsonify({'message': 'Cloudinary upload succeeded but did not return a URL.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+    
+    except cloudinary.exceptions.Error as e:
+        current_app.logger.error(f"Cloudinary upload failed for variant media (variant {vid}): {e}")
+        return jsonify({'message': f"Cloudinary media upload failed: {str(e)}"}), HTTPStatus.INTERNAL_SERVER_ERROR
+    except Exception as e:
+        current_app.logger.error(f"Error during variant media file upload (variant {vid}): {e}")
+        return jsonify({'message': f"An error occurred during media file upload: {str(e)}"}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+    media_data = {
+        'media_url': cloudinary_url,
+        'media_type': media_type_from_form,
+        'display_order': display_order,
+        'is_primary': is_primary,
+        'public_id': cloudinary_public_id
+    }
+
     try:
-        MerchantProductPlacementController.remove_product_from_placement(placement_id)
-        return '', HTTPStatus.NO_CONTENT 
-    except NotFound as e: 
-        return jsonify({'message': getattr(e, 'description', str(e))}), HTTPStatus.NOT_FOUND
-    except RuntimeError as e: 
+        new_media = MerchantVariantMediaController.create(vid, media_data)
+        return jsonify(new_media.serialize()), HTTPStatus.CREATED
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+    except RuntimeError as e:
         return jsonify({'message': str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"Merchant: Error removing product placement {placement_id}: {e}")
-        return jsonify({'message': "An unexpected error occurred."}), HTTPStatus.INTERNAL_SERVER_ERROR
+        current_app.logger.error(f"Error saving variant media to DB for variant {vid}: {e}")
+        return jsonify({'message': 'Failed to save variant media information.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchant_dashboard_bp.route('/products/variants/media/<int:mid>', methods=['DELETE'])
+@merchant_role_required
+def delete_variant_media(mid):
+    try:
+        m = MerchantVariantMediaController.delete(mid)
+        return jsonify(m.serialize()), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Merchant: Error deleting variant media {mid}: {e}")
+        if hasattr(e, 'code') and isinstance(e.code, int):
+            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
+        return jsonify({'message': "Failed to delete variant media."}), HTTPStatus.INTERNAL_SERVER_ERROR

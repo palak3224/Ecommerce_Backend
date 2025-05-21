@@ -16,6 +16,7 @@ from auth import email_init
 
 from routes.superadmin_routes import superadmin_bp
 from routes.merchant_routes import merchant_dashboard_bp
+from controllers.merchant.product_stock_controller import product_stock_bp
 
 from auth.admin_routes import admin_bp
 from flasgger import Swagger
@@ -75,8 +76,10 @@ def create_app(config_name='default'):
         r"/*": {
             "origins": ["http://localhost:5173", "http://127.0.0.1:5173"],
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization"],
-            "supports_credentials": True
+            "allow_headers": ["Content-Type", "Authorization", "Accept"],
+            "expose_headers": ["Content-Type", "Authorization"],
+            "supports_credentials": True,
+            "max_age": 3600
         }
     })
     
@@ -90,11 +93,9 @@ def create_app(config_name='default'):
     app.register_blueprint(users_bp, url_prefix='/api/users')
     app.register_blueprint(merchants_bp, url_prefix='/api/merchants')
     app.register_blueprint(document_bp, url_prefix='/api/merchant/documents')
-
-    app.register_blueprint(superadmin_bp,     url_prefix='/api/superadmin')
+    app.register_blueprint(superadmin_bp, url_prefix='/api/superadmin')
     app.register_blueprint(merchant_dashboard_bp, url_prefix='/api/merchant-dashboard')
-   
-
+    app.register_blueprint(product_stock_bp, url_prefix='/api/merchant-dashboard')
     app.register_blueprint(country_bp)  # Country routes are already prefixed with /api/merchants
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
 

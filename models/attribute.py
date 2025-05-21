@@ -16,6 +16,8 @@ class Attribute(BaseModel):
         back_populates='attribute',
         cascade='all, delete-orphan'
     )
+    
+    attribute_values = db.relationship('AttributeValue', back_populates='attribute', cascade='all, delete-orphan')
 
     def serialize(self):
         """Turn this Attribute into a JSON‑friendly dict."""

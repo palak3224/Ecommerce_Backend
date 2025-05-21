@@ -11,10 +11,9 @@ class MerchantVariantController:
 
     @staticmethod
     def create(pid, data):
-        if not data.get('attribute') or not data.get('value') or not data.get('sku'):
-            raise ValueError("Attribute, value, and SKU are required for a variant.")
+        if not data.get('attribute') or not data.get('sku'):
+            raise ValueError("Attribute and SKU are required for a variant.")
         
-       
         try:
             v = Variant(product_id=pid, **data) 
             db.session.add(v)
@@ -25,7 +24,6 @@ class MerchantVariantController:
             if "UNIQUE constraint failed: variants.sku" in str(e.orig) or \
                (hasattr(e.orig, 'pgcode') and e.orig.pgcode == '23505'): 
                 raise ValueError(f"SKU '{data.get('sku')}' already exists.")
-           
             raise 
 
     @staticmethod
@@ -33,14 +31,11 @@ class MerchantVariantController:
         v = Variant.query.filter_by(variant_id=vid, deleted_at=None).first_or_404(
              description=f"Variant with ID {vid} not found or has been deleted."
         )
-       
 
         for key, value in data.items():
-           
             if hasattr(v, key):
                 setattr(v, key, value)
             else:
-                
                 current_app.logger.warning(f"Unexpected key '{key}' in variant update data for variant ID {vid}")
         
         try:
@@ -52,7 +47,6 @@ class MerchantVariantController:
                (hasattr(e.orig, 'pgcode') and e.orig.pgcode == '23505'):
                 raise ValueError(f"Update failed: SKU '{data.get('sku')}' already exists.")
             raise
-        
 
     @staticmethod
     def delete(vid):
