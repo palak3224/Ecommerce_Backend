@@ -16,3 +16,4 @@ pytest
 Flask-Caching
 cloudinary
 flasgger
+pymysql

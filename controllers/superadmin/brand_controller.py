@@ -1,5 +1,5 @@
-
 from models.brand import Brand
+from models.category import Category
 from common.database import db
 from datetime import datetime, timezone 
 
@@ -71,3 +71,46 @@ class BrandController:
         brand.updated_at = datetime.now(timezone.utc)
         db.session.commit()
         return brand
+
+    @staticmethod
+    def add_category(brand_pk_id, category_id):
+        """Add a category to a brand."""
+        brand = Brand.query.filter_by(brand_id=brand_pk_id, deleted_at=None).first_or_404(
+            description=f"Brand with ID {brand_pk_id} not found or has been deleted."
+        )
+        
+        category = Category.query.filter_by(category_id=category_id).first_or_404(
+            description=f"Category with ID {category_id} not found."
+        )
+        
+        if not brand.has_category(category):
+            brand.add_category(category)
+            db.session.commit()
+        
+        return brand
+
+    @staticmethod
+    def remove_category(brand_pk_id, category_id):
+        """Remove a category from a brand."""
+        brand = Brand.query.filter_by(brand_id=brand_pk_id, deleted_at=None).first_or_404(
+            description=f"Brand with ID {brand_pk_id} not found or has been deleted."
+        )
+        
+        category = Category.query.filter_by(category_id=category_id).first_or_404(
+            description=f"Category with ID {category_id} not found."
+        )
+        
+        if brand.has_category(category):
+            brand.remove_category(category)
+            db.session.commit()
+        
+        return brand
+
+    @staticmethod
+    def get_categories(brand_pk_id):
+        """Get all categories associated with a brand."""
+        brand = Brand.query.filter_by(brand_id=brand_pk_id, deleted_at=None).first_or_404(
+            description=f"Brand with ID {brand_pk_id} not found or has been deleted."
+        )
+        
+        return brand.categories.all()

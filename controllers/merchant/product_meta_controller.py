@@ -11,10 +11,13 @@ class MerchantProductMetaController:
     def upsert(pid, data):
         meta = ProductMeta.query.get(pid)
         if not meta:
-            meta = ProductMeta(product_id=pid, **data)
+            # Create new meta with product_id from URL parameter
+            meta = ProductMeta(product_id=pid)
             db.session.add(meta)
-        else:
-            for k, v in data.items():
-                setattr(meta, k, v)
+        
+        # Update meta fields
+        for k, v in data.items():
+            setattr(meta, k, v)
+            
         db.session.commit()
         return meta

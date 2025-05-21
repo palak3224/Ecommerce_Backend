@@ -11,6 +11,8 @@ class Product(BaseModel):
     category_id   = db.Column(db.Integer, db.ForeignKey('categories.category_id'), nullable=False)
     brand_id      = db.Column(db.Integer, db.ForeignKey('brands.brand_id'), nullable=False)
     sku           = db.Column(db.String(50), unique=True, nullable=False)
+    product_name  = db.Column(db.String(255), nullable=False)
+    product_description = db.Column(db.Text, nullable=False)
     cost_price    = db.Column(db.Numeric(10,2), nullable=False)
     selling_price = db.Column(db.Numeric(10,2), nullable=False)
     discount_pct  = db.Column(db.Numeric(5,2), default=0.00)
@@ -25,6 +27,8 @@ class Product(BaseModel):
     merchant      = db.relationship('MerchantProfile', backref='products')
     category      = db.relationship('Category', backref='products')
     brand         = db.relationship('Brand', backref='products')
+    product_attributes = db.relationship('ProductAttribute', backref='product', cascade='all, delete-orphan')
+
     def serialize(self):
         return {
             "product_id":      self.product_id,
@@ -32,6 +36,8 @@ class Product(BaseModel):
             "category_id":     self.category_id,
             "brand_id":        self.brand_id,
             "sku":             self.sku,
+            "product_name":    self.product_name,
+            "product_description": self.product_description,
             "cost_price":      float(self.cost_price),
             "selling_price":   float(self.selling_price),
             "discount_pct":    float(self.discount_pct),
@@ -42,6 +48,5 @@ class Product(BaseModel):
             "created_at":      self.created_at.isoformat() if self.created_at else None,
             "updated_at":      self.updated_at.isoformat() if self.updated_at else None,
             "deleted_at":      self.deleted_at.isoformat() if self.deleted_at else None,
-            # optional backrefs, e.g. meta, tax, shipping, media, variants
-            # "meta": self.meta.serialize() if self.meta else None,
+            "attributes":      [attr.serialize() for attr in self.product_attributes] if self.product_attributes else []
         }

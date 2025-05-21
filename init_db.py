@@ -39,6 +39,7 @@ from models.attribute_value import AttributeValue
 from models.category_attribute import CategoryAttribute
 from models.promotion import Promotion
 from models.product_promotion import ProductPromotion
+from models.tax_category import TaxCategory
 
 # --- Merchant models ---
 from models.product import Product
@@ -46,9 +47,10 @@ from models.product_meta import ProductMeta
 from models.product_tax import ProductTax
 from models.product_shipping import ProductShipping
 from models.product_media import ProductMedia
+from models.product_stock import ProductStock
 from models.variant import Variant
 from models.variant_stock import VariantStock
-
+from models.variant_media import VariantMedia
 from models.review import Review
 from models.product_attribute import ProductAttribute
 
@@ -119,6 +121,87 @@ def init_country_configs():
 
     print("\nCountry configurations initialized successfully.")
 
+def init_tax_categories():
+    """Initialize standard tax categories."""
+    print("\nInitializing Tax Categories:")
+    print("----------------------------")
+    
+    tax_categories = [
+        {
+            'name': 'Standard Rate',
+            'description': 'Standard tax rate applicable to most goods and services',
+            'tax_rate': 18.00
+        },
+        {
+            'name': 'Reduced Rate',
+            'description': 'Reduced tax rate for specific goods and services',
+            'tax_rate': 12.00
+        },
+        {
+            'name': 'Zero Rate',
+            'description': 'Zero tax rate for exempted goods and services',
+            'tax_rate': 0.00
+        }
+    ]
+    
+    for tax_data in tax_categories:
+        existing_tax = TaxCategory.query.filter_by(name=tax_data['name']).first()
+        if not existing_tax:
+            tax_category = TaxCategory(**tax_data)
+            db.session.add(tax_category)
+            print(f"Created tax category: {tax_data['name']} ({tax_data['tax_rate']}%)")
+    
+    db.session.commit()
+    print("Tax categories initialized successfully.")
+
+def init_brand_categories():
+    """Initialize brand-category relationships."""
+    print("\nInitializing Brand-Category Relationships:")
+    print("----------------------------------------")
+    
+    # Get all approved brands
+    approved_brands = Brand.query.filter(Brand.approved_at.isnot(None)).all()
+    
+    # Get main categories (parent categories)
+    main_categories = Category.query.filter_by(parent_id=None).all()
+    
+    # For each brand, associate it with relevant main categories
+    for brand in approved_brands:
+        # Get existing categories for the brand
+        existing_categories = brand.categories.all()
+        
+        # Add brand to relevant main categories
+        for category in main_categories:
+            if category not in existing_categories:
+                brand.add_category(category)
+                print(f"Associated brand '{brand.name}' with category '{category.name}'")
+    
+    db.session.commit()
+    print("Brand-category relationships initialized successfully.")
+
+def init_product_stocks():
+    """Initialize product stocks for existing products."""
+    print("\nInitializing Product Stocks:")
+    print("---------------------------")
+    
+    # Get all products without stock records
+    products = Product.query.all()
+    
+    for product in products:
+        existing_stock = ProductStock.query.filter_by(product_id=product.product_id).first()
+        if not existing_stock:
+            stock = ProductStock(
+                product_id=product.product_id,
+                stock_qty=0,
+                low_stock_threshold=5,  # Default threshold
+               
+            )
+            db.session.add(stock)
+            print(f"Created stock record for product: {product.product_name}")
+    
+    db.session.commit()
+    print("Product stocks initialized successfully.")
+
 def init_database():
     """Initialize database tables and create super admin."""
     app = create_app()
@@ -129,6 +212,15 @@ def init_database():
 
         # Initialize country configurations
         init_country_configs()
+        
+        # Initialize tax categories
+        init_tax_categories()
+
+        # Initialize brand-category relationships
+        init_brand_categories()
+
+        # Initialize product stocks
+        init_product_stocks()
 
         # Create super admin user
         admin_email = os.getenv("SUPER_ADMIN_EMAIL")

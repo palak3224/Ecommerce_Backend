@@ -2377,3 +2377,160 @@ def assign_attribute_to_category(cid):
         current_app.logger.error(f"Error assigning attribute to category: {e}")
         return jsonify({'message': f'Could not assign attribute to category: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
+# ── BRAND CATEGORIES ────────────────────────────────────────────────────────────
+@superadmin_bp.route('/brands/<int:bid>/categories/<int:cid>', methods=['POST'])
+@super_admin_role_required
+def add_category_to_brand(bid, cid):
+    """
+    Add a category to a brand.
+    ---
+    tags:
+      - SuperAdmin - Brands
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: bid
+        type: integer
+        required: true
+        description: Brand ID
+      - in: path
+        name: cid
+        type: integer
+        required: true
+        description: Category ID
+    responses:
+      200:
+        description: Category added to brand successfully
+        schema:
+          type: object
+          properties:
+            brand_id:
+              type: integer
+            name:
+              type: string
+            categories:
+              type: array
+              items:
+                type: object
+                properties:
+                  category_id:
+                    type: integer
+                  name:
+                    type: string
+      404:
+        description: Brand or category not found
+      500:
+        description: Internal server error
+    """
+    try:
+        brand = BrandController.add_category(bid, cid)
+        return jsonify(brand.serialize()), HTTPStatus.OK
+    except FileNotFoundError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.NOT_FOUND
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error adding category {cid} to brand {bid}: {e}")
+        return jsonify({'message': f'Could not add category to brand: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/brands/<int:bid>/categories/<int:cid>', methods=['DELETE'])
+@super_admin_role_required
+def remove_category_from_brand(bid, cid):
+    """
+    Remove a category from a brand.
+    ---
+    tags:
+      - SuperAdmin - Brands
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: bid
+        type: integer
+        required: true
+        description: Brand ID
+      - in: path
+        name: cid
+        type: integer
+        required: true
+        description: Category ID
+    responses:
+      200:
+        description: Category removed from brand successfully
+        schema:
+          type: object
+          properties:
+            brand_id:
+              type: integer
+            name:
+              type: string
+            categories:
+              type: array
+              items:
+                type: object
+                properties:
+                  category_id:
+                    type: integer
+                  name:
+                    type: string
+      404:
+        description: Brand or category not found
+      500:
+        description: Internal server error
+    """
+    try:
+        brand = BrandController.remove_category(bid, cid)
+        return jsonify(brand.serialize()), HTTPStatus.OK
+    except FileNotFoundError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.NOT_FOUND
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error removing category {cid} from brand {bid}: {e}")
+        return jsonify({'message': f'Could not remove category from brand: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/brands/<int:bid>/categories', methods=['GET'])
+@super_admin_role_required
+def get_brand_categories(bid):
+    """
+    Get all categories associated with a brand.
+    ---
+    tags:
+      - SuperAdmin - Brands
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: bid
+        type: integer
+        required: true
+        description: Brand ID
+    responses:
+      200:
+        description: List of categories retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              category_id:
+                type: integer
+              name:
+                type: string
+              slug:
+                type: string
+              icon_url:
+                type: string
+      404:
+        description: Brand not found
+      500:
+        description: Internal server error
+    """
+    try:
+        categories = BrandController.get_categories(bid)
+        return jsonify([c.serialize() for c in categories]), HTTPStatus.OK
+    except FileNotFoundError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.NOT_FOUND
+    except Exception as e:
+        current_app.logger.error(f"Error getting categories for brand {bid}: {e}")
+        return jsonify({'message': f'Could not get brand categories: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+

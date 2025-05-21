@@ -6,7 +6,6 @@ class Variant(BaseModel):
     variant_id    = db.Column(db.Integer, primary_key=True)
     product_id    = db.Column(db.Integer, db.ForeignKey('products.product_id'), nullable=False)
     attribute     = db.Column(db.String(50), nullable=False)
-    value         = db.Column(db.String(50), nullable=False)
     sku           = db.Column(db.String(60), unique=True, nullable=False)
     price         = db.Column(db.Numeric(10, 2), nullable=True) 
     created_at    = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -19,7 +18,6 @@ class Variant(BaseModel):
             "variant_id": self.variant_id,
             "product_id": self.product_id,
             "attribute": self.attribute,
-            "value": self.value,
             "sku": self.sku,
             "price": str(self.price) if self.price is not None else None, 
             "created_at": self.created_at.isoformat() if self.created_at else None,
