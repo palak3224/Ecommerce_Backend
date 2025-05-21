@@ -3,11 +3,12 @@ from datetime import datetime, timedelta
 from functools import wraps
 from flask import request, jsonify, current_app
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
+from auth.models import User, UserRole, RefreshToken
 import cloudinary.uploader
 import cloudinary.api
 from werkzeug.utils import secure_filename
 
-from auth.models import User, UserRole, RefreshToken
+
 
 def generate_email_verification_link(token, base_url):
     """Generate email verification link."""
@@ -125,3 +126,7 @@ def validate_google_token(token):
     except Exception as e:
         current_app.logger.error(f"Error validating Google token: {str(e)}")
         return None
+def get_super_admin_emails():
+    """Get email addresses of all active super admins."""
+    super_admins = User.query.filter_by(role=UserRole.SUPER_ADMIN, is_active=True).all()
+    return [admin.email for admin in super_admins if admin.email]    

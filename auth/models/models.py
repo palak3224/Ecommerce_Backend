@@ -7,6 +7,7 @@ import re
 from common.database import db, BaseModel
 from auth.models.merchant_document import VerificationStatus, DocumentType
 from .country_config import CountryConfig, CountryCode
+from flask import current_app
 
 class UserRole(Enum):
     USER = 'user'
@@ -179,6 +180,7 @@ class MerchantProfile(BaseModel):
     documents = db.relationship('MerchantDocument', back_populates='merchant', cascade='all, delete-orphan')
     product_placements = db.relationship('ProductPlacement', back_populates='merchant', lazy='dynamic', cascade='all, delete-orphan')
     
+    
     sold_order_items = db.relationship(
         'OrderItem', 
         foreign_keys='OrderItem.merchant_id',
@@ -238,6 +240,13 @@ class MerchantProfile(BaseModel):
                 errors[field] = rules['message']
         
         return errors
+    def approve(self):
+        """Mark merchant profile as approved."""
+        self.update_verification_status(VerificationStatus.APPROVED)
+
+    def reject(self, notes=None):
+        """Mark merchant profile as rejected."""
+        self.update_verification_status(VerificationStatus.REJECTED, notes=notes)
     
     @classmethod
     def get_by_id(cls, id):
@@ -255,14 +264,40 @@ class MerchantProfile(BaseModel):
         return cls.query.filter_by(business_name=business_name).first()
     
     def update_verification_status(self, status, notes=None):
-        """Update verification status."""
+        """Update verification status and send notifications."""
+        from auth.email_utils import (
+            send_merchant_profile_approval_email,
+            send_merchant_profile_rejection_email
+        )
+        old_status = self.verification_status
         self.verification_status = status
-        if status == VerificationStatus.APPROVED:
+        user = self.user # Assumes self.user is eagerly loaded or available
+
+        if not user:
+            current_app.logger.error(f"MerchantProfile ID {self.id} has no associated user. Cannot send email.")
+            # Potentially load user if not available: user = User.get_by_id(self.user_id)
+            # Fallback to prevent error, but ideal is to ensure user is available
+            user = User.get_by_id(self.user_id) 
+            if not user:
+                db.session.commit() 
+                return
+
+
+        if status == VerificationStatus.APPROVED and old_status != VerificationStatus.APPROVED:
             self.is_verified = True
             self.verification_completed_at = datetime.utcnow()
-        elif status == VerificationStatus.REJECTED:
+            try:
+                send_merchant_profile_approval_email(user, self)
+            except Exception as e:
+                current_app.logger.error(f"Failed to send approval email to merchant {user.email}: {str(e)}")
+
+        elif status == VerificationStatus.REJECTED and old_status != VerificationStatus.REJECTED:
             self.is_verified = False
             self.verification_completed_at = datetime.utcnow()
+            try:
+                send_merchant_profile_rejection_email(user, self, notes)
+            except Exception as e:
+                current_app.logger.error(f"Failed to send rejection email to merchant {user.email}: {str(e)}")
         
         if notes:
             self.verification_notes = notes
@@ -270,10 +305,22 @@ class MerchantProfile(BaseModel):
         db.session.commit()
     
     def submit_for_verification(self):
-        """Submit profile for verification."""
-        self.verification_status = VerificationStatus.DOCUMENTS_SUBMITTED
+        """Submit profile for verification and notify admins."""
+        from auth.email_utils import send_merchant_docs_submitted_to_admin
+        from auth.utils import get_super_admin_emails
+        self.verification_status = VerificationStatus.DOCUMENTS_SUBMITTED 
         self.verification_submitted_at = datetime.utcnow()
-        db.session.commit()
+        db.session.commit() 
+
+        try:
+            admin_emails = get_super_admin_emails()
+            if admin_emails:
+                send_merchant_docs_submitted_to_admin(self, admin_emails)
+            else:
+                current_app.logger.warning("No super admin emails configured to send submission notification.")
+        except Exception as e:
+            current_app.logger.error(f"Failed to send submission notice to admins for merchant {self.business_name}: {str(e)}")
+        
 
 class RefreshToken(BaseModel):
     """Refresh token model for JWT authentication."""
@@ -414,7 +461,7 @@ class PhoneVerification(BaseModel):
             user.is_phone_verified = True
             db.session.commit()
             
-            # Update merchant verification status if applicable
+            
             if user.role == UserRole.MERCHANT:
                 merchant = MerchantProfile.get_by_user_id(user_id)
                 if merchant and merchant.verification_status == VerificationStatus.EMAIL_VERIFIED:
