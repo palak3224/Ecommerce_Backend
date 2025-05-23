@@ -10,6 +10,7 @@ class VariantMedia(BaseModel):
     media_url = db.Column(db.String(255), nullable=False)
     is_primary = db.Column(db.Boolean, default=False)
     display_order = db.Column(db.Integer, default=0)
+    public_id = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
     deleted_at = db.Column(db.DateTime, nullable=True)
@@ -25,6 +26,7 @@ class VariantMedia(BaseModel):
             "media_url": self.media_url,
             "is_primary": self.is_primary,
             "display_order": self.display_order,
+            "public_id": self.public_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None
