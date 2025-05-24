@@ -8,6 +8,8 @@ from models.variant_media import VariantMedia
 from models.enums import MediaType
 from sqlalchemy import desc, or_
 from flask_jwt_extended import get_jwt_identity
+from models.product_meta import ProductMeta
+from models.product_attribute import ProductAttribute
 
 class ProductController:
     @staticmethod
@@ -220,4 +222,112 @@ class ProductController:
             return jsonify([brand.serialize() for brand in brands])
         except Exception as e:
             print(f"Error fetching brands: {str(e)}")
-            return jsonify([]), 500 
+            return jsonify([]), 500
+
+    @staticmethod
+    def get_product_details(product_id):
+        """Get detailed product information including media, meta data, and attributes"""
+        try:
+            # Get base product information
+            product = Product.query.filter_by(
+                product_id=product_id,
+                deleted_at=None,
+                active_flag=True
+            ).first_or_404()
+
+            # Get product media
+            product_media = ProductMedia.query.filter_by(
+                product_id=product_id,
+                deleted_at=None
+            ).order_by(ProductMedia.sort_order).all()
+
+            # Get product meta information
+            product_meta = ProductMeta.query.filter_by(
+                product_id=product_id
+            ).first()
+
+            # Get product attributes with their values
+            product_attributes = ProductAttribute.query.filter_by(
+                product_id=product_id
+            ).all()
+
+            # Track recently viewed
+            try:
+                from flask_jwt_extended import get_jwt_identity
+                from models.recently_viewed import RecentlyViewed
+                from datetime import datetime
+                
+                user_id = get_jwt_identity()
+                if user_id:
+                    # Check if there's an existing view record
+                    existing_view = RecentlyViewed.query.filter_by(
+                        user_id=user_id,
+                        product_id=product_id
+                    ).first()
+                    
+                    if existing_view:
+                        # Update the viewed_at timestamp
+                        existing_view.viewed_at = datetime.utcnow()
+                    else:
+                        # Create a new view record
+                        new_view = RecentlyViewed(
+                            user_id=user_id,
+                            product_id=product_id,
+                            viewed_at=datetime.utcnow()
+                        )
+                        db.session.add(new_view)
+                    
+                    # Commit the changes
+                    db.session.commit()
+            except Exception as e:
+                print(f"Error tracking recently viewed: {str(e)}")
+                # Continue with the response even if tracking fails
+
+            # Prepare response data
+            response_data = {
+                "product_id": product.product_id,
+                "product_name": product.product_name,
+                "cost_price": float(product.cost_price),
+                "selling_price": float(product.selling_price),
+                "discount_pct": float(product.discount_pct),
+                "description": product.product_description,
+                "media": [media.serialize() for media in product_media] if product_media else [],
+                "meta": {
+                    "short_desc": product_meta.short_desc if product_meta else None,
+                    "full_desc": product_meta.full_desc if product_meta else None,
+                    "meta_title": product_meta.meta_title if product_meta else None,
+                    "meta_desc": product_meta.meta_desc if product_meta else None,
+                    "meta_keywords": product_meta.meta_keywords if product_meta else None
+                },
+                "attributes": [{
+                    "attribute_id": attr.attribute_id,
+                    "attribute_name": attr.attribute.name,
+                    "value_code": attr.value_code,
+                    "value_text": attr.value_text,
+                    "value_label": attr.attribute_value.value_label if attr.attribute_value else None,
+                    "is_text_based": attr.value_code is None or attr.value_code.startswith('text_')
+                } for attr in product_attributes] if product_attributes else [],
+                "category": product.category.serialize() if product.category else None,
+                "brand": product.brand.serialize() if product.brand else None,
+                # Add frontend-specific fields
+                "id": str(product.product_id),
+                "name": product.product_name,
+                "price": float(product.selling_price),
+                "originalPrice": float(product.cost_price),
+                "currency": "USD",
+                "stock": 100,
+                "isNew": True,
+                "isBuiltIn": False,
+                "rating": 0,
+                "reviews": [],
+                "sku": product.sku if hasattr(product, 'sku') else None
+            }
+
+            return jsonify(response_data)
+
+        except Exception as e:
+            print(f"Error in get_product_details: {str(e)}")
+            return jsonify({
+                "error": "Failed to fetch product details",
+                "message": str(e)
+            }), 500 

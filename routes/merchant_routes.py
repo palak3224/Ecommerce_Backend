@@ -231,9 +231,36 @@ def get_product_meta(pid):
 @merchant_dashboard_bp.route('/products/<int:pid>/meta', methods=['POST','PUT'])
 @merchant_role_required
 def upsert_product_meta(pid):
-    data = request.get_json()
-    pm = MerchantProductMetaController.upsert(pid, data)
-    return jsonify(pm.serialize()), 200
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'message': 'No data provided'}), HTTPStatus.BAD_REQUEST
+
+        # Validate required fields
+        required_fields = ['short_desc', 'full_desc']
+        missing_fields = [field for field in required_fields if not data.get(field)]
+        if missing_fields:
+            return jsonify({
+                'message': f'Missing required fields: {", ".join(missing_fields)}',
+                'error': 'MISSING_FIELDS'
+            }), HTTPStatus.BAD_REQUEST
+
+        # Ensure fields are not empty strings
+        for field in required_fields:
+            if not data[field].strip():
+                return jsonify({
+                    'message': f'{field} cannot be empty',
+                    'error': 'EMPTY_FIELD'
+                }), HTTPStatus.BAD_REQUEST
+
+        pm = MerchantProductMetaController.upsert(pid, data)
+        return jsonify(pm.serialize()), 200
+    except Exception as e:
+        current_app.logger.error(f"Error updating product meta for product {pid}: {e}")
+        return jsonify({
+            'message': 'Failed to update product meta data',
+            'error': str(e)
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
 
 # PRODUCT TAX
 @merchant_dashboard_bp.route('/products/<int:pid>/tax', methods=['GET'])

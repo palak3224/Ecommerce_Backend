@@ -13,9 +13,10 @@ class RecentlyViewed(db.Model):
     user = db.relationship('User', backref=db.backref('recently_viewed', lazy=True))
     product = db.relationship('Product', backref=db.backref('viewed_by', lazy=True))
 
-    def __init__(self, user_id, product_id):
+    def __init__(self, user_id, product_id, viewed_at=None):
         self.user_id = user_id
         self.product_id = product_id
+        self.viewed_at = viewed_at or datetime.utcnow()
 
     def to_dict(self):
         return {
