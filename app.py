@@ -17,6 +17,9 @@ from auth import email_init
 from routes.superadmin_routes import superadmin_bp
 from routes.merchant_routes import merchant_dashboard_bp
 from controllers.merchant.product_stock_controller import product_stock_bp
+from routes.product_routes import product_bp
+from routes.category_routes import category_bp
+from routes.brand_routes import brand_bp
 
 from auth.admin_routes import admin_bp
 from flasgger import Swagger
@@ -98,7 +101,9 @@ def create_app(config_name='default'):
     app.register_blueprint(product_stock_bp, url_prefix='/api/merchant-dashboard')
     app.register_blueprint(country_bp)  # Country routes are already prefixed with /api/merchants
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
-
+    app.register_blueprint(product_bp)  # Product routes are already prefixed with /api
+    app.register_blueprint(category_bp, url_prefix='/api/categories')
+    app.register_blueprint(brand_bp, url_prefix='/api/brands')
     # Test Redis cache endpoint
     @app.route('/api/test-cache')
     @cached(timeout=30)

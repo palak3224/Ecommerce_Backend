@@ -17,7 +17,8 @@ class MerchantProductMetaController:
         
         # Update meta fields
         for k, v in data.items():
-            setattr(meta, k, v)
+            if k in ['short_desc', 'full_desc', 'meta_title', 'meta_desc', 'meta_keywords']:
+                setattr(meta, k, v)
             
         db.session.commit()
         return meta

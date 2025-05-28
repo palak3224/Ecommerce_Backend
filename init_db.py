@@ -53,6 +53,7 @@ from models.variant_stock import VariantStock
 from models.variant_media import VariantMedia
 from models.review import Review
 from models.product_attribute import ProductAttribute
+from models.recently_viewed import RecentlyViewed
 
 # Load environment variables
 load_dotenv()
@@ -202,6 +203,20 @@ def init_product_stocks():
     db.session.commit()
     print("Product stocks initialized successfully.")
 
+def init_recently_viewed():
+    """Initialize recently viewed table."""
+    print("\nInitializing Recently Viewed Table:")
+    print("----------------------------------")
+    
+    # Check if the table exists using SQLAlchemy inspector
+    inspector = db.inspect(db.engine)
+    if 'recently_viewed' not in inspector.get_table_names():
+        print("Creating recently_viewed table...")
+        RecentlyViewed.__table__.create(db.engine)
+        print("Recently viewed table created successfully.")
+    else:
+        print("Recently viewed table already exists.")
+
 def init_database():
     """Initialize database tables and create super admin."""
     app = create_app()
@@ -221,6 +236,9 @@ def init_database():
 
         # Initialize product stocks
         init_product_stocks()
+
+        # Initialize recently viewed table
+        init_recently_viewed()
 
         # Create super admin user
         admin_email = os.getenv("SUPER_ADMIN_EMAIL")
