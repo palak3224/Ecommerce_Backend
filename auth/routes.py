@@ -182,6 +182,7 @@ def get_merchant_profile():
             "verification_completed_at": merchant_profile.verification_completed_at.isoformat() if merchant_profile.verification_completed_at else None,
             "created_at": merchant_profile.created_at.isoformat(),
             "updated_at": merchant_profile.updated_at.isoformat(),
+            "can_place_premium": merchant_profile.can_place_premium,
             "email": user.email,
             "first_name": user.first_name,
             "last_name": user.last_name,
@@ -472,7 +473,8 @@ def login():
                         'verification_notes': merchant.verification_notes,
                         'is_verified': merchant.is_verified,
                         'created_at': merchant.created_at.isoformat(),
-                        'updated_at': merchant.updated_at.isoformat()
+                        'updated_at': merchant.updated_at.isoformat(),
+                        'can_place_premium': merchant.can_place_premium 
                     }
         
         return jsonify(response), status_code
