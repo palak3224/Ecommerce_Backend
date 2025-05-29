@@ -23,6 +23,7 @@ class BrandRequestStatus(Enum):
 class PlacementTypeEnum(Enum):
     FEATURED = "featured"
     PROMOTED = "promoted"
+    ANIMATED_PRODUCT = "animated_product"
 
 
 class AddressTypeEnum(Enum):

@@ -812,3 +812,117 @@ def delete_variant_media(mid):
         if hasattr(e, 'code') and isinstance(e.code, int):
             return jsonify({'message': getattr(e, 'description', str(e))}), e.code
         return jsonify({'message': "Failed to delete variant media."}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+
+
+# ── MERCHANT PRODUCT PLACEMENTS (Featured/Promoted Products) ──────────────────
+@merchant_dashboard_bp.route('/product-placements', methods=['GET'])
+@merchant_role_required
+def list_merchant_product_placements():
+    """Lists all product placements (active and inactive) for the current merchant."""
+    try:
+        # Optionally allow filtering by placement_type via query parameter
+        placement_type_filter = request.args.get('type', None)
+        placements = MerchantProductPlacementController.list_placements(placement_type_filter)
+        return jsonify([p.serialize() for p in placements]), HTTPStatus.OK
+    except ValueError as e: 
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+    except NotFound as e:
+        return jsonify({'message': getattr(e, 'description', str(e))}), HTTPStatus.NOT_FOUND
+    except Exception as e:
+        current_app.logger.error(f"Merchant: Error listing product placements: {e}")
+        return jsonify({'message': "Failed to retrieve product placements."}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchant_dashboard_bp.route('/product-placements/<int:placement_id>', methods=['GET'])
+@merchant_role_required
+def get_merchant_product_placement(placement_id):
+    """Gets details of a specific product placement owned by the current merchant."""
+    try:
+        placement = MerchantProductPlacementController.get_placement_details(placement_id)
+        return jsonify(placement.serialize()), HTTPStatus.OK
+    except NotFound as e: 
+        return jsonify({'message': getattr(e, 'description', str(e))}), HTTPStatus.NOT_FOUND
+    except Exception as e:
+        current_app.logger.error(f"Merchant: Error retrieving product placement {placement_id}: {e}")
+        return jsonify({'message': "Failed to retrieve product placement details."}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchant_dashboard_bp.route('/product-placements', methods=['POST'])
+@merchant_role_required
+def add_merchant_product_to_placement():
+    """Adds one of the merchant's products to a specified placement type."""
+    data = request.get_json()
+    if not data:
+        return jsonify({'message': 'Request body is missing or not JSON.'}), HTTPStatus.BAD_REQUEST
+
+    product_id = data.get('product_id')
+    placement_type_str = data.get('placement_type') #  "FEATURED" or "PROMOTED"
+    sort_order = data.get('sort_order', 0) 
+    
+    
+
+    if not product_id or not placement_type_str:
+        return jsonify({'message': 'product_id and placement_type are required.'}), HTTPStatus.BAD_REQUEST
+
+    try:
+        new_placement = MerchantProductPlacementController.add_product_to_placement(
+            product_id=int(product_id),
+            placement_type_str=placement_type_str,
+            sort_order=sort_order
+           
+        )
+        return jsonify(new_placement.serialize()), HTTPStatus.CREATED
+    except PermissionError as e: 
+        return jsonify({'message': str(e)}), HTTPStatus.FORBIDDEN
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+    except NotFound as e: 
+        return jsonify({'message': getattr(e, 'description', str(e))}), HTTPStatus.NOT_FOUND
+    except RuntimeError as e: 
+        return jsonify({'message': str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
+    except Exception as e:
+        db.session.rollback() 
+        current_app.logger.error(f"Merchant: Error adding product to placement: {e}")
+        return jsonify({'message': "An unexpected error occurred."}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchant_dashboard_bp.route('/product-placements/<int:placement_id>/sort-order', methods=['PUT'])
+@merchant_role_required
+def update_merchant_product_placement_sort_order(placement_id):
+    """Updates the sort order of a specific product placement."""
+    data = request.get_json()
+    if not data or 'sort_order' not in data:
+        return jsonify({'message': 'Missing sort_order in request body.'}), HTTPStatus.BAD_REQUEST
+
+    try:
+        new_sort_order = int(data['sort_order'])
+        updated_placement = MerchantProductPlacementController.update_placement_sort_order(
+            placement_id=placement_id,
+            new_sort_order=new_sort_order
+        )
+        return jsonify(updated_placement.serialize()), HTTPStatus.OK
+    except ValueError as e: 
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+    except NotFound as e: 
+        return jsonify({'message': getattr(e, 'description', str(e))}), HTTPStatus.NOT_FOUND
+    except RuntimeError as e: 
+        return jsonify({'message': str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Merchant: Error updating sort order for placement {placement_id}: {e}")
+        return jsonify({'message': "An unexpected error occurred."}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchant_dashboard_bp.route('/product-placements/<int:placement_id>', methods=['DELETE'])
+@merchant_role_required
+def remove_merchant_product_from_placement(placement_id):
+    """Hard deletes a product placement, freeing up a slot for the merchant."""
+    try:
+        MerchantProductPlacementController.remove_product_from_placement(placement_id)
+        return '', HTTPStatus.NO_CONTENT 
+    except NotFound as e: 
+        return jsonify({'message': getattr(e, 'description', str(e))}), HTTPStatus.NOT_FOUND
+    except RuntimeError as e: 
+        return jsonify({'message': str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Merchant: Error removing product placement {placement_id}: {e}")
+        return jsonify({'message': "An unexpected error occurred."}), HTTPStatus.INTERNAL_SERVER_ERROR
