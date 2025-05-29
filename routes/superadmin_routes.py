@@ -20,6 +20,7 @@ from controllers.superadmin.brand_request_controller import BrandRequestControll
 from controllers.superadmin.promotion_controller import PromotionController
 from controllers.superadmin.review_controller import ReviewController
 from controllers.superadmin.category_attribute_controller import CategoryAttributeController 
+from controllers.superadmin.homepage_controller import HomepageController
 
 
 superadmin_bp = Blueprint('superadmin_bp', __name__)
@@ -2494,4 +2495,168 @@ def get_brand_categories(bid):
     except Exception as e:
         current_app.logger.error(f"Error getting categories for brand {bid}: {e}")
         return jsonify({'message': f'Could not get brand categories: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/categories/main', methods=['GET'])
+@super_admin_role_required
+def list_main_categories():
+    """
+    Get list of main categories (categories without parent).
+    ---
+    tags:
+      - SuperAdmin - Categories
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of main categories retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+              slug:
+                type: string
+              parent_id:
+                type: integer
+              icon_url:
+                type: string
+              created_at:
+                type: string
+                format: date-time
+              updated_at:
+                type: string
+                format: date-time
+      500:
+        description: Internal server error
+    """
+    try:
+        cats = CategoryController.get_main_categories()
+        return jsonify([c.serialize() for c in cats]), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error listing main categories: {e}")
+        return jsonify({'message': 'Failed to retrieve main categories.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/homepage/categories', methods=['GET'])
+@super_admin_role_required
+def get_featured_categories():
+    """
+    Get list of featured categories for homepage.
+    ---
+    tags:
+      - SuperAdmin - Homepage
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of featured categories retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              category_id:
+                type: integer
+              display_order:
+                type: integer
+              is_active:
+                type: boolean
+              category:
+                type: object
+                properties:
+                  category_id:
+                    type: integer
+                  name:
+                    type: string
+                  slug:
+                    type: string
+                  icon_url:
+                    type: string
+              created_at:
+                type: string
+                format: date-time
+              updated_at:
+                type: string
+                format: date-time
+      500:
+        description: Internal server error
+    """
+    try:
+        categories = HomepageController.get_featured_categories()
+        return jsonify([c.serialize() for c in categories]), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting featured categories: {e}")
+        return jsonify({'message': 'Failed to retrieve featured categories.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/homepage/categories', methods=['POST'])
+@super_admin_role_required
+def update_featured_categories():
+    """
+    Update the featured categories for homepage.
+    ---
+    tags:
+      - SuperAdmin - Homepage
+    security:
+      - Bearer: []
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - category_ids
+          properties:
+            category_ids:
+              type: array
+              items:
+                type: integer
+              description: List of category IDs to feature on homepage
+    responses:
+      200:
+        description: Featured categories updated successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              category_id:
+                type: integer
+              display_order:
+                type: integer
+              is_active:
+                type: boolean
+              category:
+                type: object
+                properties:
+                  category_id:
+                    type: integer
+                  name:
+                    type: string
+                  slug:
+                    type: string
+                  icon_url:
+                    type: string
+      400:
+        description: Bad request - Invalid input data
+      500:
+        description: Internal server error
+    """
+    try:
+        data = request.get_json()
+        if not data or 'category_ids' not in data:
+            return jsonify({'message': 'category_ids is required'}), HTTPStatus.BAD_REQUEST
+
+        categories = HomepageController.update_featured_categories(data['category_ids'])
+        return jsonify([c.serialize() for c in categories]), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error updating featured categories: {e}")
+        return jsonify({'message': 'Failed to update featured categories.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
