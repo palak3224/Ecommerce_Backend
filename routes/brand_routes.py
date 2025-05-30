@@ -15,3 +15,9 @@ def get_all_brands():
 def get_brand(brand_id):
     """Get a single brand by ID"""
     return BrandController.get_brand(brand_id)
+
+@brand_bp.route('/icons', methods=['GET', 'OPTIONS'])
+@cross_origin()
+def get_brand_icons():
+    """Get only brand icons and basic info"""
+    return BrandController.get_brand_icons()
