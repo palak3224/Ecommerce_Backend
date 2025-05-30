@@ -21,6 +21,7 @@ from controllers.superadmin.promotion_controller import PromotionController
 from controllers.superadmin.review_controller import ReviewController
 from controllers.superadmin.category_attribute_controller import CategoryAttributeController 
 from controllers.superadmin.homepage_controller import HomepageController
+from controllers.superadmin.product_monitoring_controller import ProductMonitoringController
 
 
 superadmin_bp = Blueprint('superadmin_bp', __name__)
@@ -503,13 +504,9 @@ def list_brand_requests():
           items:
             type: object
             properties:
-              id:
+              request_id:
                 type: integer
-              merchant_id:
-                type: integer
-              brand_name:
-                type: string
-              brand_description:
+              name:
                 type: string
               status:
                 type: string
@@ -517,10 +514,10 @@ def list_brand_requests():
               submitted_at:
                 type: string
                 format: date-time
-              processed_at:
+              reviewed_at:
                 type: string
                 format: date-time
-              processed_by:
+              reviewer_id:
                 type: integer
               notes:
                 type: string
@@ -528,9 +525,8 @@ def list_brand_requests():
         description: Internal server error
     """
     try:
-        reqs = BrandRequestController.list_pending()
-        
-        return jsonify([r.serialize() for r in reqs]), HTTPStatus.OK
+        requests = BrandRequestController.list_pending()
+        return jsonify([r.serialize() for r in requests]), HTTPStatus.OK
     except Exception as e:
         current_app.logger.error(f"Error listing brand requests: {e}")
         return jsonify({'message': 'Failed to retrieve brand requests.'}), HTTPStatus.INTERNAL_SERVER_ERROR
@@ -539,7 +535,7 @@ def list_brand_requests():
 @super_admin_role_required
 def approve_brand_request(rid):
     """
-    Approve a brand request and create a new brand.
+    Approve a brand request and create/update the brand.
     ---
     tags:
       - SuperAdmin - Brand Requests
@@ -555,14 +551,14 @@ def approve_brand_request(rid):
         name: brand_icon_file
         type: file
         required: false
-        description: Brand icon file to upload (PNG, JPG, JPEG, GIF, SVG, WEBP)
+        description: Brand icon file to upload (PNG, JPG, JPEG, WEBP)
     responses:
       201:
-        description: Brand request approved and brand created successfully
+        description: Brand request approved and brand created/updated successfully
         schema:
           type: object
           properties:
-            id:
+            brand_id:
               type: integer
             name:
               type: string
@@ -575,11 +571,8 @@ def approve_brand_request(rid):
             approved_at:
               type: string
               format: date-time
-            created_at:
-              type: string
-              format: date-time
       400:
-        description: Bad request - Invalid file
+        description: Bad request - Invalid file or request not in pending status
       404:
         description: Brand request not found
       409:
@@ -611,26 +604,21 @@ def approve_brand_request(rid):
             except Exception as e:
                 current_app.logger.error(f"Error during brand icon file upload for request {rid}: {e}")
                 return jsonify({'message': f"An error occurred during brand icon file upload: {str(e)}"}), HTTPStatus.INTERNAL_SERVER_ERROR
-        elif file.filename == '' and 'brand_icon_file' in request.files:
-            pass # No file chosen
 
     try:
-        
-        created_brand = BrandRequestController.approve(rid, user_id, icon_url=icon_url_from_cloudinary)
-        # Ensure Brand.serialize() includes icon_url
-        return jsonify(created_brand.serialize()), HTTPStatus.CREATED 
-    except FileNotFoundError as e: 
+        brand = BrandRequestController.approve(rid, user_id, icon_url=icon_url_from_cloudinary)
+        return jsonify(brand.serialize()), HTTPStatus.CREATED
+    except FileNotFoundError as e:
         return jsonify({'message': str(e)}), HTTPStatus.NOT_FOUND
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
     except IntegrityError as e:
         db.session.rollback()
-        error_message = e.args[0] if e.args else "Data conflict during brand approval."
-        current_app.logger.error(f"Data conflict approving brand request {rid}: {error_message}")
-        return jsonify({'message': error_message}), HTTPStatus.CONFLICT
+        current_app.logger.error(f"Data conflict approving brand request {rid}: {e}")
+        return jsonify({'message': 'A brand with this name or slug already exists.'}), HTTPStatus.CONFLICT
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error approving brand request {rid}: {e}")
-        if hasattr(e, 'code') and isinstance(e.code, int): 
-            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
         return jsonify({'message': f'Could not approve brand request: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @superadmin_bp.route('/brand-requests/<int:rid>/reject', methods=['POST'])
@@ -666,13 +654,9 @@ def reject_brand_request(rid):
         schema:
           type: object
           properties:
-            id:
+            request_id:
               type: integer
-            merchant_id:
-              type: integer
-            brand_name:
-              type: string
-            brand_description:
+            name:
               type: string
             status:
               type: string
@@ -680,15 +664,15 @@ def reject_brand_request(rid):
             submitted_at:
               type: string
               format: date-time
-            processed_at:
+            reviewed_at:
               type: string
               format: date-time
-            processed_by:
+            reviewer_id:
               type: integer
             notes:
               type: string
       400:
-        description: Bad request - Missing rejection notes
+        description: Bad request - Missing rejection notes or request not in pending status
       404:
         description: Brand request not found
       500:
@@ -704,15 +688,15 @@ def reject_brand_request(rid):
         return jsonify({'message': 'Rejection notes (`notes` field) are required.'}), HTTPStatus.BAD_REQUEST
 
     try:
-        br = BrandRequestController.reject(rid, user_id, notes)
-        return jsonify(br.serialize()), HTTPStatus.OK
+        request = BrandRequestController.reject(rid, user_id, notes)
+        return jsonify(request.serialize()), HTTPStatus.OK
     except FileNotFoundError as e:
         return jsonify({'message': str(e)}), HTTPStatus.NOT_FOUND
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error rejecting brand request {rid}: {e}")
-        if hasattr(e, 'code') and isinstance(e.code, int):
-            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
         return jsonify({'message': f'Could not reject brand request: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 # ── BRANDS ────────────────────────────────────────────────────────────────────────
@@ -2660,3 +2644,462 @@ def update_featured_categories():
         current_app.logger.error(f"Error updating featured categories: {e}")
         return jsonify({'message': 'Failed to update featured categories.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
+# ── PRODUCT MONITORING ───────────────────────────────────────────────────────────
+@superadmin_bp.route('/products/pending', methods=['GET'])
+@super_admin_role_required
+def list_pending_products():
+    """
+    Get list of pending products.
+    ---
+    tags:
+      - SuperAdmin - Product Monitoring
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of pending products retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id:
+                type: integer
+              product_name:
+                type: string
+              sku:
+                type: string
+              status:
+                type: string
+              cost_price:
+                type: number
+              selling_price:
+                type: number
+              media:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    media_id:
+                      type: integer
+                    url:
+                      type: string
+                    type:
+                      type: string
+              meta:
+                type: object
+                properties:
+                  short_desc:
+                    type: string
+                  full_desc:
+                    type: string
+              brand:
+                type: object
+                properties:
+                  brand_id:
+                    type: integer
+                  name:
+                    type: string
+              category:
+                type: object
+                properties:
+                  category_id:
+                    type: integer
+                  name:
+                    type: string
+      500:
+        description: Internal server error
+    """
+    try:
+        products = ProductMonitoringController.get_pending_products()
+        return jsonify([{
+            'product_id': p.product_id,
+            'product_name': p.product_name,
+            'sku': p.sku,
+            'status': p.approval_status,
+            'cost_price': float(p.cost_price),
+            'selling_price': float(p.selling_price),
+            'media': [m.serialize() for m in p.media] if p.media else [],
+            'meta': p.meta.serialize() if p.meta else None,
+            'brand': p.brand.serialize() if p.brand else None,
+            'category': p.category.serialize() if p.category else None
+        } for p in products]), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error listing pending products: {e}")
+        return jsonify({'message': 'Failed to retrieve pending products.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/products/approved', methods=['GET'])
+@super_admin_role_required
+def list_approved_products():
+    """
+    Get list of approved products.
+    ---
+    tags:
+      - SuperAdmin - Product Monitoring
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of approved products retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id:
+                type: integer
+              product_name:
+                type: string
+              sku:
+                type: string
+              status:
+                type: string
+              cost_price:
+                type: number
+              selling_price:
+                type: number
+              media:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    media_id:
+                      type: integer
+                    url:
+                      type: string
+                    type:
+                      type: string
+              meta:
+                type: object
+                properties:
+                  short_desc:
+                    type: string
+                  full_desc:
+                    type: string
+              brand:
+                type: object
+                properties:
+                  brand_id:
+                    type: integer
+                  name:
+                    type: string
+              category:
+                type: object
+                properties:
+                  category_id:
+                    type: integer
+                  name:
+                    type: string
+      500:
+        description: Internal server error
+    """
+    try:
+        products = ProductMonitoringController.get_approved_products()
+        return jsonify([{
+            'product_id': p.product_id,
+            'product_name': p.product_name,
+            'sku': p.sku,
+            'status': p.approval_status,
+            'cost_price': float(p.cost_price),
+            'selling_price': float(p.selling_price),
+            'media': [m.serialize() for m in p.media] if p.media else [],
+            'meta': p.meta.serialize() if p.meta else None,
+            'brand': p.brand.serialize() if p.brand else None,
+            'category': p.category.serialize() if p.category else None
+        } for p in products]), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error listing approved products: {e}")
+        return jsonify({'message': 'Failed to retrieve approved products.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/products/rejected', methods=['GET'])
+@super_admin_role_required
+def list_rejected_products():
+    """
+    Get list of rejected products.
+    ---
+    tags:
+      - SuperAdmin - Product Monitoring
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of rejected products retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id:
+                type: integer
+              product_name:
+                type: string
+              sku:
+                type: string
+              status:
+                type: string
+              cost_price:
+                type: number
+              selling_price:
+                type: number
+              rejection_reason:
+                type: string
+              media:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    media_id:
+                      type: integer
+                    url:
+                      type: string
+                    type:
+                      type: string
+              meta:
+                type: object
+                properties:
+                  short_desc:
+                    type: string
+                  full_desc:
+                    type: string
+              brand:
+                type: object
+                properties:
+                  brand_id:
+                    type: integer
+                  name:
+                    type: string
+              category:
+                type: object
+                properties:
+                  category_id:
+                    type: integer
+                  name:
+                    type: string
+      500:
+        description: Internal server error
+    """
+    try:
+        products = ProductMonitoringController.get_rejected_products()
+        return jsonify([{
+            'product_id': p.product_id,
+            'product_name': p.product_name,
+            'sku': p.sku,
+            'status': p.approval_status,
+            'cost_price': float(p.cost_price),
+            'selling_price': float(p.selling_price),
+            'rejection_reason': p.rejection_reason,
+            'media': [m.serialize() for m in p.media] if p.media else [],
+            'meta': p.meta.serialize() if p.meta else None,
+            'brand': p.brand.serialize() if p.brand else None,
+            'category': p.category.serialize() if p.category else None
+        } for p in products]), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error listing rejected products: {e}")
+        return jsonify({'message': 'Failed to retrieve rejected products.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/products/<int:product_id>/approve', methods=['POST'])
+@super_admin_role_required
+def approve_product(product_id):
+    """
+    Approve a product.
+    ---
+    tags:
+      - SuperAdmin - Product Monitoring
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: product_id
+        type: integer
+        required: true
+        description: Product ID
+    responses:
+      200:
+        description: Product approved successfully
+        schema:
+          type: object
+          properties:
+            product_id:
+              type: integer
+            product_name:
+              type: string
+            status:
+              type: string
+            approved_at:
+              type: string
+              format: date-time
+            approved_by:
+              type: integer
+      400:
+        description: Bad request - Product is not in pending status
+      404:
+        description: Product not found
+      500:
+        description: Internal server error
+    """
+    try:
+        admin_id = get_jwt_identity()
+        product = ProductMonitoringController.approve_product(product_id, admin_id)
+        return jsonify({
+            'product_id': product.product_id,
+            'product_name': product.product_name,
+            'status': product.approval_status,
+            'approved_at': product.approved_at.isoformat(),
+            'approved_by': product.approved_by
+        }), HTTPStatus.OK
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+    except Exception as e:
+        current_app.logger.error(f"Error approving product {product_id}: {e}")
+        return jsonify({'message': 'Failed to approve product.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/products/<int:product_id>/reject', methods=['POST'])
+@super_admin_role_required
+def reject_product(product_id):
+    """
+    Reject a product with a reason.
+    ---
+    tags:
+      - SuperAdmin - Product Monitoring
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: product_id
+        type: integer
+        required: true
+        description: Product ID
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - reason
+          properties:
+            reason:
+              type: string
+              description: Reason for rejection
+    responses:
+      200:
+        description: Product rejected successfully
+        schema:
+          type: object
+          properties:
+            product_id:
+              type: integer
+            product_name:
+              type: string
+            status:
+              type: string
+            rejection_reason:
+              type: string
+            approved_at:
+              type: string
+              format: date-time
+            approved_by:
+              type: integer
+      400:
+        description: Bad request - Missing rejection reason or product is not in pending status
+      404:
+        description: Product not found
+      500:
+        description: Internal server error
+    """
+    try:
+        data = request.get_json()
+        if not data or 'reason' not in data:
+            return jsonify({'message': 'Rejection reason is required'}), HTTPStatus.BAD_REQUEST
+
+        admin_id = get_jwt_identity()
+        product = ProductMonitoringController.reject_product(product_id, admin_id, data['reason'])
+        return jsonify({
+            'product_id': product.product_id,
+            'product_name': product.product_name,
+            'status': product.approval_status,
+            'rejection_reason': product.rejection_reason,
+            'approved_at': product.approved_at.isoformat(),
+            'approved_by': product.approved_by
+        }), HTTPStatus.OK
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+    except Exception as e:
+        current_app.logger.error(f"Error rejecting product {product_id}: {e}")
+        return jsonify({'message': 'Failed to reject product.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/products/<int:product_id>', methods=['GET'])
+@super_admin_role_required
+def get_product_details(product_id):
+    """
+    Get detailed information about a specific product.
+    ---
+    tags:
+      - SuperAdmin - Product Monitoring
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: product_id
+        type: integer
+        required: true
+        description: Product ID
+    responses:
+      200:
+        description: Product details retrieved successfully
+        schema:
+          type: object
+          properties:
+            product:
+              type: object
+              properties:
+                product_id:
+                  type: integer
+                product_name:
+                  type: string
+                sku:
+                  type: string
+                status:
+                  type: string
+            media:
+              type: array
+              items:
+                type: object
+                properties:
+                  media_id:
+                    type: integer
+                  url:
+                    type: string
+                  type:
+                    type: string
+            meta:
+              type: object
+              properties:
+                short_desc:
+                  type: string
+                full_desc:
+                  type: string
+            brand:
+              type: object
+              properties:
+                brand_id:
+                  type: integer
+                name:
+                  type: string
+            category:
+              type: object
+              properties:
+                category_id:
+                  type: integer
+                name:
+                  type: string
+      404:
+        description: Product not found
+      500:
+        description: Internal server error
+    """
+    try:
+        product_details = ProductMonitoringController.get_product_details(product_id)
+        return jsonify(product_details), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting product details for {product_id}: {e}")
+        return jsonify({'message': 'Failed to retrieve product details.'}), HTTPStatus.INTERNAL_SERVER_ERROR

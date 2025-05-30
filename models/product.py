@@ -6,6 +6,7 @@ from models.brand import Brand
 
 class Product(BaseModel):
     __tablename__ = 'products'
+
     product_id    = db.Column(db.Integer, primary_key=True)
     merchant_id   = db.Column(db.Integer, db.ForeignKey('merchant_profiles.id'), nullable=False)
     category_id   = db.Column(db.Integer, db.ForeignKey('categories.category_id'), nullable=False)
@@ -20,6 +21,12 @@ class Product(BaseModel):
     special_start = db.Column(db.Date)
     special_end   = db.Column(db.Date)
     active_flag   = db.Column(db.Boolean, default=True, nullable=False)
+    
+    approval_status = db.Column(db.String(20), default='pending', nullable=False)  # New field
+    approved_at     = db.Column(db.DateTime, nullable=True)                        # New field
+    approved_by     = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # New field
+    rejection_reason = db.Column(db.String(255), nullable=True)                   # New field
+    
     created_at    = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at    = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     deleted_at    = db.Column(db.DateTime)
@@ -29,6 +36,7 @@ class Product(BaseModel):
     brand         = db.relationship('Brand', backref='products')
     product_attributes = db.relationship('ProductAttribute', backref='product', cascade='all, delete-orphan')
 
+    approved_by_admin = db.relationship('User', backref='approved_products', foreign_keys=[approved_by])  # Relationship
     def serialize(self):
         return {
             "product_id":      self.product_id,
@@ -45,6 +53,10 @@ class Product(BaseModel):
             "special_start":   self.special_start.isoformat() if self.special_start else None,
             "special_end":     self.special_end.isoformat() if self.special_end else None,
             "active_flag":     bool(self.active_flag),
+            "approval_status": self.approval_status,
+            "approved_at":     self.approved_at.isoformat() if self.approved_at else None,
+            "approved_by":     self.approved_by,
+            "rejection_reason": self.rejection_reason,
             "created_at":      self.created_at.isoformat() if self.created_at else None,
             "updated_at":      self.updated_at.isoformat() if self.updated_at else None,
             "deleted_at":      self.deleted_at.isoformat() if self.deleted_at else None,

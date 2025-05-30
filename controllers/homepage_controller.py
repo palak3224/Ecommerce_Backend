@@ -12,8 +12,19 @@ class HomepageController:
     def get_homepage_products():
         """Get products from categories that are selected for homepage display"""
         try:
-            # Get all main categories
-            main_categories = Category.query.filter_by(parent_id=None).all()
+            # Get active homepage categories ordered by display_order
+            active_homepage_categories = HomepageCategory.query.filter_by(
+                is_active=True
+            ).order_by(HomepageCategory.display_order).all()
+            
+            # Get category IDs that are active on homepage
+            active_category_ids = [hc.category_id for hc in active_homepage_categories]
+            
+            # Get all main categories that are active on homepage
+            main_categories = Category.query.filter(
+                Category.category_id.in_(active_category_ids),
+                Category.parent_id.is_(None)
+            ).all()
             
             # Initialize response data
             response_data = []
@@ -45,14 +56,15 @@ class HomepageController:
                     for media in sorted(media_dict.get(product.product_id, []), key=lambda x: x.sort_order)
                 ]
                 return product_data
-
+            
             def get_category_products(category_id, level=0):
                 """Recursively get all products from a category and its subcategories"""
-                # Get direct products in this category
+                # Get direct products in this category that are approved
                 direct_products = Product.query.filter(
                     Product.category_id == category_id,
                     Product.active_flag == True,
-                    Product.deleted_at == None
+                    Product.deleted_at == None,
+                    Product.approval_status == 'approved'  # Only get approved products
                 ).all()
                 
                 # Get all subcategories
@@ -78,6 +90,7 @@ class HomepageController:
                     Product.category_id == main_category.category_id,
                     Product.active_flag == True,
                     Product.deleted_at == None,
+                    Product.approval_status == 'approved',  # Only get approved products
                     ~Product.product_id.in_(
                         db.session.query(Product.product_id)
                         .join(Category, Product.category_id == Category.category_id)
@@ -91,17 +104,20 @@ class HomepageController:
                     # Get all products from this subcategory and its children recursively
                     all_subcategory_products = get_category_products(subcategory.category_id)
                     
-                    subcategory_data.append({
-                        'category': subcategory.serialize(),
-                        'products': [serialize_product_with_media(p) for p in all_subcategory_products]
-                    })
+                    # Only add subcategory if it has products
+                    if all_subcategory_products:
+                        subcategory_data.append({
+                            'category': subcategory.serialize(),
+                            'products': [serialize_product_with_media(p) for p in all_subcategory_products]
+                        })
                 
-                # Add main category data to response
-                response_data.append({
-                    'category': main_category.serialize(),
-                    'products': [serialize_product_with_media(p) for p in main_category_products],
-                    'subcategories': subcategory_data
-                })
+                # Only add main category if it has products or subcategories with products
+                if main_category_products or subcategory_data:
+                    response_data.append({
+                        'category': main_category.serialize(),
+                        'products': [serialize_product_with_media(p) for p in main_category_products],
+                        'subcategories': subcategory_data
+                    })
             
             return jsonify({
                 'status': 'success',
@@ -110,6 +126,7 @@ class HomepageController:
             }), 200
             
         except Exception as e:
+            logging.error(f"Error in get_homepage_products: {str(e)}")
             return jsonify({
                 'status': 'error',
                 'message': 'Failed to retrieve homepage products',

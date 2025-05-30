@@ -1,7 +1,7 @@
 # routes/merchant_routes.py
 from flask import Blueprint, request, jsonify, current_app
 from http import HTTPStatus
-from auth.utils import merchant_role_required
+from auth.utils import merchant_role_required, super_admin_role_required
 from common.database import db
 import cloudinary
 import cloudinary.uploader
@@ -24,6 +24,7 @@ from controllers.merchant.product_placement_controller import MerchantProductPla
 
 from controllers.merchant.tax_category_controller  import MerchantTaxCategoryController
 from controllers.merchant.product_stock_controller import MerchantProductStockController
+from flask_jwt_extended import get_jwt_identity
 
 
 ALLOWED_MEDIA_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'mov', 'avi'} 
@@ -812,3 +813,65 @@ def delete_variant_media(mid):
         if hasattr(e, 'code') and isinstance(e.code, int):
             return jsonify({'message': getattr(e, 'description', str(e))}), e.code
         return jsonify({'message': "Failed to delete variant media."}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+# ── PRODUCT APPROVAL ───────────────────────────────────────────────────────────
+@merchant_dashboard_bp.route('/products/pending', methods=['GET'])
+@super_admin_role_required
+def list_pending_products():
+    """Get all products pending approval."""
+    try:
+        products = MerchantProductController.get_pending_products()
+        return jsonify([p.serialize() for p in products]), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error listing pending products: {e}")
+        return jsonify({'message': 'Failed to retrieve pending products.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchant_dashboard_bp.route('/products/approved', methods=['GET'])
+@super_admin_role_required
+def list_approved_products():
+    """Get all approved products."""
+    try:
+        products = MerchantProductController.get_approved_products()
+        return jsonify([p.serialize() for p in products]), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error listing approved products: {e}")
+        return jsonify({'message': 'Failed to retrieve approved products.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchant_dashboard_bp.route('/products/rejected', methods=['GET'])
+@super_admin_role_required
+def list_rejected_products():
+    """Get all rejected products."""
+    try:
+        products = MerchantProductController.get_rejected_products()
+        return jsonify([p.serialize() for p in products]), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error listing rejected products: {e}")
+        return jsonify({'message': 'Failed to retrieve rejected products.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchant_dashboard_bp.route('/products/<int:pid>/approve', methods=['POST'])
+@super_admin_role_required
+def approve_product(pid):
+    """Approve a product."""
+    try:
+        admin_id = get_jwt_identity()
+        product = MerchantProductController.approve(pid, admin_id)
+        return jsonify(product.serialize()), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error approving product {pid}: {e}")
+        return jsonify({'message': 'Failed to approve product.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchant_dashboard_bp.route('/products/<int:pid>/reject', methods=['POST'])
+@super_admin_role_required
+def reject_product(pid):
+    """Reject a product."""
+    try:
+        data = request.get_json()
+        if not data or 'reason' not in data:
+            return jsonify({'message': 'Rejection reason is required.'}), HTTPStatus.BAD_REQUEST
+
+        admin_id = get_jwt_identity()
+        product = MerchantProductController.reject(pid, admin_id, data['reason'])
+        return jsonify(product.serialize()), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error rejecting product {pid}: {e}")
+        return jsonify({'message': 'Failed to reject product.'}), HTTPStatus.INTERNAL_SERVER_ERROR

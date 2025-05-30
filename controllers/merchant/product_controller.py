@@ -5,6 +5,7 @@ from flask import abort
 from common.database import db
 from models.product import Product
 from auth.models.models import MerchantProfile
+from datetime import datetime, timezone
 
 class MerchantProductController:
     @staticmethod
@@ -48,7 +49,8 @@ class MerchantProductController:
             discount_pct=data.get('discount_pct', 0),
             special_price=data.get('special_price'),
             special_start=data.get('special_start'),
-            special_end=data.get('special_end')
+            special_end=data.get('special_end'),
+            approval_status='pending'  # Set initial approval status
         )
         p.save()
         return p
@@ -64,6 +66,18 @@ class MerchantProductController:
             product_id=pid,
             merchant_id=merchant.id
         ).first_or_404()
+
+        # If product is approved, changing certain fields will require re-approval
+        if p.approval_status == 'approved':
+            fields_requiring_reapproval = {
+                'product_name', 'product_description', 'cost_price', 
+                'selling_price', 'special_price', 'special_start', 'special_end'
+            }
+            if any(field in data for field in fields_requiring_reapproval):
+                p.approval_status = 'pending'
+                p.approved_at = None
+                p.approved_by = None
+                p.rejection_reason = None
 
         for field in (
             'category_id','brand_id','sku','product_name','product_description',
@@ -90,3 +104,49 @@ class MerchantProductController:
         p.deleted_at = db.func.current_timestamp()
         db.session.commit()
         return p
+
+    @staticmethod
+    def approve(pid, admin_id):
+        """Approve a product by superadmin."""
+        p = Product.query.get_or_404(pid)
+        p.approval_status = 'approved'
+        p.approved_at = datetime.now(timezone.utc)
+        p.approved_by = admin_id
+        p.rejection_reason = None
+        db.session.commit()
+        return p
+
+    @staticmethod
+    def reject(pid, admin_id, reason):
+        """Reject a product by superadmin."""
+        p = Product.query.get_or_404(pid)
+        p.approval_status = 'rejected'
+        p.approved_at = None
+        p.approved_by = None
+        p.rejection_reason = reason
+        db.session.commit()
+        return p
+
+    @staticmethod
+    def get_pending_products():
+        """Get all products pending approval."""
+        return Product.query.filter_by(
+            approval_status='pending',
+            deleted_at=None
+        ).all()
+
+    @staticmethod
+    def get_approved_products():
+        """Get all approved products."""
+        return Product.query.filter_by(
+            approval_status='approved',
+            deleted_at=None
+        ).all()
+
+    @staticmethod
+    def get_rejected_products():
+        """Get all rejected products."""
+        return Product.query.filter_by(
+            approval_status='rejected',
+            deleted_at=None
+        ).all()

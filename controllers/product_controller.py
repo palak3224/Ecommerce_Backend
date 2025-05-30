@@ -59,10 +59,11 @@ class ProductController:
             search = request.args.get('search', '')
             include_children = request.args.get('include_children', 'true').lower() == 'true'
             
-            # Base query
+            # Base query - only show approved products
             query = Product.query.filter(
                 Product.deleted_at.is_(None),
-                Product.active_flag.is_(True)
+                Product.active_flag.is_(True),
+                Product.approval_status == 'approved'  # Only show approved products
             )
             
             # Apply category filter with child categories
@@ -173,7 +174,8 @@ class ProductController:
         product = Product.query.filter_by(
             product_id=product_id,
             deleted_at=None,
-            active_flag=True
+            active_flag=True,
+            approval_status='approved'  # Only show approved products
         ).first_or_404()
         
         # Get product data with media
@@ -201,7 +203,10 @@ class ProductController:
             
             products = []
             for rv in recently_viewed:
-                if rv.product and rv.product.active_flag and not rv.product.deleted_at:
+                if (rv.product and 
+                    rv.product.active_flag and 
+                    not rv.product.deleted_at and 
+                    rv.product.approval_status == 'approved'):  # Only show approved products
                     product_dict = rv.product.serialize()
                     media = ProductController.get_product_media(rv.product.product_id)
                     if media:
@@ -241,11 +246,12 @@ class ProductController:
     def get_product_details(product_id):
         """Get detailed product information including media, meta data, and attributes"""
         try:
-            # Get base product information
+            # Get base product information - only show approved products
             product = Product.query.filter_by(
                 product_id=product_id,
                 deleted_at=None,
-                active_flag=True
+                active_flag=True,
+                approval_status='approved'  # Only show approved products
             ).first_or_404()
 
             # Get product media
