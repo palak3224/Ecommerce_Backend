@@ -2956,56 +2956,7 @@ def approve_product(product_id):
 @superadmin_bp.route('/products/<int:product_id>/reject', methods=['POST'])
 @super_admin_role_required
 def reject_product(product_id):
-    """
-    Reject a product with a reason.
-    ---
-    tags:
-      - SuperAdmin - Product Monitoring
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: product_id
-        type: integer
-        required: true
-        description: Product ID
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          required:
-            - reason
-          properties:
-            reason:
-              type: string
-              description: Reason for rejection
-    responses:
-      200:
-        description: Product rejected successfully
-        schema:
-          type: object
-          properties:
-            product_id:
-              type: integer
-            product_name:
-              type: string
-            status:
-              type: string
-            rejection_reason:
-              type: string
-            approved_at:
-              type: string
-              format: date-time
-            approved_by:
-              type: integer
-      400:
-        description: Bad request - Missing rejection reason or product is not in pending status
-      404:
-        description: Product not found
-      500:
-        description: Internal server error
-    """
+    
     try:
         data = request.get_json()
         if not data or 'reason' not in data:
@@ -3030,73 +2981,7 @@ def reject_product(product_id):
 @superadmin_bp.route('/products/<int:product_id>', methods=['GET'])
 @super_admin_role_required
 def get_product_details(product_id):
-    """
-    Get detailed information about a specific product.
-    ---
-    tags:
-      - SuperAdmin - Product Monitoring
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: product_id
-        type: integer
-        required: true
-        description: Product ID
-    responses:
-      200:
-        description: Product details retrieved successfully
-        schema:
-          type: object
-          properties:
-            product:
-              type: object
-              properties:
-                product_id:
-                  type: integer
-                product_name:
-                  type: string
-                sku:
-                  type: string
-                status:
-                  type: string
-            media:
-              type: array
-              items:
-                type: object
-                properties:
-                  media_id:
-                    type: integer
-                  url:
-                    type: string
-                  type:
-                    type: string
-            meta:
-              type: object
-              properties:
-                short_desc:
-                  type: string
-                full_desc:
-                  type: string
-            brand:
-              type: object
-              properties:
-                brand_id:
-                  type: integer
-                name:
-                  type: string
-            category:
-              type: object
-              properties:
-                category_id:
-                  type: integer
-                name:
-                  type: string
-      404:
-        description: Product not found
-      500:
-        description: Internal server error
-    """
+    
     try:
         product_details = ProductMonitoringController.get_product_details(product_id)
         return jsonify(product_details), HTTPStatus.OK

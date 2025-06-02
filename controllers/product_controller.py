@@ -52,7 +52,7 @@ class ProductController:
             order = request.args.get('order', 'desc')
             
             # Get filter parameters
-            category_id = request.args.get('category_id', type=int)
+            category_id = request.args.get('category_id')
             brand_id = request.args.get('brand_id', type=int)
             min_price = request.args.get('min_price', type=float)
             max_price = request.args.get('max_price', type=float)
@@ -68,25 +68,29 @@ class ProductController:
             
             # Apply category filter with child categories
             if category_id:
-                if include_children:
-                    # Get the category and all its child categories
-                    category = Category.query.get(category_id)
-                    if category:
-                        # Get all child category IDs recursively
-                        def get_child_category_ids(parent_id):
-                            child_ids = []
-                            children = Category.query.filter_by(parent_id=parent_id).all()
-                            for child in children:
-                                child_ids.append(child.category_id)
-                                child_ids.extend(get_child_category_ids(child.category_id))
-                            return child_ids
-                        
-                        child_category_ids = get_child_category_ids(category_id)
-                        category_ids = [category_id] + child_category_ids
-                        query = query.filter(Product.category_id.in_(category_ids))
-                else:
-                    # Only include products from the selected category
-                    query = query.filter(Product.category_id == category_id)
+                try:
+                    category_id = int(category_id)
+                    if include_children:
+                        # Get the category and all its child categories
+                        category = Category.query.get(category_id)
+                        if category:
+                            # Get all child category IDs recursively
+                            def get_child_category_ids(parent_id):
+                                child_ids = []
+                                children = Category.query.filter_by(parent_id=parent_id).all()
+                                for child in children:
+                                    child_ids.append(child.category_id)
+                                    child_ids.extend(get_child_category_ids(child.category_id))
+                                return child_ids
+                            
+                            child_category_ids = get_child_category_ids(category_id)
+                            category_ids = [category_id] + child_category_ids
+                            query = query.filter(Product.category_id.in_(category_ids))
+                    else:
+                        # Only include products from the selected category
+                        query = query.filter(Product.category_id == category_id)
+                except ValueError:
+                    print(f"Invalid category_id: {category_id}")
             
             # Apply other filters
             if brand_id:

@@ -35,6 +35,7 @@ class Product(BaseModel):
     category      = db.relationship('Category', backref='products')
     brand         = db.relationship('Brand', backref='products')
     product_attributes = db.relationship('ProductAttribute', backref='product', cascade='all, delete-orphan')
+    cart_items    = db.relationship('CartItem', back_populates='product', cascade='all, delete-orphan')
 
     approved_by_admin = db.relationship('User', backref='approved_products', foreign_keys=[approved_by])  # Relationship
     def serialize(self):

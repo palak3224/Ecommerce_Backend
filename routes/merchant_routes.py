@@ -517,6 +517,8 @@ def list_product_attributes(pid):
 def set_product_attribute_values(pid):
     try:
         data = request.get_json()
+        current_app.logger.info(f"Received attribute values request for product {pid}: {data}")
+        
         if not data or not isinstance(data, dict):
             return jsonify({
                 'message': 'Invalid data format. Expected a dictionary of attribute values.',
@@ -536,6 +538,7 @@ def set_product_attribute_values(pid):
                 # Create or update the attribute value
                 MerchantProductAttributeController.upsert(pid, attribute_id, value)
             except ValueError as e:
+                current_app.logger.error(f"Invalid attribute value for product {pid}, attribute {attribute_id}: {e}")
                 return jsonify({
                     'message': str(e),
                     'error': 'INVALID_VALUE',
