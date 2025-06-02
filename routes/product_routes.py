@@ -462,4 +462,230 @@ def get_product_details(product_id):
         return jsonify({
             "error": "Failed to fetch product details",
             "message": str(e)
-        }), 500 
+        }), 500
+
+@product_bp.route('/api/products/brand/<string:brand_slug>', methods=['GET'])
+@cross_origin()
+def get_products_by_brand(brand_slug):
+    """
+    Get products filtered by brand slug
+    ---
+    tags:
+      - Products
+    parameters:
+      - in: path
+        name: brand_slug
+        type: string
+        required: true
+        description: Slug of the brand to filter by
+      - in: query
+        name: page
+        type: integer
+        required: false
+        default: 1
+        description: Page number
+      - in: query
+        name: per_page
+        type: integer
+        required: false
+        default: 10
+        description: Items per page (max 50)
+      - in: query
+        name: sort_by
+        type: string
+        required: false
+        default: created_at
+        description: Field to sort by
+      - in: query
+        name: order
+        type: string
+        required: false
+        default: desc
+        enum: [asc, desc]
+        description: Sort order
+      - in: query
+        name: min_price
+        type: number
+        required: false
+        description: Minimum price filter
+      - in: query
+        name: max_price
+        type: number
+        required: false
+        description: Maximum price filter
+      - in: query
+        name: search
+        type: string
+        required: false
+        description: Search term for product name/description
+    responses:
+      200:
+        description: List of products for the brand retrieved successfully
+        schema:
+          type: object
+          properties:
+            products:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  price:
+                    type: number
+                    format: float
+                  originalPrice:
+                    type: number
+                    format: float
+                  primary_image:
+                    type: string
+            pagination:
+              type: object
+              properties:
+                total:
+                  type: integer
+                pages:
+                  type: integer
+                current_page:
+                  type: integer
+                per_page:
+                  type: integer
+                has_next:
+                  type: boolean
+                has_prev:
+                  type: boolean
+            brand:
+              type: object
+              properties:
+                brand_id:
+                  type: integer
+                name:
+                  type: string
+                slug:
+                  type: string
+                icon_url:
+                  type: string
+      404:
+        description: Brand not found
+      500:
+        description: Internal server error
+    """
+    return ProductController.get_products_by_brand(brand_slug)
+
+@product_bp.route('/api/products/category/<int:category_id>', methods=['GET'])
+@cross_origin()
+def get_products_by_category(category_id):
+    """
+    Get products filtered by category ID
+    ---
+    tags:
+      - Products
+    parameters:
+      - in: path
+        name: category_id
+        type: integer
+        required: true
+        description: ID of the category to filter by
+      - in: query
+        name: page
+        type: integer
+        required: false
+        default: 1
+        description: Page number
+      - in: query
+        name: per_page
+        type: integer
+        required: false
+        default: 10
+        description: Items per page (max 50)
+      - in: query
+        name: sort_by
+        type: string
+        required: false
+        default: created_at
+        description: Field to sort by
+      - in: query
+        name: order
+        type: string
+        required: false
+        default: desc
+        enum: [asc, desc]
+        description: Sort order
+      - in: query
+        name: min_price
+        type: number
+        required: false
+        description: Minimum price filter
+      - in: query
+        name: max_price
+        type: number
+        required: false
+        description: Maximum price filter
+      - in: query
+        name: search
+        type: string
+        required: false
+        description: Search term for product name/description
+      - in: query
+        name: include_children
+        type: boolean
+        required: false
+        default: true
+        description: Whether to include products from child categories
+    responses:
+      200:
+        description: List of products for the category retrieved successfully
+        schema:
+          type: object
+          properties:
+            products:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  price:
+                    type: number
+                    format: float
+                  originalPrice:
+                    type: number
+                    format: float
+                  primary_image:
+                    type: string
+            pagination:
+              type: object
+              properties:
+                total:
+                  type: integer
+                pages:
+                  type: integer
+                current_page:
+                  type: integer
+                per_page:
+                  type: integer
+                has_next:
+                  type: boolean
+                has_prev:
+                  type: boolean
+            category:
+              type: object
+              properties:
+                category_id:
+                  type: integer
+                name:
+                  type: string
+                slug:
+                  type: string
+                icon_url:
+                  type: string
+      404:
+        description: Category not found
+      500:
+        description: Internal server error
+    """
+    return ProductController.get_products_by_category(category_id) 

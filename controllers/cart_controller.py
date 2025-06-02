@@ -65,7 +65,10 @@ class CartController:
             if not product:
                 raise ValueError("Product not found")
             
-            if product.stock_qty < quantity:
+            # Get product stock first
+            product_stock = ProductStock.query.filter_by(product_id=product_id).first()
+            
+            if not product_stock or product_stock.stock_qty < quantity:
                 raise ValueError("Insufficient stock")
             
             # Get product image URL
@@ -73,9 +76,6 @@ class CartController:
                 product_id=product_id,
                 type='image'
             ).first()
-            
-            # Get product stock
-            product_stock = ProductStock.query.filter_by(product_id=product_id).first()
             
             # Check if product already exists in cart
             cart_item = CartItem.query.filter_by(

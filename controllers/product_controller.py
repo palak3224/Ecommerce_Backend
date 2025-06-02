@@ -354,3 +354,249 @@ class ProductController:
                 "error": "Failed to fetch product details",
                 "message": str(e)
             }), 500 
+
+    @staticmethod
+    def get_products_by_brand(brand_slug):
+        """Get products filtered by brand slug"""
+        try:
+            # Get pagination parameters
+            page = request.args.get('page', 1, type=int)
+            per_page = min(request.args.get('per_page', 10, type=int), 50)
+            
+            # Get sorting parameters
+            sort_by = request.args.get('sort_by', 'created_at')
+            order = request.args.get('order', 'desc')
+            
+            # Get filter parameters
+            category_id = request.args.get('category_id')
+            min_price = request.args.get('min_price', type=float)
+            max_price = request.args.get('max_price', type=float)
+            search = request.args.get('search', '')
+            
+            # Get brand by slug
+            brand = Brand.query.filter_by(
+                slug=brand_slug,
+                deleted_at=None
+            ).first_or_404()
+            
+            # Base query - only show approved products
+            query = Product.query.filter(
+                Product.deleted_at.is_(None),
+                Product.active_flag.is_(True),
+                Product.approval_status == 'approved',
+                Product.brand_id == brand.brand_id
+            )
+            
+            # Apply category filter
+            if category_id:
+                try:
+                    category_id = int(category_id)
+                    query = query.filter(Product.category_id == category_id)
+                except ValueError:
+                    print(f"Invalid category_id: {category_id}")
+            
+            # Apply other filters
+            if min_price is not None:
+                query = query.filter(Product.selling_price >= min_price)
+            if max_price is not None:
+                query = query.filter(Product.selling_price <= max_price)
+            if search:
+                search_term = f"%{search}%"
+                query = query.filter(
+                    or_(
+                        Product.product_name.ilike(search_term),
+                        Product.product_description.ilike(search_term)
+                    )
+                )
+                
+            # Apply sorting
+            if order == 'asc':
+                query = query.order_by(getattr(Product, sort_by))
+            else:
+                query = query.order_by(desc(getattr(Product, sort_by)))
+                
+            # Execute paginated query
+            pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+            
+            # Prepare response
+            products = pagination.items
+            total = pagination.total
+            pages = pagination.pages
+            
+            # Get product data with media
+            product_data = []
+            for product in products:
+                product_dict = product.serialize()
+                # Add frontend-specific fields
+                product_dict.update({
+                    'id': str(product.product_id),
+                    'name': product.product_name,
+                    'description': product.product_description,
+                    'price': float(product.selling_price),
+                    'originalPrice': float(product.cost_price),
+                    'stock': 100,
+                    'isNew': True,
+                    'isBuiltIn': False,
+                })
+                
+                # Get primary media
+                media = ProductController.get_product_media(product.product_id)
+                if media:
+                    product_dict['primary_image'] = media['url']
+                    product_dict['image'] = media['url']
+                
+                product_data.append(product_dict)
+            
+            return jsonify({
+                'products': product_data,
+                'pagination': {
+                    'total': total,
+                    'pages': pages,
+                    'current_page': page,
+                    'per_page': per_page,
+                    'has_next': pagination.has_next,
+                    'has_prev': pagination.has_prev
+                },
+                'brand': brand.serialize()
+            })
+            
+        except Exception as e:
+            print(f"Error in get_products_by_brand: {str(e)}")
+            return jsonify({
+                'error': str(e),
+                'products': [],
+                'pagination': {
+                    'total': 0,
+                    'pages': 0,
+                    'current_page': page,
+                    'per_page': per_page,
+                    'has_next': False,
+                    'has_prev': False
+                }
+            }), 500
+
+    @staticmethod
+    def get_products_by_category(category_id):
+        """Get products filtered by category ID"""
+        try:
+            # Get pagination parameters
+            page = request.args.get('page', 1, type=int)
+            per_page = min(request.args.get('per_page', 10, type=int), 50)
+            
+            # Get sorting parameters
+            sort_by = request.args.get('sort_by', 'created_at')
+            order = request.args.get('order', 'desc')
+            
+            # Get filter parameters
+            min_price = request.args.get('min_price', type=float)
+            max_price = request.args.get('max_price', type=float)
+            search = request.args.get('search', '')
+            include_children = request.args.get('include_children', 'true').lower() == 'true'
+            
+            # Get category
+            category = Category.query.get_or_404(category_id)
+            
+            # Base query - only show approved products
+            query = Product.query.filter(
+                Product.deleted_at.is_(None),
+                Product.active_flag.is_(True),
+                Product.approval_status == 'approved'
+            )
+            
+            # Apply category filter with child categories
+            if include_children:
+                # Get all child category IDs recursively
+                def get_child_category_ids(parent_id):
+                    child_ids = []
+                    children = Category.query.filter_by(parent_id=parent_id).all()
+                    for child in children:
+                        child_ids.append(child.category_id)
+                        child_ids.extend(get_child_category_ids(child.category_id))
+                    return child_ids
+                
+                child_category_ids = get_child_category_ids(category_id)
+                category_ids = [category_id] + child_category_ids
+                query = query.filter(Product.category_id.in_(category_ids))
+            else:
+                # Only include products from the selected category
+                query = query.filter(Product.category_id == category_id)
+            
+            # Apply other filters
+            if min_price is not None:
+                query = query.filter(Product.selling_price >= min_price)
+            if max_price is not None:
+                query = query.filter(Product.selling_price <= max_price)
+            if search:
+                search_term = f"%{search}%"
+                query = query.filter(
+                    or_(
+                        Product.product_name.ilike(search_term),
+                        Product.product_description.ilike(search_term)
+                    )
+                )
+                
+            # Apply sorting
+            if order == 'asc':
+                query = query.order_by(getattr(Product, sort_by))
+            else:
+                query = query.order_by(desc(getattr(Product, sort_by)))
+                
+            # Execute paginated query
+            pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+            
+            # Prepare response
+            products = pagination.items
+            total = pagination.total
+            pages = pagination.pages
+            
+            # Get product data with media
+            product_data = []
+            for product in products:
+                product_dict = product.serialize()
+                # Add frontend-specific fields
+                product_dict.update({
+                    'id': str(product.product_id),
+                    'name': product.product_name,
+                    'description': product.product_description,
+                    'price': float(product.selling_price),
+                    'originalPrice': float(product.cost_price),
+                    'stock': 100,
+                    'isNew': True,
+                    'isBuiltIn': False,
+                })
+                
+                # Get primary media
+                media = ProductController.get_product_media(product.product_id)
+                if media:
+                    product_dict['primary_image'] = media['url']
+                    product_dict['image'] = media['url']
+                
+                product_data.append(product_dict)
+            
+            return jsonify({
+                'products': product_data,
+                'pagination': {
+                    'total': total,
+                    'pages': pages,
+                    'current_page': page,
+                    'per_page': per_page,
+                    'has_next': pagination.has_next,
+                    'has_prev': pagination.has_prev
+                },
+                'category': category.serialize()
+            })
+            
+        except Exception as e:
+            print(f"Error in get_products_by_category: {str(e)}")
+            return jsonify({
+                'error': str(e),
+                'products': [],
+                'pagination': {
+                    'total': 0,
+                    'pages': 0,
+                    'current_page': page,
+                    'per_page': per_page,
+                    'has_next': False,
+                    'has_prev': False
+                }
+            }), 500 
