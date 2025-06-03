@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request,make_response, send_from_directory
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from flask_migrate import Migrate
@@ -75,7 +75,7 @@ def create_app(config_name='default'):
             "description": "API documentation for Ecommerce Backend",
             "version": "1.0.0",
             "contact": {
-                "email": "your-email@example.com"
+                "email": "Scalixity@gmail.com"
             }
         },
         "securityDefinitions": {
@@ -123,6 +123,8 @@ def create_app(config_name='default'):
     app.register_blueprint(wishlist_bp, url_prefix='/api/wishlist')
     # Add custom headers to every response
     app.after_request(add_headers)
+
+   
 
     # Test Redis cache endpoint
     @app.route('/api/test-cache')

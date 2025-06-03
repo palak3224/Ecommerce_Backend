@@ -39,40 +39,7 @@ def allowed_file(filename):
 @superadmin_bp.route('/categories', methods=['GET'])
 @super_admin_role_required
 def list_categories():
-    """
-    Get list of all categories.
-    ---
-    tags:
-      - SuperAdmin - Categories
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: List of categories retrieved successfully
-        schema:
-          type: array
-          items:
-            type: object
-            properties:
-              id:
-                type: integer
-              name:
-                type: string
-              slug:
-                type: string
-              parent_id:
-                type: integer
-              icon_url:
-                type: string
-              created_at:
-                type: string
-                format: date-time
-              updated_at:
-                type: string
-                format: date-time
-      500:
-        description: Internal server error
-    """
+    
     try:
         cats = CategoryController.list_all()
         return jsonify([c.serialize() for c in cats]), HTTPStatus.OK
@@ -83,69 +50,7 @@ def list_categories():
 @superadmin_bp.route('/categories', methods=['POST'])
 @super_admin_role_required
 def create_category():
-    """
-    Create a new category.
-    ---
-    tags:
-      - SuperAdmin - Categories
-    security:
-      - Bearer: []
-    parameters:
-      - in: formData
-        name: name
-        type: string
-        required: true
-        description: Category name
-      - in: formData
-        name: slug
-        type: string
-        required: true
-        description: Category slug (URL-friendly identifier)
-      - in: formData
-        name: parent_id
-        type: integer
-        required: false
-        description: ID of parent category (if this is a subcategory)
-      - in: formData
-        name: icon_url
-        type: string
-        required: false
-        description: URL to category icon (if not uploading a file)
-      - in: formData
-        name: icon_file
-        type: file
-        required: false
-        description: Icon file to upload (PNG, JPG, JPEG, GIF, SVG, WEBP)
-    responses:
-      201:
-        description: Category created successfully
-        schema:
-          type: object
-          properties:
-            id:
-              type: integer
-            name:
-              type: string
-            slug:
-              type: string
-            parent_id:
-              type: integer
-            icon_url:
-              type: string
-            created_at:
-              type: string
-              format: date-time
-            updated_at:
-              type: string
-              format: date-time
-      400:
-        description: Bad request - Invalid input data
-      409:
-        description: Conflict - Category with this slug already exists
-      500:
-        description: Internal server error
-    """
-   
+    
     name = request.form.get('name')
     slug = request.form.get('slug')
 
@@ -233,68 +138,7 @@ def create_category():
 @superadmin_bp.route('/categories/<int:cid>', methods=['PUT'])
 @super_admin_role_required
 def update_category(cid):
-    """
-    Update an existing category.
-    ---
-    tags:
-      - SuperAdmin - Categories
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: cid
-        type: integer
-        required: true
-        description: Category ID
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          properties:
-            name:
-              type: string
-              description: Category name
-            slug:
-              type: string
-              description: Category slug (URL-friendly identifier)
-            parent_id:
-              type: integer
-              description: ID of parent category (if this is a subcategory)
-            icon_url:
-              type: string
-              description: URL to category icon
-    responses:
-      200:
-        description: Category updated successfully
-        schema:
-          type: object
-          properties:
-            id:
-              type: integer
-            name:
-              type: string
-            slug:
-              type: string
-            parent_id:
-              type: integer
-            icon_url:
-              type: string
-            created_at:
-              type: string
-              format: date-time
-            updated_at:
-              type: string
-              format: date-time
-      400:
-        description: Bad request - Invalid input data
-      404:
-        description: Category not found
-      409:
-        description: Conflict - Category with this slug already exists
-      500:
-        description: Internal server error
-    """
+    
    
     data = request.get_json()
     if not data:
@@ -331,46 +175,7 @@ def update_category(cid):
 @superadmin_bp.route('/categories/<int:cid>', methods=['DELETE'])
 @super_admin_role_required
 def delete_category(cid):
-    """
-    Delete a category from the database.
-    ---
-    tags:
-      - SuperAdmin - Categories
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: cid
-        type: integer
-        required: true
-        description: Category ID
-    responses:
-      200:
-        description: Category deleted successfully
-        schema:
-          type: object
-          properties:
-            category_id:
-              type: integer
-            name:
-              type: string
-            slug:
-              type: string
-            parent_id:
-              type: integer
-            icon_url:
-              type: string
-            created_at:
-              type: string
-              format: date-time
-            updated_at:
-              type: string
-              format: date-time
-      404:
-        description: Category not found
-      500:
-        description: Internal server error
-    """
+    
     try:
         cat = CategoryController.delete(cid)
         return jsonify(cat.serialize()), HTTPStatus.OK
@@ -385,58 +190,7 @@ def delete_category(cid):
 @superadmin_bp.route('/categories/<int:cid>/upload_icon', methods=['POST'])
 @super_admin_role_required
 def upload_category_icon(cid):
-    """
-    Upload an icon for a category.
-    ---
-    tags:
-      - SuperAdmin - Categories
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: cid
-        type: integer
-        required: true
-        description: Category ID
-      - in: formData
-        name: file
-        type: file
-        required: true
-        description: Icon file to upload (PNG, JPG, JPEG, WEBP)
-    responses:
-      200:
-        description: Icon uploaded successfully
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-            category:
-              type: object
-              properties:
-                id:
-                  type: integer
-                name:
-                  type: string
-                slug:
-                  type: string
-                parent_id:
-                  type: integer
-                icon_url:
-                  type: string
-                created_at:
-                  type: string
-                  format: date-time
-                updated_at:
-                  type: string
-                  format: date-time
-      400:
-        description: Bad request - Invalid file or missing file
-      404:
-        description: Category not found
-      500:
-        description: Internal server error
-    """
+    
     try:
         
         category = Category.query.filter_by(id=cid).first()
@@ -492,41 +246,7 @@ def upload_category_icon(cid):
 @superadmin_bp.route('/brand-requests', methods=['GET'])
 @super_admin_role_required
 def list_brand_requests():
-    """
-    Get list of pending brand requests.
-    ---
-    tags:
-      - SuperAdmin - Brand Requests
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: List of pending brand requests retrieved successfully
-        schema:
-          type: array
-          items:
-            type: object
-            properties:
-              request_id:
-                type: integer
-              name:
-                type: string
-              status:
-                type: string
-                enum: [PENDING, APPROVED, REJECTED]
-              submitted_at:
-                type: string
-                format: date-time
-              reviewed_at:
-                type: string
-                format: date-time
-              reviewer_id:
-                type: integer
-              notes:
-                type: string
-      500:
-        description: Internal server error
-    """
+    
     try:
         requests = BrandRequestController.list_pending()
         return jsonify([r.serialize() for r in requests]), HTTPStatus.OK
@@ -537,52 +257,7 @@ def list_brand_requests():
 @superadmin_bp.route('/brand-requests/<int:rid>/approve', methods=['POST'])
 @super_admin_role_required
 def approve_brand_request(rid):
-    """
-    Approve a brand request and create/update the brand.
-    ---
-    tags:
-      - SuperAdmin - Brand Requests
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: rid
-        type: integer
-        required: true
-        description: Brand request ID
-      - in: formData
-        name: brand_icon_file
-        type: file
-        required: false
-        description: Brand icon file to upload (PNG, JPG, JPEG, WEBP)
-    responses:
-      201:
-        description: Brand request approved and brand created/updated successfully
-        schema:
-          type: object
-          properties:
-            brand_id:
-              type: integer
-            name:
-              type: string
-            slug:
-              type: string
-            icon_url:
-              type: string
-            approved_by:
-              type: integer
-            approved_at:
-              type: string
-              format: date-time
-      400:
-        description: Bad request - Invalid file or request not in pending status
-      404:
-        description: Brand request not found
-      409:
-        description: Conflict - Brand with this name or slug already exists
-      500:
-        description: Internal server error
-    """
+    
     user_id = get_jwt_identity()
     icon_url_from_cloudinary = None
 
@@ -627,60 +302,7 @@ def approve_brand_request(rid):
 @superadmin_bp.route('/brand-requests/<int:rid>/reject', methods=['POST'])
 @super_admin_role_required
 def reject_brand_request(rid):
-    """
-    Reject a brand request.
-    ---
-    tags:
-      - SuperAdmin - Brand Requests
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: rid
-        type: integer
-        required: true
-        description: Brand request ID
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          required:
-            - notes
-          properties:
-            notes:
-              type: string
-              description: Reason for rejection
-    responses:
-      200:
-        description: Brand request rejected successfully
-        schema:
-          type: object
-          properties:
-            request_id:
-              type: integer
-            name:
-              type: string
-            status:
-              type: string
-              enum: [REJECTED]
-            submitted_at:
-              type: string
-              format: date-time
-            reviewed_at:
-              type: string
-              format: date-time
-            reviewer_id:
-              type: integer
-            notes:
-              type: string
-      400:
-        description: Bad request - Missing rejection notes or request not in pending status
-      404:
-        description: Brand request not found
-      500:
-        description: Internal server error
-    """
+    
     user_id = get_jwt_identity()
     data = request.get_json()
     if not data:
@@ -706,46 +328,7 @@ def reject_brand_request(rid):
 @superadmin_bp.route('/brands', methods=['GET'])
 @super_admin_role_required
 def list_brands():
-    """
-    Get list of all brands.
-    ---
-    tags:
-      - SuperAdmin - Brands
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: List of brands retrieved successfully
-        schema:
-          type: array
-          items:
-            type: object
-            properties:
-              brand_id:
-                type: integer
-              name:
-                type: string
-              slug:
-                type: string
-              icon_url:
-                type: string
-              approved_by:
-                type: integer
-              approved_at:
-                type: string
-                format: date-time
-              created_at:
-                type: string
-                format: date-time
-              updated_at:
-                type: string
-                format: date-time
-              deleted_at:
-                type: string
-                format: date-time
-      500:
-        description: Internal server error
-    """
+    
     try:
         brands_list = BrandController.list_all()
         
@@ -757,63 +340,7 @@ def list_brands():
 @superadmin_bp.route('/brands', methods=['POST'])
 @super_admin_role_required
 def create_brand_directly():
-    """
-    Create a new brand directly (not from a brand request).
-    ---
-    tags:
-      - SuperAdmin - Brands
-    security:
-      - Bearer: []
-    parameters:
-      - in: formData
-        name: name
-        type: string
-        required: true
-        description: Brand name
-      - in: formData
-        name: slug
-        type: string
-        required: false
-        description: Brand slug (URL-friendly identifier). If not provided, will be generated from name.
-      - in: formData
-        name: icon_url
-        type: string
-        required: false
-        description: URL to brand icon (if not uploading a file)
-      - in: formData
-        name: icon_file
-        type: file
-        required: false
-        description: Icon file to upload (PNG, JPG, JPEG, GIF, SVG, WEBP)
-    responses:
-      201:
-        description: Brand created successfully
-        schema:
-          type: object
-          properties:
-            brand_id:
-              type: integer
-            name:
-              type: string
-            slug:
-              type: string
-            icon_url:
-              type: string
-            approved_by:
-              type: integer
-            approved_at:
-              type: string
-              format: date-time
-            created_at:
-              type: string
-              format: date-time
-      400:
-        description: Bad request - Invalid input data
-      409:
-        description: Conflict - Brand with this name or slug already exists
-      500:
-        description: Internal server error
-    """ 
+     
     name = request.form.get('name', '').strip()
     slug_provided = request.form.get('slug', '').strip()
 
@@ -893,58 +420,7 @@ def create_brand_directly():
 @superadmin_bp.route('/brands/<int:bid>/upload_icon', methods=['POST'])
 @super_admin_role_required
 def upload_brand_icon(bid):
-    """
-    Upload an icon for a brand.
-    ---
-    tags:
-      - SuperAdmin - Brands
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: bid
-        type: integer
-        required: true
-        description: Brand ID
-      - in: formData
-        name: file
-        type: file
-        required: true
-        description: Icon file to upload (PNG, JPG, JPEG, WEBP)
-    responses:
-      200:
-        description: Icon uploaded successfully
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-            brand:
-              type: object
-              properties:
-                brand_id:
-                  type: integer
-                name:
-                  type: string
-                slug:
-                  type: string
-                icon_url:
-                  type: string
-                approved_by:
-                  type: integer
-                approved_at:
-                  type: string
-                  format: date-time
-                created_at:
-                  type: string
-                  format: date-time
-      400:
-        description: Bad request - Invalid file or missing file
-      404:
-        description: Brand not found
-      500:
-        description: Internal server error
-    """
+    
     try:
         
         brand = Brand.query.filter_by(brand_id=bid).first()
@@ -1073,27 +549,7 @@ def update_brand(bid):
 @superadmin_bp.route('/brands/<int:bid>', methods=['DELETE'])
 @super_admin_role_required
 def delete_brand(bid):
-    """
-    Hard-delete a brand (remove it completely).
-    ---
-    tags:
-      - SuperAdmin - Brands
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: bid
-        type: integer
-        required: true
-        description: Brand ID
-    responses:
-      204:
-        description: Brand deleted successfully (no content)
-      404:
-        description: Brand not found
-      500:
-        description: Internal server error
-    """
+    
     try:
         BrandController.delete(bid)
         return '', HTTPStatus.NO_CONTENT
@@ -1105,51 +561,7 @@ def delete_brand(bid):
 @superadmin_bp.route('/brands/<int:bid>/restore', methods=['POST']) # Or PUT
 @super_admin_role_required
 def restore_brand(bid):
-    """
-    Restore a previously deleted brand.
-    ---
-    tags:
-      - SuperAdmin - Brands
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: bid
-        type: integer
-        required: true
-        description: Brand ID
-    responses:
-      200:
-        description: Brand restored successfully
-        schema:
-          type: object
-          properties:
-            brand_id:
-              type: integer
-            name:
-              type: string
-            slug:
-              type: string
-            icon_url:
-              type: string
-            approved_by:
-              type: integer
-            approved_at:
-              type: string
-              format: date-time
-            created_at:
-              type: string
-              format: date-time
-            updated_at:
-              type: string
-              format: date-time
-            deleted_at:
-              type: null
-      404:
-        description: Brand not found
-      500:
-        description: Internal server error
-    """
+    
     try:
         restored_brand = BrandController.undelete(bid)
         return jsonify(restored_brand.serialize()), HTTPStatus.OK
@@ -1165,127 +577,14 @@ def restore_brand(bid):
 @superadmin_bp.route('/promotions', methods=['GET'])
 @super_admin_role_required
 def list_promotions():
-    """
-    Get list of all promotions.
-    ---
-    tags:
-      - SuperAdmin - Promotions
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: List of promotions retrieved successfully
-        schema:
-          type: array
-          items:
-            type: object
-            properties:
-              id:
-                type: integer
-              name:
-                type: string
-              description:
-                type: string
-              discount_type:
-                type: string
-                enum: [PERCENTAGE, FIXED_AMOUNT]
-              discount_value:
-                type: number
-              start_date:
-                type: string
-                format: date-time
-              end_date:
-                type: string
-                format: date-time
-              active:
-                type: boolean
-              created_at:
-                type: string
-                format: date-time
-              updated_at:
-                type: string
-                format: date-time
-    """
+    
     ps = PromotionController.list_all()
     return jsonify([p.serialize() for p in ps]), 200
 
 @superadmin_bp.route('/promotions', methods=['POST'])
 @super_admin_role_required
 def create_promotion():
-    """
-    Create a new promotion.
-    ---
-    tags:
-      - SuperAdmin - Promotions
-    security:
-      - Bearer: []
-    parameters:
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          required:
-            - name
-            - discount_type
-            - discount_value
-          properties:
-            name:
-              type: string
-              description: Promotion name
-            description:
-              type: string
-              description: Promotion description
-            discount_type:
-              type: string
-              enum: [PERCENTAGE, FIXED_AMOUNT]
-              description: Type of discount
-            discount_value:
-              type: number
-              description: Value of discount (percentage or fixed amount)
-            start_date:
-              type: string
-              format: date-time
-              description: Start date of promotion
-            end_date:
-              type: string
-              format: date-time
-              description: End date of promotion
-            active:
-              type: boolean
-              description: Whether the promotion is active
-    responses:
-      201:
-        description: Promotion created successfully
-        schema:
-          type: object
-          properties:
-            id:
-              type: integer
-            name:
-              type: string
-            description:
-              type: string
-            discount_type:
-              type: string
-            discount_value:
-              type: number
-            start_date:
-              type: string
-              format: date-time
-            end_date:
-              type: string
-              format: date-time
-            active:
-              type: boolean
-            created_at:
-              type: string
-              format: date-time
-      400:
-        description: Bad request - Invalid input data
-      500:
-        description: Internal server error
-    """
+    
     data = request.get_json()
     p = PromotionController.create(data)
     return jsonify(p.serialize()), 201
@@ -1293,83 +592,7 @@ def create_promotion():
 @superadmin_bp.route('/promotions/<int:pid>', methods=['PUT'])
 @super_admin_role_required
 def update_promotion(pid):
-    """
-    Update an existing promotion.
-    ---
-    tags:
-      - SuperAdmin - Promotions
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: pid
-        type: integer
-        required: true
-        description: Promotion ID
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          properties:
-            name:
-              type: string
-              description: Promotion name
-            description:
-              type: string
-              description: Promotion description
-            discount_type:
-              type: string
-              enum: [PERCENTAGE, FIXED_AMOUNT]
-              description: Type of discount
-            discount_value:
-              type: number
-              description: Value of discount (percentage or fixed amount)
-            start_date:
-              type: string
-              format: date-time
-              description: Start date of promotion
-            end_date:
-              type: string
-              format: date-time
-              description: End date of promotion
-            active:
-              type: boolean
-              description: Whether the promotion is active
-    responses:
-      200:
-        description: Promotion updated successfully
-        schema:
-          type: object
-          properties:
-            id:
-              type: integer
-            name:
-              type: string
-            description:
-              type: string
-            discount_type:
-              type: string
-            discount_value:
-              type: number
-            start_date:
-              type: string
-              format: date-time
-            end_date:
-              type: string
-              format: date-time
-            active:
-              type: boolean
-            updated_at:
-              type: string
-              format: date-time
-      404:
-        description: Promotion not found
-      400:
-        description: Bad request - Invalid input data
-      500:
-        description: Internal server error
-    """
+    
     data = request.get_json()
     p = PromotionController.update(pid, data)
     return jsonify(p.serialize()), 200
@@ -1377,39 +600,7 @@ def update_promotion(pid):
 @superadmin_bp.route('/promotions/<int:pid>', methods=['DELETE'])
 @super_admin_role_required
 def delete_promotion(pid):
-    """
-    Delete (soft delete) a promotion.
-    ---
-    tags:
-      - SuperAdmin - Promotions
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: pid
-        type: integer
-        required: true
-        description: Promotion ID
-    responses:
-      200:
-        description: Promotion deleted successfully
-        schema:
-          type: object
-          properties:
-            id:
-              type: integer
-            name:
-              type: string
-            active:
-              type: boolean
-            deleted_at:
-              type: string
-              format: date-time
-      404:
-        description: Promotion not found
-      500:
-        description: Internal server error
-    """
+    
     p = PromotionController.soft_delete(pid)
     return jsonify(p.serialize()), 200
 
@@ -1417,81 +608,14 @@ def delete_promotion(pid):
 @superadmin_bp.route('/reviews', methods=['GET'])
 @super_admin_role_required
 def list_reviews():
-    """
-    Get list of recent reviews.
-    ---
-    tags:
-      - SuperAdmin - Reviews
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: List of recent reviews retrieved successfully
-        schema:
-          type: array
-          items:
-            type: object
-            properties:
-              id:
-                type: integer
-              product_id:
-                type: integer
-              user_id:
-                type: integer
-              rating:
-                type: integer
-              comment:
-                type: string
-              created_at:
-                type: string
-                format: date-time
-              updated_at:
-                type: string
-                format: date-time
-    """
+    
     rs = ReviewController.list_recent()
     return jsonify([r.serialize() for r in rs]), 200
 
 @superadmin_bp.route('/reviews/<int:rid>', methods=['DELETE'])
 @super_admin_role_required
 def delete_review(rid):
-    """
-    Delete a review.
-    ---
-    tags:
-      - SuperAdmin - Reviews
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: rid
-        type: integer
-        required: true
-        description: Review ID
-    responses:
-      200:
-        description: Review deleted successfully
-        schema:
-          type: object
-          properties:
-            id:
-              type: integer
-            product_id:
-              type: integer
-            user_id:
-              type: integer
-            rating:
-              type: integer
-            comment:
-              type: string
-            deleted_at:
-              type: string
-              format: date-time
-      404:
-        description: Review not found
-      500:
-        description: Internal server error
-    """
+    
     r = ReviewController.delete(rid)
     return jsonify(r.serialize()), 200
 
@@ -1502,28 +626,7 @@ from controllers.superadmin.attribute_value_controller import AttributeValueCont
 @superadmin_bp.route('/attribute-values', methods=['GET'])
 @super_admin_role_required
 def list_attribute_values():
-    """
-    Get list of all attribute values.
-    ---
-    tags:
-      - SuperAdmin - Attribute Values
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: List of attribute values retrieved successfully
-        schema:
-          type: array
-          items:
-            type: object
-            properties:
-              attribute_id:
-                type: integer
-              value_code:
-                type: string
-              value_label:
-                type: string
-    """
+    
     avs = AttributeValueController.list_all()
     return jsonify([ {
         'attribute_id': av.attribute_id,
@@ -1534,36 +637,7 @@ def list_attribute_values():
 @superadmin_bp.route('/attribute-values/<int:aid>', methods=['GET'])
 @super_admin_role_required
 def list_values_for_attribute(aid):
-    """
-    Get list of attribute values for a specific attribute.
-    ---
-    tags:
-      - SuperAdmin - Attribute Values
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: aid
-        type: integer
-        required: true
-        description: Attribute ID
-    responses:
-      200:
-        description: List of attribute values for the specified attribute retrieved successfully
-        schema:
-          type: array
-          items:
-            type: object
-            properties:
-              attribute_id:
-                type: integer
-              value_code:
-                type: string
-              value_label:
-                type: string
-      404:
-        description: Attribute not found
-    """
+    
     avs = AttributeValueController.list_for_attribute(aid)
     return jsonify([ {
         'attribute_id': av.attribute_id,
@@ -1574,52 +648,7 @@ def list_values_for_attribute(aid):
 @superadmin_bp.route('/attribute-values', methods=['POST'])
 @super_admin_role_required
 def create_attribute_value():
-    """
-    Create a new attribute value.
-    ---
-    tags:
-      - SuperAdmin - Attribute Values
-    security:
-      - Bearer: []
-    parameters:
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          required:
-            - attribute_id
-            - value_code
-            - value_label
-          properties:
-            attribute_id:
-              type: integer
-              description: ID of the attribute
-            value_code:
-              type: string
-              description: Code for the attribute value (unique identifier)
-            value_label:
-              type: string
-              description: Display label for the attribute value
-    responses:
-      201:
-        description: Attribute value created successfully
-        schema:
-          type: object
-          properties:
-            attribute_id:
-              type: integer
-            value_code:
-              type: string
-            value_label:
-              type: string
-      400:
-        description: Bad request - Invalid input data
-      409:
-        description: Conflict - Attribute value with this code already exists
-      500:
-        description: Internal server error
-    """
+    
     data = request.get_json()
     av = AttributeValueController.create(data)
     return jsonify({
@@ -1631,52 +660,7 @@ def create_attribute_value():
 @superadmin_bp.route('/attribute-values/<int:aid>/<value_code>', methods=['PUT'])
 @super_admin_role_required
 def update_attribute_value(aid, value_code):
-    """
-    Update an existing attribute value.
-    ---
-    tags:
-      - SuperAdmin - Attribute Values
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: aid
-        type: integer
-        required: true
-        description: Attribute ID
-      - in: path
-        name: value_code
-        type: string
-        required: true
-        description: Value code to update
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          properties:
-            value_label:
-              type: string
-              description: New display label for the attribute value
-    responses:
-      200:
-        description: Attribute value updated successfully
-        schema:
-          type: object
-          properties:
-            attribute_id:
-              type: integer
-            value_code:
-              type: string
-            value_label:
-              type: string
-      400:
-        description: Bad request - Invalid input data
-      404:
-        description: Attribute value not found
-      500:
-        description: Internal server error
-    """
+    
     data = request.get_json()
     av = AttributeValueController.update(aid, value_code, data)
     return jsonify({
@@ -1688,32 +672,7 @@ def update_attribute_value(aid, value_code):
 @superadmin_bp.route('/attribute-values/<int:aid>/<value_code>', methods=['DELETE'])
 @super_admin_role_required
 def delete_attribute_value(aid, value_code):
-    """
-    Delete an attribute value.
-    ---
-    tags:
-      - SuperAdmin - Attribute Values
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: aid
-        type: integer
-        required: true
-        description: Attribute ID
-      - in: path
-        name: value_code
-        type: string
-        required: true
-        description: Value code to delete
-    responses:
-      204:
-        description: Attribute value deleted successfully
-      404:
-        description: Attribute value not found
-      500:
-        description: Internal server error
-    """
+    
     AttributeValueController.delete(aid, value_code)
     return '', 204
 
@@ -1722,34 +681,7 @@ def delete_attribute_value(aid, value_code):
 @superadmin_bp.route('/attributes', methods=['GET'])
 @super_admin_role_required
 def list_attributes():
-    """
-    Get list of all attributes.
-    ---
-    tags:
-      - SuperAdmin - Attributes
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: List of attributes retrieved successfully
-        schema:
-          type: array
-          items:
-            type: object
-            properties:
-              attribute_id:
-                type: integer
-              code:
-                type: string
-              name:
-                type: string
-              input_type:
-                type: string
-                enum: [text, number, select, multiselect, boolean]
-              created_at:
-                type: string
-                format: date-time
-    """
+    
     try:
         attrs = AttributeController.list_all()
         return jsonify([a.serialize() for a in attrs]), HTTPStatus.OK
@@ -1761,58 +693,7 @@ def list_attributes():
 @superadmin_bp.route('/attributes', methods=['POST'])
 @super_admin_role_required
 def create_attribute():
-    """
-    Create a new attribute.
-    ---
-    tags:
-      - SuperAdmin - Attributes
-    security:
-      - Bearer: []
-    parameters:
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          required:
-            - code
-            - name
-            - input_type
-          properties:
-            code:
-              type: string
-              description: Unique code for the attribute
-            name:
-              type: string
-              description: Display name for the attribute
-            input_type:
-              type: string
-              enum: [text, number, select, multiselect, boolean]
-              description: Type of input for this attribute
-    responses:
-      201:
-        description: Attribute created successfully
-        schema:
-          type: object
-          properties:
-            attribute_id:
-              type: integer
-            code:
-              type: string
-            name:
-              type: string
-            input_type:
-              type: string
-            created_at:
-              type: string
-              format: date-time
-      400:
-        description: Bad request - Invalid input data
-      409:
-        description: Conflict - Attribute with this code already exists
-      500:
-        description: Internal server error
-    """
+    
     data = request.get_json()
     if not data:
         return jsonify({'message': 'No input data provided'}), HTTPStatus.BAD_REQUEST
@@ -1855,27 +736,7 @@ def create_attribute():
 @superadmin_bp.route('/attributes/<int:attribute_id>', methods=['GET'])
 @super_admin_role_required
 def get_attribute(attribute_id):
-    """
-    Get an attribute by ID.
-    ---
-    tags:
-      - SuperAdmin - Attributes
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: attribute_id
-        type: integer
-        required: true
-        description: Attribute ID
-    responses:
-      200:
-        description: Attribute retrieved successfully
-      404:
-        description: Attribute not found
-      500:
-        description: Internal server error
-    """
+    
     try:
         from models.attribute import Attribute 
         attr = Attribute.query.get_or_404(attribute_id)
@@ -1890,39 +751,7 @@ def get_attribute(attribute_id):
 @superadmin_bp.route('/attributes/<int:attribute_id>', methods=['PUT'])
 @super_admin_role_required
 def update_attribute(attribute_id):
-    """
-    Update an attribute.
-    ---
-    tags:
-      - SuperAdmin - Attributes
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: attribute_id
-        type: integer
-        required: true
-        description: Attribute ID
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          properties:
-            name:
-              type: string
-            input_type:
-              type: string
-    responses:
-      200:
-        description: Attribute updated successfully
-      400:
-        description: Bad request - Invalid input data
-      404:
-        description: Attribute not found
-      500:
-        description: Internal server error
-    """
+    
     data = request.get_json()
     if not data:
         return jsonify({'message': 'No input data provided for update'}), HTTPStatus.BAD_REQUEST
@@ -1944,34 +773,7 @@ def update_attribute(attribute_id):
 @superadmin_bp.route('/attributes/<int:attribute_id>', methods=['DELETE'])
 @super_admin_role_required
 def delete_attribute(attribute_id):
-    """
-    Delete an attribute.
-    ---
-    tags:
-      - SuperAdmin - Attributes
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: attribute_id
-        type: integer
-        required: true
-        description: Attribute ID
-     responses:
-      200:
-        description: Attribute deleted successfully
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-      404:
-        description: Attribute not found
-      409:
-        description: Conflict - Attribute is in use
-      500:
-        description: Internal server error
-    """
+    
     try:
         AttributeController.delete(attribute_id)
         return jsonify({'message': f'Attribute with ID {attribute_id} deleted successfully.'}), HTTPStatus.OK
@@ -1992,27 +794,7 @@ def delete_attribute(attribute_id):
 @superadmin_bp.route('/categories/<int:cid>/attributes', methods=['GET'])
 @super_admin_role_required
 def list_category_attributes_for_category(cid):
-    """
-    Lists attributes associated with a specific category.
-    ---
-    tags:
-      - SuperAdmin - Categories
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: cid
-        type: integer
-        required: true
-        description: Category ID
-    responses:
-      200:
-        description: List of attributes associated with the category
-      404:
-        description: Category not found
-      500:
-        description: Internal server error
-    """
+    
     try:
         associations = CategoryAttributeController.list_attributes_for_category(cid)
        
@@ -2044,52 +826,13 @@ def list_category_attributes_for_category(cid):
 @superadmin_bp.route('/categories/<int:cid>/attributes', methods=['POST'])
 @super_admin_role_required
 def add_attribute_to_category(cid):
-    """
-    Assign an attribute to a category.
-    ---
-    tags:
-      - SuperAdmin - Categories
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: cid
-        type: integer
-        required: true
-        description: Category ID
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          required:
-            - attribute_id
-          properties:
-            attribute_id:
-              type: integer
-              description: ID of the attribute to assign
-            required_flag:
-              type: boolean
-              description: Whether this attribute is required for the category
-    responses:
-      201:
-        description: Attribute assigned to category successfully
-      400:
-        description: Bad request - Invalid input data
-      404:
-        description: Category or attribute not found
-      409:
-        description: Conflict - Attribute already assigned to category
-      500:
-        description: Internal server error
-    """
     data = request.get_json()
     if not data:
         return jsonify({'message': 'Request body is missing or not JSON.'}), HTTPStatus.BAD_REQUEST
     
     try:
         association = CategoryAttributeController.add_attribute_to_category(cid, data)
-       
+        
         attribute_data = None
         if association.attribute:
              attribute_data = {
@@ -2121,405 +864,89 @@ def add_attribute_to_category(cid):
 @superadmin_bp.route('/categories/<int:cid>/attributes/<int:aid>', methods=['PUT'])
 @super_admin_role_required
 def update_attribute_for_category(cid, aid):
-    """
-    Updates the required_flag of an attribute for a category.
-    ---
-    tags:
-      - SuperAdmin - Categories
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: cid
-        type: integer
-        required: true
-        description: Category ID
-      - in: path
-        name: aid
-        type: integer
-        required: true
-        description: Attribute ID
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          properties:
-            required_flag:
-              type: boolean
-              description: Whether this attribute is required for the category
-    responses:
-      200:
-        description: Category attribute updated successfully
-      400:
-        description: Bad request - Invalid input data
-      404:
-        description: Category attribute association not found
-      500:
-        description: Internal server error
-    """
     data = request.get_json()
     if not data:
         return jsonify({'message': 'Request body is missing or not JSON.'}), HTTPStatus.BAD_REQUEST
-
+    
     try:
-        association = CategoryAttributeController.update_category_attribute(cid, aid, data)
-        attribute_data = None
-        if association.attribute:
-             attribute_data = {
-                 'attribute_id': association.attribute.attribute_id,
-                 'name': association.attribute.name,
-                 'code': association.attribute.code
-             }
-        return jsonify({
-            'category_id': association.category_id,
-            'attribute_id': association.attribute_id,
-            'required_flag': association.required_flag,
-            'attribute_details': attribute_data
-        }), HTTPStatus.OK
-    except FileNotFoundError as e: 
-        return jsonify({'message': str(e)}), HTTPStatus.NOT_FOUND
-    except ValueError as e: 
+        association = CategoryAttributeController.update_attribute_for_category(cid, aid, data)
+        return jsonify(association.serialize()), HTTPStatus.OK
+    except ValueError as e:
         return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
     except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Error updating attribute {aid} for category {cid}: {e}")
-        return jsonify({'message': str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
+        current_app.logger.error(f"Error updating attribute for category: {e}")
+        return jsonify({'message': 'Failed to update attribute for category.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 
 @superadmin_bp.route('/categories/<int:cid>/attributes/<int:aid>', methods=['DELETE'])
 @super_admin_role_required
 def remove_attribute_from_category(cid, aid):
-    """
-    Removes an attribute from a category.
-    ---
-    tags:
-      - SuperAdmin - Categories
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: cid
-        type: integer
-        required: true
-        description: Category ID
-      - in: path
-        name: aid
-        type: integer
-        required: true
-        description: Attribute ID
-    responses:
-      204:
-        description: Attribute removed from category successfully
-      404:
-        description: Category attribute association not found
-      500:
-        description: Internal server error
-    """
     try:
         CategoryAttributeController.remove_attribute_from_category(cid, aid)
         return '', HTTPStatus.NO_CONTENT
-    except FileNotFoundError as e: 
-        return jsonify({'message': str(e)}), HTTPStatus.NOT_FOUND
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
     except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Error removing attribute {aid} from category {cid}: {e}")
-        return jsonify({'message': str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
+        current_app.logger.error(f"Error removing attribute from category: {e}")
+        return jsonify({'message': 'Failed to remove attribute from category.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 # ── CATEGORY ATTRIBUTES ─────────────────────────────────────────────────────────
 @superadmin_bp.route('/categories/<int:cid>/assign-attribute', methods=['POST'])
 @super_admin_role_required
 def assign_attribute_to_category(cid):
-    """
-    Assign an attribute to a category.
-    ---
-    tags:
-      - SuperAdmin - Categories
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: cid
-        type: integer
-        required: true
-        description: Category ID
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          required:
-            - attribute_id
-          properties:
-            attribute_id:
-              type: integer
-              description: ID of the attribute to assign
-            required_flag:
-              type: boolean
-              description: Whether this attribute is required for the category
-    responses:
-      200:
-        description: Attribute assigned to category successfully
-        schema:
-          type: object
-          properties:
-            category_id:
-              type: integer
-            attribute_id:
-              type: integer
-            required_flag:
-              type: boolean
-      400:
-        description: Bad request - Invalid input data
-      404:
-        description: Category or attribute not found
-      409:
-        description: Conflict - Attribute already assigned to category
-      500:
-        description: Internal server error
-    """
+    data = request.get_json()
+    if not data:
+        return jsonify({'message': 'Request body is missing or not JSON.'}), HTTPStatus.BAD_REQUEST
+    
     try:
-        data = request.get_json()
-        if not data or 'attribute_id' not in data:
-            return jsonify({'message': 'Attribute ID is required'}), HTTPStatus.BAD_REQUEST
-
-        attribute_id = data.get('attribute_id')
-        required_flag = data.get('required_flag', False)
-
-        # Get the category - removed deleted_at filter
-        category = Category.query.filter_by(category_id=cid).first()
-        if not category:
-            return jsonify({'message': 'Category not found'}), HTTPStatus.NOT_FOUND
-
-        # Get the attribute - removed deleted_at filter
-        attribute = Attribute.query.filter_by(attribute_id=attribute_id).first()
-        if not attribute:
-            return jsonify({'message': 'Attribute not found'}), HTTPStatus.NOT_FOUND
-
-        # Check if attribute is already assigned to category
-        existing = CategoryAttribute.query.filter_by(
-            category_id=cid,
-            attribute_id=attribute_id
-        ).first()
-
-        if existing:
-            return jsonify({'message': 'Attribute is already assigned to this category'}), HTTPStatus.CONFLICT
-
-        # Create new category attribute
-        category_attribute = CategoryAttribute(
-            category_id=cid,
-            attribute_id=attribute_id,
-            required_flag=required_flag
-        )
-
-        db.session.add(category_attribute)
-        db.session.commit()
-
-        return jsonify({
-            'category_id': category_attribute.category_id,
-            'attribute_id': category_attribute.attribute_id,
-            'required_flag': category_attribute.required_flag
-        }), HTTPStatus.OK
-
+        association = CategoryAttributeController.add_attribute_to_category(cid, data)
+        return jsonify(association.serialize()), HTTPStatus.CREATED
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
     except Exception as e:
-        db.session.rollback()
         current_app.logger.error(f"Error assigning attribute to category: {e}")
-        return jsonify({'message': f'Could not assign attribute to category: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+        return jsonify({'message': 'Failed to assign attribute to category.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 # ── BRAND CATEGORIES ────────────────────────────────────────────────────────────
 @superadmin_bp.route('/brands/<int:bid>/categories/<int:cid>', methods=['POST'])
 @super_admin_role_required
 def add_category_to_brand(bid, cid):
-    """
-    Add a category to a brand.
-    ---
-    tags:
-      - SuperAdmin - Brands
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: bid
-        type: integer
-        required: true
-        description: Brand ID
-      - in: path
-        name: cid
-        type: integer
-        required: true
-        description: Category ID
-    responses:
-      200:
-        description: Category added to brand successfully
-        schema:
-          type: object
-          properties:
-            brand_id:
-              type: integer
-            name:
-              type: string
-            categories:
-              type: array
-              items:
-                type: object
-                properties:
-                  category_id:
-                    type: integer
-                  name:
-                    type: string
-      404:
-        description: Brand or category not found
-      500:
-        description: Internal server error
-    """
     try:
-        brand = BrandController.add_category(bid, cid)
-        return jsonify(brand.serialize()), HTTPStatus.OK
-    except FileNotFoundError as e:
-        return jsonify({'message': str(e)}), HTTPStatus.NOT_FOUND
+        association = BrandCategoryController.add_category_to_brand(bid, cid)
+        return jsonify(association.serialize()), HTTPStatus.CREATED
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
     except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Error adding category {cid} to brand {bid}: {e}")
-        return jsonify({'message': f'Could not add category to brand: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+        current_app.logger.error(f"Error adding category to brand: {e}")
+        return jsonify({'message': 'Failed to add category to brand.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @superadmin_bp.route('/brands/<int:bid>/categories/<int:cid>', methods=['DELETE'])
 @super_admin_role_required
 def remove_category_from_brand(bid, cid):
-    """
-    Remove a category from a brand.
-    ---
-    tags:
-      - SuperAdmin - Brands
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: bid
-        type: integer
-        required: true
-        description: Brand ID
-      - in: path
-        name: cid
-        type: integer
-        required: true
-        description: Category ID
-    responses:
-      200:
-        description: Category removed from brand successfully
-        schema:
-          type: object
-          properties:
-            brand_id:
-              type: integer
-            name:
-              type: string
-            categories:
-              type: array
-              items:
-                type: object
-                properties:
-                  category_id:
-                    type: integer
-                  name:
-                    type: string
-      404:
-        description: Brand or category not found
-      500:
-        description: Internal server error
-    """
     try:
-        brand = BrandController.remove_category(bid, cid)
-        return jsonify(brand.serialize()), HTTPStatus.OK
-    except FileNotFoundError as e:
-        return jsonify({'message': str(e)}), HTTPStatus.NOT_FOUND
+        BrandCategoryController.remove_category_from_brand(bid, cid)
+        return '', HTTPStatus.NO_CONTENT
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
     except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Error removing category {cid} from brand {bid}: {e}")
-        return jsonify({'message': f'Could not remove category from brand: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+        current_app.logger.error(f"Error removing category from brand: {e}")
+        return jsonify({'message': 'Failed to remove category from brand.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @superadmin_bp.route('/brands/<int:bid>/categories', methods=['GET'])
 @super_admin_role_required
 def get_brand_categories(bid):
-    """
-    Get all categories associated with a brand.
-    ---
-    tags:
-      - SuperAdmin - Brands
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: bid
-        type: integer
-        required: true
-        description: Brand ID
-    responses:
-      200:
-        description: List of categories retrieved successfully
-        schema:
-          type: array
-          items:
-            type: object
-            properties:
-              category_id:
-                type: integer
-              name:
-                type: string
-              slug:
-                type: string
-              icon_url:
-                type: string
-      404:
-        description: Brand not found
-      500:
-        description: Internal server error
-    """
     try:
-        categories = BrandController.get_categories(bid)
+        categories = BrandCategoryController.get_categories_for_brand(bid)
         return jsonify([c.serialize() for c in categories]), HTTPStatus.OK
-    except FileNotFoundError as e:
-        return jsonify({'message': str(e)}), HTTPStatus.NOT_FOUND
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
     except Exception as e:
-        current_app.logger.error(f"Error getting categories for brand {bid}: {e}")
-        return jsonify({'message': f'Could not get brand categories: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+        current_app.logger.error(f"Error getting categories for brand: {e}")
+        return jsonify({'message': 'Failed to get categories for brand.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @superadmin_bp.route('/categories/main', methods=['GET'])
 @super_admin_role_required
 def list_main_categories():
-    """
-    Get list of main categories (categories without parent).
-    ---
-    tags:
-      - SuperAdmin - Categories
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: List of main categories retrieved successfully
-        schema:
-          type: array
-          items:
-            type: object
-            properties:
-              id:
-                type: integer
-              name:
-                type: string
-              slug:
-                type: string
-              parent_id:
-                type: integer
-              icon_url:
-                type: string
-              created_at:
-                type: string
-                format: date-time
-              updated_at:
-                type: string
-                format: date-time
-      500:
-        description: Internal server error
-    """
     try:
         cats = CategoryController.get_main_categories()
         return jsonify([c.serialize() for c in cats]), HTTPStatus.OK
@@ -2530,49 +957,6 @@ def list_main_categories():
 @superadmin_bp.route('/homepage/categories', methods=['GET'])
 @super_admin_role_required
 def get_featured_categories():
-    """
-    Get list of featured categories for homepage.
-    ---
-    tags:
-      - SuperAdmin - Homepage
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: List of featured categories retrieved successfully
-        schema:
-          type: array
-          items:
-            type: object
-            properties:
-              id:
-                type: integer
-              category_id:
-                type: integer
-              display_order:
-                type: integer
-              is_active:
-                type: boolean
-              category:
-                type: object
-                properties:
-                  category_id:
-                    type: integer
-                  name:
-                    type: string
-                  slug:
-                    type: string
-                  icon_url:
-                    type: string
-              created_at:
-                type: string
-                format: date-time
-              updated_at:
-                type: string
-                format: date-time
-      500:
-        description: Internal server error
-    """
     try:
         categories = HomepageController.get_featured_categories()
         return jsonify([c.serialize() for c in categories]), HTTPStatus.OK
@@ -2583,59 +967,6 @@ def get_featured_categories():
 @superadmin_bp.route('/homepage/categories', methods=['POST'])
 @super_admin_role_required
 def update_featured_categories():
-    """
-    Update the featured categories for homepage.
-    ---
-    tags:
-      - SuperAdmin - Homepage
-    security:
-      - Bearer: []
-    parameters:
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          required:
-            - category_ids
-          properties:
-            category_ids:
-              type: array
-              items:
-                type: integer
-              description: List of category IDs to feature on homepage
-    responses:
-      200:
-        description: Featured categories updated successfully
-        schema:
-          type: array
-          items:
-            type: object
-            properties:
-              id:
-                type: integer
-              category_id:
-                type: integer
-              display_order:
-                type: integer
-              is_active:
-                type: boolean
-              category:
-                type: object
-                properties:
-                  category_id:
-                    type: integer
-                  name:
-                    type: string
-                  slug:
-                    type: string
-                  icon_url:
-                    type: string
-      400:
-        description: Bad request - Invalid input data
-      500:
-        description: Internal server error
-    """
     try:
         data = request.get_json()
         if not data or 'category_ids' not in data:
@@ -2651,68 +982,6 @@ def update_featured_categories():
 @superadmin_bp.route('/products/pending', methods=['GET'])
 @super_admin_role_required
 def list_pending_products():
-    """
-    Get list of pending products.
-    ---
-    tags:
-      - SuperAdmin - Product Monitoring
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: List of pending products retrieved successfully
-        schema:
-          type: array
-          items:
-            type: object
-            properties:
-              product_id:
-                type: integer
-              product_name:
-                type: string
-              sku:
-                type: string
-              status:
-                type: string
-              cost_price:
-                type: number
-              selling_price:
-                type: number
-              media:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    media_id:
-                      type: integer
-                    url:
-                      type: string
-                    type:
-                      type: string
-              meta:
-                type: object
-                properties:
-                  short_desc:
-                    type: string
-                  full_desc:
-                    type: string
-              brand:
-                type: object
-                properties:
-                  brand_id:
-                    type: integer
-                  name:
-                    type: string
-              category:
-                type: object
-                properties:
-                  category_id:
-                    type: integer
-                  name:
-                    type: string
-      500:
-        description: Internal server error
-    """
     try:
         products = ProductMonitoringController.get_pending_products()
         return jsonify([{
@@ -2734,68 +1003,7 @@ def list_pending_products():
 @superadmin_bp.route('/products/approved', methods=['GET'])
 @super_admin_role_required
 def list_approved_products():
-    """
-    Get list of approved products.
-    ---
-    tags:
-      - SuperAdmin - Product Monitoring
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: List of approved products retrieved successfully
-        schema:
-          type: array
-          items:
-            type: object
-            properties:
-              product_id:
-                type: integer
-              product_name:
-                type: string
-              sku:
-                type: string
-              status:
-                type: string
-              cost_price:
-                type: number
-              selling_price:
-                type: number
-              media:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    media_id:
-                      type: integer
-                    url:
-                      type: string
-                    type:
-                      type: string
-              meta:
-                type: object
-                properties:
-                  short_desc:
-                    type: string
-                  full_desc:
-                    type: string
-              brand:
-                type: object
-                properties:
-                  brand_id:
-                    type: integer
-                  name:
-                    type: string
-              category:
-                type: object
-                properties:
-                  category_id:
-                    type: integer
-                  name:
-                    type: string
-      500:
-        description: Internal server error
-    """
+    
     try:
         products = ProductMonitoringController.get_approved_products()
         return jsonify([{
@@ -2817,70 +1025,7 @@ def list_approved_products():
 @superadmin_bp.route('/products/rejected', methods=['GET'])
 @super_admin_role_required
 def list_rejected_products():
-    """
-    Get list of rejected products.
-    ---
-    tags:
-      - SuperAdmin - Product Monitoring
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: List of rejected products retrieved successfully
-        schema:
-          type: array
-          items:
-            type: object
-            properties:
-              product_id:
-                type: integer
-              product_name:
-                type: string
-              sku:
-                type: string
-              status:
-                type: string
-              cost_price:
-                type: number
-              selling_price:
-                type: number
-              rejection_reason:
-                type: string
-              media:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    media_id:
-                      type: integer
-                    url:
-                      type: string
-                    type:
-                      type: string
-              meta:
-                type: object
-                properties:
-                  short_desc:
-                    type: string
-                  full_desc:
-                    type: string
-              brand:
-                type: object
-                properties:
-                  brand_id:
-                    type: integer
-                  name:
-                    type: string
-              category:
-                type: object
-                properties:
-                  category_id:
-                    type: integer
-                  name:
-                    type: string
-      500:
-        description: Internal server error
-    """
+    
     try:
         products = ProductMonitoringController.get_rejected_products()
         return jsonify([{
@@ -2903,43 +1048,6 @@ def list_rejected_products():
 @superadmin_bp.route('/products/<int:product_id>/approve', methods=['POST'])
 @super_admin_role_required
 def approve_product(product_id):
-    """
-    Approve a product.
-    ---
-    tags:
-      - SuperAdmin - Product Monitoring
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: product_id
-        type: integer
-        required: true
-        description: Product ID
-    responses:
-      200:
-        description: Product approved successfully
-        schema:
-          type: object
-          properties:
-            product_id:
-              type: integer
-            product_name:
-              type: string
-            status:
-              type: string
-            approved_at:
-              type: string
-              format: date-time
-            approved_by:
-              type: integer
-      400:
-        description: Bad request - Product is not in pending status
-      404:
-        description: Product not found
-      500:
-        description: Internal server error
-    """
     try:
         admin_id = get_jwt_identity()
         product = ProductMonitoringController.approve_product(product_id, admin_id)
@@ -2959,7 +1067,6 @@ def approve_product(product_id):
 @superadmin_bp.route('/products/<int:product_id>/reject', methods=['POST'])
 @super_admin_role_required
 def reject_product(product_id):
-    
     try:
         data = request.get_json()
         if not data or 'reason' not in data:
@@ -2996,28 +1103,7 @@ def get_product_details(product_id):
 @cross_origin()
 @super_admin_role_required
 def list_products():
-    """
-    Get list of all products.
-    ---
-    tags:
-      - SuperAdmin - Products
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: List of products retrieved successfully
-        schema:
-          type: array
-          items:
-            type: object
-            properties:
-              product_id:
-                type: integer
-              product_name:
-                type: string
-      500:
-        description: Internal server error
-    """
+    
     if request.method == 'OPTIONS':
         return '', HTTPStatus.OK
         
