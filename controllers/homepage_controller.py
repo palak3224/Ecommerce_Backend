@@ -6,6 +6,7 @@ from models.enums import MediaType
 from common.database import db
 from flask import jsonify
 import logging
+from models.carousel import Carousel
 
 class HomepageController:
     @staticmethod
@@ -131,4 +132,23 @@ class HomepageController:
                 'status': 'error',
                 'message': 'Failed to retrieve homepage products',
                 'error': str(e)
-            }), 500 
+            }), 500
+
+    @staticmethod
+    def get_homepage_carousels(carousel_type=None):
+        """
+        Get all active carousel items for homepage (optionally filter by type).
+        Args:
+            carousel_type (str): 'brand' or 'product' (optional)
+        Returns:
+            list: List of carousel items (dicts)
+        """
+        try:
+            query = Carousel.query.filter_by(is_active=True, deleted_at=None)
+            if carousel_type:
+                query = query.filter_by(type=carousel_type)
+            items = query.order_by(Carousel.display_order).all()
+            return [item.serialize() for item in items]
+        except Exception as e:
+            logging.error(f"Error in get_homepage_carousels: {str(e)}")
+            return [] 

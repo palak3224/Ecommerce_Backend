@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from http import HTTPStatus
 from datetime import datetime, timezone 
 import re
+from flask_cors import cross_origin
 
 from controllers.superadmin.category_controller import CategoryController
 from controllers.superadmin.attribute_controller import AttributeController
@@ -22,6 +23,8 @@ from controllers.superadmin.review_controller import ReviewController
 from controllers.superadmin.category_attribute_controller import CategoryAttributeController 
 from controllers.superadmin.homepage_controller import HomepageController
 from controllers.superadmin.product_monitoring_controller import ProductMonitoringController
+from controllers.superadmin.product_controller import ProductController
+from controllers.superadmin.carousel_controller import CarouselController
 
 
 superadmin_bp = Blueprint('superadmin_bp', __name__)
@@ -2988,3 +2991,134 @@ def get_product_details(product_id):
     except Exception as e:
         current_app.logger.error(f"Error getting product details for {product_id}: {e}")
         return jsonify({'message': 'Failed to retrieve product details.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/products', methods=['GET', 'OPTIONS'])
+@cross_origin()
+@super_admin_role_required
+def list_products():
+    """
+    Get list of all products.
+    ---
+    tags:
+      - SuperAdmin - Products
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of products retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id:
+                type: integer
+              product_name:
+                type: string
+      500:
+        description: Internal server error
+    """
+    if request.method == 'OPTIONS':
+        return '', HTTPStatus.OK
+        
+    try:
+        products = ProductController.list_all()
+        return jsonify([{
+            'product_id': p.product_id,
+            'product_name': p.product_name
+        } for p in products]), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error listing products: {e}")
+        return jsonify({'message': 'Failed to retrieve products.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/carousels', methods=['GET', 'POST', 'OPTIONS'])
+@cross_origin()
+@super_admin_role_required
+def carousels_handler():
+    """
+    GET: List all carousel items.
+    POST: Create a new carousel item (with image upload and shareable_link).
+    OPTIONS: CORS preflight.
+    """
+    from controllers.superadmin.carousel_controller import CarouselController
+    from flask import request, jsonify, current_app
+    from http import HTTPStatus
+    if request.method == 'OPTIONS':
+        return '', HTTPStatus.OK
+    if request.method == 'GET':
+        try:
+            carousels = CarouselController.list_all()
+            return jsonify([
+                {
+                    'id': c.id,
+                    'type': c.type,
+                    'image_url': c.image_url,
+                    'target_id': c.target_id,
+                    'display_order': c.display_order,
+                    'is_active': c.is_active,
+                    'shareable_link': c.shareable_link
+                } for c in carousels
+            ]), HTTPStatus.OK
+        except Exception as e:
+            current_app.logger.error(f"Error listing carousels: {e}")
+            return jsonify({'message': 'Failed to retrieve carousels.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+    if request.method == 'POST':
+        try:
+            # Accept multipart/form-data
+            type_ = request.form.get('type')
+            target_id = request.form.get('target_id')
+            shareable_link = request.form.get('shareable_link')
+            display_order = request.form.get('display_order', 0)
+            is_active = request.form.get('is_active', 'true').lower() == 'true'
+            image_file = request.files.get('image')
+            if not type_ or not target_id or not image_file:
+                return jsonify({'message': 'type, target_id, and image are required.'}), HTTPStatus.BAD_REQUEST
+            data = {
+                'type': type_,
+                'target_id': int(target_id),
+                'display_order': int(display_order),
+                'is_active': is_active,
+                'shareable_link': shareable_link
+            }
+            carousel = CarouselController.create(data, image_file=image_file)
+            return jsonify(carousel.serialize()), HTTPStatus.CREATED
+        except Exception as e:
+            current_app.logger.error(f"Error creating carousel: {e}")
+            return jsonify({'message': f'Failed to create carousel: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/carousels/<int:carousel_id>', methods=['DELETE'])
+@cross_origin()
+@super_admin_role_required
+def delete_carousel(carousel_id):
+    """
+    Soft delete a carousel item.
+    """
+    from controllers.superadmin.carousel_controller import CarouselController
+    from flask import jsonify, current_app
+    from http import HTTPStatus
+    try:
+        carousel = CarouselController.delete(carousel_id)
+        return jsonify({'message': 'Carousel deleted successfully', 'id': carousel.id}), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error deleting carousel {carousel_id}: {e}")
+        return jsonify({'message': f'Failed to delete carousel: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/carousels/order', methods=['PUT'])
+@cross_origin()
+@super_admin_role_required
+def update_carousel_order():
+    """
+    Update display order for carousel items.
+    """
+    from controllers.superadmin.carousel_controller import CarouselController
+    from flask import request, jsonify, current_app
+    from http import HTTPStatus
+    try:
+        data = request.get_json()
+        if not data or 'order' not in data:
+            return jsonify({'message': 'Missing order data'}), HTTPStatus.BAD_REQUEST
+        updated = CarouselController.update_display_orders(data['order'])
+        return jsonify({'message': f'Updated {updated} carousel items'}), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error updating carousel order: {e}")
+        return jsonify({'message': f'Failed to update carousel order: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR

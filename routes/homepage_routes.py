@@ -1,4 +1,4 @@
-from flask import Blueprint
+from flask import Blueprint, request, jsonify, current_app
 from controllers.homepage_controller import HomepageController
 from flask_cors import cross_origin
 
@@ -59,5 +59,24 @@ def get_homepage_products():
       500:
         description: Internal server error
     """
-    return HomepageController.get_homepage_products() 
+    return HomepageController.get_homepage_products()
+
+@homepage_bp.route('/carousels', methods=['GET', 'OPTIONS'])
+@homepage_bp.route('/carousels/', methods=['GET', 'OPTIONS'])
+@cross_origin()
+def get_homepage_carousels():
+    """
+    Get all active carousel items for homepage (optionally filter by type).
+    Query params:
+      - type: 'brand' or 'product' (optional)
+    """
+    if request.method == 'OPTIONS':
+        return '', 200
+    try:
+        carousel_type = request.args.get('type')
+        items = HomepageController.get_homepage_carousels(carousel_type)
+        return jsonify(items), 200
+    except Exception as e:
+        current_app.logger.error(f"Error fetching homepage carousels: {e}")
+        return jsonify({'message': 'Failed to fetch homepage carousels.'}), 500 
     
