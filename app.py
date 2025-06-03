@@ -22,6 +22,7 @@ from routes.category_routes import category_bp
 from routes.brand_routes import brand_bp
 from routes.homepage_routes import homepage_bp
 from routes.cart_routes import cart_bp
+from routes.wishlist_routes import wishlist_bp
 
 from auth.admin_routes import admin_bp
 from flasgger import Swagger
@@ -119,6 +120,7 @@ def create_app(config_name='default'):
     app.register_blueprint(brand_bp, url_prefix='/api/brands')
     app.register_blueprint(homepage_bp, url_prefix='/api/homepage')
     app.register_blueprint(cart_bp, url_prefix='/api/cart')
+    app.register_blueprint(wishlist_bp, url_prefix='/api/wishlist')
     # Add custom headers to every response
     app.after_request(add_headers)
 
