@@ -6,6 +6,8 @@ from common.database import db
 import cloudinary
 import cloudinary.uploader
 from werkzeug.exceptions import NotFound
+from models.product import Product
+from models.product_stock import ProductStock
 from controllers.merchant.brand_request_controller import MerchantBrandRequestController
 from controllers.merchant.brand_controller         import MerchantBrandController
 from controllers.merchant.category_controller      import MerchantCategoryController
@@ -24,7 +26,10 @@ from controllers.merchant.product_placement_controller import MerchantProductPla
 
 from controllers.merchant.tax_category_controller  import MerchantTaxCategoryController
 from controllers.merchant.product_stock_controller import MerchantProductStockController
-from flask_jwt_extended import get_jwt_identity
+from flask_jwt_extended import get_jwt_identity, jwt_required
+
+from controllers.merchant.order_controller import MerchantOrderController
+from auth.models.models import MerchantProfile
 
 
 ALLOWED_MEDIA_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'mov', 'avi'} 
@@ -656,49 +661,159 @@ def get_brands_for_category(cid):
 @merchant_dashboard_bp.route('/products/<int:pid>/stock', methods=['GET'])
 @merchant_role_required
 def get_product_stock(pid):
+    """
+    Get stock information for a specific product
+    ---
+    tags:
+      - Merchant - Inventory
+    security:
+      - Bearer: []
+    parameters:
+      - name: pid
+        in: path
+        type: integer
+        required: true
+        description: Product ID
+    responses:
+      200:
+        description: Stock information retrieved successfully
+      404:
+        description: Product not found
+      500:
+        description: Internal server error
+    """
     try:
         stock = MerchantProductStockController.get(pid)
         return jsonify(stock.serialize()), HTTPStatus.OK
     except Exception as e:
-        current_app.logger.error(f"Merchant: Error getting stock for product {pid}: {e}")
+        current_app.logger.error(f"Error getting stock for product {pid}: {str(e)}")
         return jsonify({'message': 'Failed to retrieve product stock.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @merchant_dashboard_bp.route('/products/<int:pid>/stock', methods=['PUT'])
 @merchant_role_required
 def update_product_stock(pid):
+    """
+    Update stock information for a specific product
+    ---
+    tags:
+      - Merchant - Inventory
+    security:
+      - Bearer: []
+    parameters:
+      - name: pid
+        in: path
+        type: integer
+        required: true
+        description: Product ID
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              stock_qty:
+                type: integer
+                minimum: 0
+              low_stock_threshold:
+                type: integer
+                minimum: 0
+    responses:
+      200:
+        description: Stock information updated successfully
+      400:
+        description: Invalid request data
+      404:
+        description: Product not found
+      500:
+        description: Internal server error
+    """
     try:
         data = request.get_json()
         if not data:
             return jsonify({'message': 'No data provided'}), HTTPStatus.BAD_REQUEST
-        
-        stock = MerchantProductStockController.update(pid, data)
-        return jsonify(stock.serialize()), HTTPStatus.OK
+
+        result = MerchantProductStockController.update(pid, data)
+        return jsonify(result), HTTPStatus.OK
     except Exception as e:
-        current_app.logger.error(f"Merchant: Error updating stock for product {pid}: {e}")
+        current_app.logger.error(f"Error updating stock for product {pid}: {str(e)}")
         return jsonify({'message': 'Failed to update product stock.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @merchant_dashboard_bp.route('/products/<int:pid>/stock/bulk-update', methods=['POST'])
 @merchant_role_required
 def bulk_update_product_stock(pid):
+    """
+    Bulk update stock information for multiple variants of a product
+    ---
+    tags:
+      - Merchant - Inventory
+    security:
+      - Bearer: []
+    parameters:
+      - name: pid
+        in: path
+        type: integer
+        required: true
+        description: Product ID
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              type: object
+              properties:
+                variant_id:
+                  type: integer
+                stock_qty:
+                  type: integer
+                  minimum: 0
+                low_stock_threshold:
+                  type: integer
+                  minimum: 0
+    responses:
+      200:
+        description: Stock information updated successfully
+      400:
+        description: Invalid request data
+      404:
+        description: Product not found
+      500:
+        description: Internal server error
+    """
     try:
         data = request.get_json()
         if not data or not isinstance(data, list):
             return jsonify({'message': 'Invalid data format'}), HTTPStatus.BAD_REQUEST
-        
+
         results = MerchantProductStockController.bulk_update(pid, data)
         return jsonify([stock.serialize() for stock in results]), HTTPStatus.OK
     except Exception as e:
-        current_app.logger.error(f"Merchant: Error bulk updating stock for product {pid}: {e}")
+        current_app.logger.error(f"Error bulk updating stock for product {pid}: {str(e)}")
         return jsonify({'message': 'Failed to bulk update product stock.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @merchant_dashboard_bp.route('/products/stock/low-stock', methods=['GET'])
 @merchant_role_required
 def get_low_stock_products():
+    """
+    Get all products with stock below their threshold
+    ---
+    tags:
+      - Merchant - Inventory
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of low stock products retrieved successfully
+      500:
+        description: Internal server error
+    """
     try:
         low_stock = MerchantProductStockController.get_low_stock()
         return jsonify([stock.serialize() for stock in low_stock]), HTTPStatus.OK
     except Exception as e:
-        current_app.logger.error(f"Merchant: Error getting low stock products: {e}")
+        current_app.logger.error(f"Error getting low stock products: {str(e)}")
         return jsonify({'message': 'Failed to retrieve low stock products.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 # VARIANT MEDIA
@@ -878,3 +993,301 @@ def reject_product(pid):
     except Exception as e:
         current_app.logger.error(f"Error rejecting product {pid}: {e}")
         return jsonify({'message': 'Failed to reject product.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+# ── MERCHANT ORDERS ───────────────────────────────────────────────────────────
+@merchant_dashboard_bp.route('/orders', methods=['GET'])
+@jwt_required()
+def get_merchant_orders():
+    """
+    Get all orders for a merchant's products
+    ---
+    parameters:
+      - name: page
+        in: query
+        type: integer
+        default: 1
+        description: Page number for pagination
+      - name: per_page
+        in: query
+        type: integer
+        default: 50
+        description: Number of items per page
+      - name: status
+        in: query
+        type: string
+        description: Filter by order status (PENDING_PAYMENT, PROCESSING, SHIPPED, DELIVERED, CANCELLED)
+      - name: payment_status
+        in: query
+        type: string
+        description: Filter by payment status (PENDING, COMPLETED, FAILED, REFUNDED)
+      - name: start_date
+        in: query
+        type: string
+        format: date
+        description: Filter by start date (ISO format)
+      - name: end_date
+        in: query
+        type: string
+        format: date
+        description: Filter by end date (ISO format)
+    responses:
+      200:
+        description: List of orders
+      400:
+        description: Invalid parameters
+      500:
+        description: Internal server error
+    """
+    try:
+        # Get the current user's ID from the JWT token
+        current_user_id = get_jwt_identity()
+        
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 50, type=int)
+        status = request.args.get('status')
+        payment_status = request.args.get('payment_status')
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+
+        result = MerchantOrderController.get_merchant_orders(
+            user_id=current_user_id,
+            page=page,
+            per_page=per_page,
+            status=status,
+            payment_status=payment_status,
+            start_date=start_date,
+            end_date=end_date
+        )
+        return jsonify(result), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        current_app.logger.error(f"Error getting merchant orders: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@merchant_dashboard_bp.route('/orders/<order_id>', methods=['GET'])
+@jwt_required()
+def get_merchant_order_details(order_id):
+    """
+    Get detailed information about a specific order
+    ---
+    parameters:
+      - name: order_id
+        in: path
+        type: string
+        required: true
+        description: Order ID
+    responses:
+      200:
+        description: Order details
+      404:
+        description: Order not found
+      500:
+        description: Internal server error
+    """
+    try:
+        # Get the current user's ID from the JWT token
+        current_user_id = get_jwt_identity()
+        
+        result = MerchantOrderController.get_merchant_order_details(
+            user_id=current_user_id,
+            order_id=order_id
+        )
+        return jsonify(result), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        current_app.logger.error(f"Error getting merchant order details: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@merchant_dashboard_bp.route('/orders/stats', methods=['GET'])
+@jwt_required()
+def get_merchant_order_stats():
+    """
+    Get order statistics for a merchant
+    ---
+    parameters:
+      - name: days
+        in: query
+        type: integer
+        default: 30
+        description: Number of days to include in statistics
+    responses:
+      200:
+        description: Order statistics
+      500:
+        description: Internal server error
+    """
+    try:
+        # Get the current user's ID from the JWT token
+        current_user_id = get_jwt_identity()
+        
+        days = request.args.get('days', 30, type=int)
+        result = MerchantOrderController.get_merchant_order_stats(
+            user_id=current_user_id,
+            days=days
+        )
+        return jsonify(result), 200
+    except Exception as e:
+        current_app.logger.error(f"Error getting merchant order stats: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+# ── INVENTORY MANAGEMENT ─────────────────────────────────────────────────────
+@merchant_dashboard_bp.route('/inventory/stats', methods=['GET'])
+@merchant_role_required
+def get_inventory_stats():
+    """
+    Get inventory statistics for a merchant
+    ---
+    tags:
+      - Merchant - Inventory
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: Inventory statistics retrieved successfully
+        schema:
+          type: object
+          properties:
+            total_products:
+              type: integer
+            low_stock_products:
+              type: integer
+            out_of_stock_products:
+              type: integer
+            inventory_value:
+              type: number
+      500:
+        description: Internal server error
+    """
+    try:
+        current_user_id = get_jwt_identity()
+        stats = MerchantProductStockController.get_inventory_stats(current_user_id)
+        return jsonify(stats), HTTPStatus.OK
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+    except Exception as e:
+        current_app.logger.error(f"Error getting inventory stats: {str(e)}")
+        return jsonify({'message': 'Failed to retrieve inventory statistics.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchant_dashboard_bp.route('/inventory/products', methods=['GET'])
+@merchant_role_required
+def list_inventory_products():
+    """
+    Get all products with their inventory information
+    ---
+    tags:
+      - Merchant - Inventory
+    security:
+      - Bearer: []
+    parameters:
+      - name: page
+        in: query
+        type: integer
+        default: 1
+        description: Page number for pagination
+      - name: per_page
+        in: query
+        type: integer
+        default: 50
+        description: Number of items per page
+      - name: search
+        in: query
+        type: string
+        description: Search term for product name or SKU
+      - name: category
+        in: query
+        type: string
+        description: Filter by category (ID or slug)
+      - name: brand
+        in: query
+        type: string
+        description: Filter by brand (ID or slug)
+      - name: stock_status
+        in: query
+        type: string
+        enum: [in_stock, low_stock, out_of_stock]
+        description: Filter by stock status
+    responses:
+      200:
+        description: List of products with inventory information
+        schema:
+          type: object
+          properties:
+            products:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  name:
+                    type: string
+                  sku:
+                    type: string
+                  category:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      name:
+                        type: string
+                      slug:
+                        type: string
+                  brand:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      name:
+                        type: string
+                      slug:
+                        type: string
+                  stock_qty:
+                    type: integer
+                  low_stock_threshold:
+                    type: integer
+                  available:
+                    type: integer
+                  image_url:
+                    type: string
+            pagination:
+              type: object
+              properties:
+                total:
+                  type: integer
+                current_page:
+                  type: integer
+                per_page:
+                  type: integer
+                pages:
+                  type: integer
+      500:
+        description: Internal server error
+    """
+    try:
+        current_user_id = get_jwt_identity()
+        
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 50, type=int)
+        search = request.args.get('search', '')
+        category = request.args.get('category')
+        brand = request.args.get('brand')
+        stock_status = request.args.get('stock_status')
+
+        result = MerchantProductStockController.get_products(
+            user_id=current_user_id,
+            page=page,
+            per_page=per_page,
+            search=search,
+            category=category,
+            brand=brand,
+            stock_status=stock_status
+        )
+        
+        return jsonify(result), HTTPStatus.OK
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+    except Exception as e:
+        current_app.logger.error(f"Error listing inventory products: {str(e)}")
+        return jsonify({'message': 'Failed to retrieve inventory products.'}), HTTPStatus.INTERNAL_SERVER_ERROR

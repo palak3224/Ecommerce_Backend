@@ -13,10 +13,10 @@ from auth.country_route import country_bp
 from api.users.routes import users_bp
 from api.merchants.routes import merchants_bp
 from auth import email_init
+from models import *  # Import all models
 
 from routes.superadmin_routes import superadmin_bp
 from routes.merchant_routes import merchant_dashboard_bp
-from controllers.merchant.product_stock_controller import product_stock_bp
 from routes.product_routes import product_bp
 from routes.category_routes import category_bp
 from routes.brand_routes import brand_bp
@@ -26,6 +26,7 @@ from routes.wishlist_routes import wishlist_bp
 from routes.order_routes import order_bp
 from routes.user_address_routes import user_address_bp
 from routes.currency_routes import currency_bp
+
 
 from auth.admin_routes import admin_bp
 from flasgger import Swagger
@@ -100,7 +101,13 @@ def create_app(config_name='default'):
 
     # Configure CORS with more specific settings
     CORS(app, 
-         resources={r"/api/*": {"origins": ALLOWED_ORIGINS}},
+         resources={
+             r"/api/*": {
+                 "origins": ALLOWED_ORIGINS,
+                 "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+                 "allow_headers": ["Content-Type", "Authorization"]
+             }
+         },
          supports_credentials=True,
          allow_headers=["Content-Type", "Authorization", "X-CSRF-Token"],
          methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -120,7 +127,6 @@ def create_app(config_name='default'):
     app.register_blueprint(document_bp, url_prefix='/api/merchant/documents')
     app.register_blueprint(superadmin_bp, url_prefix='/api/superadmin')
     app.register_blueprint(merchant_dashboard_bp, url_prefix='/api/merchant-dashboard')
-    app.register_blueprint(product_stock_bp, url_prefix='/api/merchant-dashboard')
     app.register_blueprint(country_bp)
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
     app.register_blueprint(product_bp)
@@ -132,6 +138,7 @@ def create_app(config_name='default'):
     app.register_blueprint(order_bp, url_prefix='/api/orders')
     app.register_blueprint(user_address_bp, url_prefix='/api/user-address')
     app.register_blueprint(currency_bp)
+    
     # Add custom headers to every response
     app.after_request(add_headers)
 

@@ -3,6 +3,7 @@ from common.database import db
 from models.user_address import UserAddress
 from models.enums import AddressTypeEnum
 from sqlalchemy.exc import SQLAlchemyError
+from auth.models.models import User
 
 class UserAddressController:
     @staticmethod
@@ -49,9 +50,15 @@ class UserAddressController:
             db.session.add(new_address)
             db.session.commit()
 
+            # Get user email for response
+            user = User.get_by_id(user_id)
+            address_data = new_address.serialize()
+            if user:
+                address_data['user_email'] = user.email
+
             return jsonify({
                 'message': 'Address created successfully',
-                'address': new_address.serialize()
+                'address': address_data
             }), 201
         except SQLAlchemyError as e:
             db.session.rollback()
@@ -60,9 +67,20 @@ class UserAddressController:
     @staticmethod
     def get_addresses(user_id):
         try:
-            addresses = UserAddress.query.filter_by(user_id=user_id).all()
+            # Join with User table to get email
+            addresses = db.session.query(UserAddress, User.email)\
+                .join(User, UserAddress.user_id == User.id)\
+                .filter(UserAddress.user_id == user_id)\
+                .all()
+            
+            address_list = []
+            for address, email in addresses:
+                address_data = address.serialize()
+                address_data['user_email'] = email
+                address_list.append(address_data)
+
             return jsonify({
-                'addresses': [address.serialize() for address in addresses]
+                'addresses': address_list
             }), 200
         except SQLAlchemyError as e:
             return jsonify({'error': str(e)}), 500
@@ -70,13 +88,23 @@ class UserAddressController:
     @staticmethod
     def get_address(user_id, address_id):
         try:
-            address = UserAddress.query.filter_by(
-                user_id=user_id,
-                address_id=address_id
-            ).first_or_404()
+            # Join with User table to get email
+            result = db.session.query(UserAddress, User.email)\
+                .join(User, UserAddress.user_id == User.id)\
+                .filter(
+                    UserAddress.user_id == user_id,
+                    UserAddress.address_id == address_id
+                ).first()
+
+            if not result:
+                return jsonify({'error': 'Address not found'}), 404
+
+            address, email = result
+            address_data = address.serialize()
+            address_data['user_email'] = email
 
             return jsonify({
-                'address': address.serialize()
+                'address': address_data
             }), 200
         except SQLAlchemyError as e:
             return jsonify({'error': str(e)}), 500
@@ -123,9 +151,15 @@ class UserAddressController:
 
             db.session.commit()
 
+            # Get user email for response
+            user = User.get_by_id(user_id)
+            address_data = address.serialize()
+            if user:
+                address_data['user_email'] = user.email
+
             return jsonify({
                 'message': 'Address updated successfully',
-                'address': address.serialize()
+                'address': address_data
             }), 200
         except SQLAlchemyError as e:
             db.session.rollback()
@@ -173,9 +207,15 @@ class UserAddressController:
 
             db.session.commit()
 
+            # Get user email for response
+            user = User.get_by_id(user_id)
+            address_data = address.serialize()
+            if user:
+                address_data['user_email'] = user.email
+
             return jsonify({
                 'message': f'Default {address_type} address updated successfully',
-                'address': address.serialize()
+                'address': address_data
             }), 200
         except SQLAlchemyError as e:
             db.session.rollback()
