@@ -145,9 +145,10 @@ def get_cart_items():
         # Format the response to match frontend expectations
         formatted_items = [{
             'cart_item_id': item.cart_item_id,
+            'product_id': item.product_id,
+            'merchant_id': item.product.merchant_id,
             'quantity': item.quantity,
             'product': {
-                'id': item.product.product_id,
                 'name': item.product.product_name,
                 'price': float(item.product.selling_price),
                 'image_url': item.product_image_url,

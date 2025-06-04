@@ -5,6 +5,7 @@ from models.product import Product
 from models.product_stock import ProductStock
 from models.product_media import ProductMedia
 from sqlalchemy.exc import IntegrityError
+from datetime import datetime, timezone
 
 class WishlistController:
     @staticmethod
@@ -34,10 +35,10 @@ class WishlistController:
         product_id = data['product_id']
         
         # Check if product exists and is active
-        product = Product.query.filter_by(
-            product_id=product_id,
-            active_flag=True,
-            is_deleted=False
+        product = Product.query.filter(
+            Product.product_id == product_id,
+            Product.active_flag == True,
+            Product.deleted_at.is_(None)
         ).first()
         
         if not product:
@@ -46,34 +47,45 @@ class WishlistController:
                 'message': 'Product not found or not available'
             }), 404
 
-        # Check if product is already in wishlist
+        # Check if product is already in wishlist (including previously deleted items)
         existing_item = WishlistItem.query.filter_by(
             user_id=user_id,
-            product_id=product_id,
-            is_deleted=False
+            product_id=product_id
         ).first()
         
-        if existing_item:
-            return jsonify({
-                'status': 'error',
-                'message': 'Product is already in your wishlist'
-            }), 400
-
         try:
-            # Create new wishlist item
-            wishlist_item = WishlistItem.create_from_product(
-                user_id=user_id,
-                product=product
-            )
-            
-            db.session.add(wishlist_item)
-            db.session.commit()
-            
-            return jsonify({
-                'status': 'success',
-                'message': 'Product added to wishlist',
-                'data': wishlist_item.serialize()
-            }), 201
+            if existing_item:
+                if not existing_item.is_deleted:
+                    return jsonify({
+                        'status': 'error',
+                        'message': 'Product is already in your wishlist'
+                    }), 400
+                else:
+                    # Reactivate previously deleted wishlist item
+                    existing_item.is_deleted = False
+                    existing_item.added_at = datetime.now(timezone.utc)
+                    db.session.commit()
+                    
+                    return jsonify({
+                        'status': 'success',
+                        'message': 'Product added back to wishlist',
+                        'data': existing_item.serialize()
+                    }), 200
+            else:
+                # Create new wishlist item
+                wishlist_item = WishlistItem.create_from_product(
+                    user_id=user_id,
+                    product=product
+                )
+                
+                db.session.add(wishlist_item)
+                db.session.commit()
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': 'Product added to wishlist',
+                    'data': wishlist_item.serialize()
+                }), 201
             
         except IntegrityError:
             db.session.rollback()

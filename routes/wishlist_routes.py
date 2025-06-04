@@ -7,9 +7,10 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-wishlist_bp = Blueprint('wishlist', __name__)
+wishlist_bp = Blueprint('wishlist', __name__, url_prefix='/api/wishlist')
 
 # Get user's wishlist
+@wishlist_bp.route('', methods=['GET'])
 @wishlist_bp.route('/', methods=['GET'])
 @jwt_required()
 @role_required([UserRole.USER.value])
@@ -25,6 +26,7 @@ def get_wishlist():
         }), 400
 
 # Add product to wishlist
+@wishlist_bp.route('', methods=['POST'])
 @wishlist_bp.route('/', methods=['POST'])
 @jwt_required()
 @role_required([UserRole.USER.value])

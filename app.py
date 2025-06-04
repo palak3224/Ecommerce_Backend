@@ -23,6 +23,9 @@ from routes.brand_routes import brand_bp
 from routes.homepage_routes import homepage_bp
 from routes.cart_routes import cart_bp
 from routes.wishlist_routes import wishlist_bp
+from routes.order_routes import order_bp
+from routes.user_address_routes import user_address_bp
+from routes.currency_routes import currency_bp
 
 from auth.admin_routes import admin_bp
 from flasgger import Swagger
@@ -30,7 +33,6 @@ from flasgger import Swagger
 ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-    "http://kea.mywire.org:5110",
     "http://kea.mywire.org:5300",
     "https://aoin.scalixity.com"
 ]
@@ -43,8 +45,9 @@ def add_headers(response):
         response.headers['Access-Control-Allow-Origin'] = 'null'  # or omit completely if strict
 
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-CSRF-Token'
     response.headers['Access-Control-Allow-Credentials'] = 'true'
+    response.headers['Access-Control-Max-Age'] = '3600'  # Cache preflight requests for 1 hour
     return response
 
 def create_app(config_name='default'):
@@ -95,8 +98,13 @@ def create_app(config_name='default'):
 
     Swagger(app, config=swagger_config, template=swagger_template)
 
-    # Configure CORS (Basic setup - advanced control handled in add_headers)
-    CORS(app, supports_credentials=True)
+    # Configure CORS with more specific settings
+    CORS(app, 
+         resources={r"/api/*": {"origins": ALLOWED_ORIGINS}},
+         supports_credentials=True,
+         allow_headers=["Content-Type", "Authorization", "X-CSRF-Token"],
+         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+         max_age=3600)  # Cache preflight requests for 1 hour
 
     # Initialize extensions
     db.init_app(app)
@@ -121,6 +129,9 @@ def create_app(config_name='default'):
     app.register_blueprint(homepage_bp, url_prefix='/api/homepage')
     app.register_blueprint(cart_bp, url_prefix='/api/cart')
     app.register_blueprint(wishlist_bp, url_prefix='/api/wishlist')
+    app.register_blueprint(order_bp, url_prefix='/api/orders')
+    app.register_blueprint(user_address_bp, url_prefix='/api/user-address')
+    app.register_blueprint(currency_bp)
     # Add custom headers to every response
     app.after_request(add_headers)
 
