@@ -454,7 +454,7 @@ def get_product_details(product_id):
 @cross_origin()
 def get_products_by_brand(brand_slug):
     """
-    Get products filtered by brand slug
+    Get parent products filtered by brand slug (excludes product variants)
     ---
     tags:
       - Products
@@ -506,7 +506,7 @@ def get_products_by_brand(brand_slug):
         description: Search term for product name/description
     responses:
       200:
-        description: List of products for the brand retrieved successfully
+        description: List of parent products for the brand retrieved successfully (excludes variants)
         schema:
           type: object
           properties:
@@ -564,7 +564,7 @@ def get_products_by_brand(brand_slug):
 @cross_origin()
 def get_products_by_category(category_id):
     """
-    Get products filtered by category ID
+    Get parent products filtered by category ID (excludes product variants)
     ---
     tags:
       - Products
@@ -622,7 +622,7 @@ def get_products_by_category(category_id):
         description: Whether to include products from child categories
     responses:
       200:
-        description: List of products for the category retrieved successfully
+        description: List of parent products for the category retrieved successfully (excludes variants)
         schema:
           type: object
           properties:
@@ -674,4 +674,54 @@ def get_products_by_category(category_id):
       500:
         description: Internal server error
     """
-    return ProductController.get_products_by_category(category_id) 
+    return ProductController.get_products_by_category(category_id)
+
+@product_bp.route('/api/products/<int:product_id>/variants', methods=['GET'])
+@cross_origin()
+def get_product_variants(product_id):
+    """
+    Get all variants for a parent product
+    ---
+    tags:
+      - Products
+    parameters:
+      - in: path
+        name: product_id
+        type: integer
+        required: true
+        description: ID of the parent product
+    responses:
+      200:
+        description: List of product variants retrieved successfully
+        schema:
+          type: object
+          properties:
+            variants:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  price:
+                    type: number
+                    format: float
+                  originalPrice:
+                    type: number
+                    format: float
+                  primary_image:
+                    type: string
+                  isVariant:
+                    type: boolean
+                  parentProductId:
+                    type: string
+            total:
+              type: integer
+      404:
+        description: Parent product not found
+      500:
+        description: Internal server error
+    """
+    return ProductController.get_product_variants(product_id) 

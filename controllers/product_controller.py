@@ -44,13 +44,22 @@ class ProductController:
             max_price = request.args.get('max_price', type=float)
             search = request.args.get('search', '')
             include_children = request.args.get('include_children', 'true').lower() == 'true'
+            show_variants = request.args.get('show_variants', 'false').lower() == 'true'
             
-            # Base query - only show approved products
+            # Base query - only show approved products and filter by parent_product_id
             query = Product.query.filter(
                 Product.deleted_at.is_(None),
                 Product.active_flag.is_(True),
                 Product.approval_status == 'approved'  # Only show approved products
             )
+
+            # Filter based on show_variants parameter
+            if show_variants:
+                # Show only variant products (parent_product_id is not null)
+                query = query.filter(Product.parent_product_id.isnot(None))
+            else:
+                # Show only parent products (parent_product_id is null)
+                query = query.filter(Product.parent_product_id.is_(None))
             
             # Apply category filter with child categories
             if category_id:
@@ -365,12 +374,13 @@ class ProductController:
                 deleted_at=None
             ).first_or_404()
             
-            # Base query - only show approved products
+            # Base query - only show approved products and parent products
             query = Product.query.filter(
                 Product.deleted_at.is_(None),
                 Product.active_flag.is_(True),
                 Product.approval_status == 'approved',
-                Product.brand_id == brand.brand_id
+                Product.brand_id == brand.brand_id,
+                Product.parent_product_id.is_(None)  # Only show parent products
             )
             
             # Apply category filter
@@ -482,11 +492,12 @@ class ProductController:
             # Get category
             category = Category.query.get_or_404(category_id)
             
-            # Base query - only show approved products
+            # Base query - only show approved products and parent products
             query = Product.query.filter(
                 Product.deleted_at.is_(None),
                 Product.active_flag.is_(True),
-                Product.approval_status == 'approved'
+                Product.approval_status == 'approved',
+                Product.parent_product_id.is_(None)  # Only show parent products
             )
             
             # Apply category filter with child categories
@@ -585,4 +596,62 @@ class ProductController:
                     'has_next': False,
                     'has_prev': False
                 }
+            }), 500 
+
+    @staticmethod
+    def get_product_variants(product_id):
+        """Get all variants for a parent product"""
+        try:
+            # Get the parent product to verify it exists
+            parent_product = Product.query.filter_by(
+                product_id=product_id,
+                deleted_at=None,
+                active_flag=True,
+                approval_status='approved'
+            ).first_or_404()
+
+            # Get all variants for this parent product
+            variants = Product.query.filter_by(
+                parent_product_id=product_id,
+                deleted_at=None,
+                active_flag=True,
+                approval_status='approved'
+            ).all()
+
+            # Prepare response data
+            variant_data = []
+            for variant in variants:
+                variant_dict = variant.serialize()
+                # Add frontend-specific fields
+                variant_dict.update({
+                    'id': str(variant.product_id),
+                    'name': variant.product_name,
+                    'description': variant.product_description,
+                    'price': float(variant.selling_price),
+                    'originalPrice': float(variant.cost_price),
+                    'stock': 100,  # TODO: Add stock tracking
+                    'isNew': True,  # TODO: Add logic for new products
+                    'isBuiltIn': False,  # TODO: Add logic for built-in products
+                    'isVariant': True,
+                    'parentProductId': str(product_id)
+                })
+                
+                # Get primary media
+                media = ProductController.get_product_media(variant.product_id)
+                if media:
+                    variant_dict['primary_image'] = media['url']
+                    variant_dict['image'] = media['url']
+                
+                variant_data.append(variant_dict)
+
+            return jsonify({
+                'variants': variant_data,
+                'total': len(variant_data)
+            })
+
+        except Exception as e:
+            print(f"Error in get_product_variants: {str(e)}")
+            return jsonify({
+                'error': 'Failed to fetch product variants',
+                'message': str(e)
             }), 500 

@@ -138,25 +138,68 @@ def create_category():
 @superadmin_bp.route('/categories/<int:cid>', methods=['PUT'])
 @super_admin_role_required
 def update_category(cid):
-    
-   
-    data = request.get_json()
-    if not data:
-        return jsonify({'message': 'No data provided for update'}), HTTPStatus.BAD_REQUEST
-    
-   
-    if 'parent_id' in data and data['parent_id'] is not None:
-        if data['parent_id'] == '': 
-            data['parent_id'] = None
-        else:
+    # Determine content type
+    content_type = request.content_type or ''
+    update_data = {}
+
+    # --- 1) JSON path ---
+    if content_type.startswith('application/json'):
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({'message': 'No JSON body provided'}), HTTPStatus.BAD_REQUEST
+        update_data = data
+
+    # --- 2) multipart/form-data path ---
+    elif content_type.startswith('multipart/form-data'):
+        # text fields
+        name = request.form.get('name', '').strip()
+        slug = request.form.get('slug', '').strip()
+        if name:
+            update_data['name'] = name
+        if slug:
+            update_data['slug'] = slug
+
+        # Handle parent_id
+        parent_id = request.form.get('parent_id')
+        if parent_id is not None:
+            if parent_id == '':
+                update_data['parent_id'] = None
+            else:
+                try:
+                    update_data['parent_id'] = int(parent_id)
+                except (ValueError, TypeError):
+                    return jsonify({'message': 'Invalid parent_id format. Must be an integer or null.'}), HTTPStatus.BAD_REQUEST
+
+        # file field
+        file = request.files.get('icon_file')
+        if file and file.filename:
+            if not allowed_file(file.filename):
+                return jsonify({'message': f'Invalid icon file type. Allowed: {ALLOWED_EXTENSIONS}'}), HTTPStatus.BAD_REQUEST
+
             try:
-                data['parent_id'] = int(data['parent_id'])
-            except (ValueError, TypeError):
-                 return jsonify({'message': 'Invalid parent_id format. Must be an integer or null.'}), HTTPStatus.BAD_REQUEST
+                upload_result = cloudinary.uploader.upload(
+                    file,
+                    folder="category_icons",
+                    public_id=f"category_{cid}_{file.filename.rsplit('.', 1)[0]}",
+                    overwrite=True,
+                    resource_type="image"
+                )
+                new_url = upload_result.get('secure_url')
+                if not new_url:
+                    raise ValueError("No secure_url from Cloudinary")
+                update_data['icon_url'] = new_url
+            except Exception as e:
+                current_app.logger.error(f"Cloudinary upload failed in update: {e}")
+                return jsonify({'message': f'Icon upload failed: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+    else:
+        return jsonify({'message': 'Unsupported Content-Type. Use JSON or multipart/form-data.'}), HTTPStatus.UNSUPPORTED_MEDIA_TYPE
+
+    # must have at least one field to update
+    if not update_data:
+        return jsonify({'message': 'No updatable fields provided.'}), HTTPStatus.BAD_REQUEST
 
     try:
-        
-        cat = CategoryController.update(cid, data)
+        cat = CategoryController.update(cid, update_data)
         return jsonify(cat.serialize()), HTTPStatus.OK
     except IntegrityError as e: 
         db.session.rollback()
@@ -794,28 +837,9 @@ def delete_attribute(attribute_id):
 @superadmin_bp.route('/categories/<int:cid>/attributes', methods=['GET'])
 @super_admin_role_required
 def list_category_attributes_for_category(cid):
-    
     try:
         associations = CategoryAttributeController.list_attributes_for_category(cid)
-       
-        result = []
-        for assoc in associations:
-            
-            attribute_data = None
-            if assoc.attribute: 
-                 attribute_data = {
-                     'attribute_id': assoc.attribute.attribute_id, 
-                     'name': assoc.attribute.name, 
-                     'code': assoc.attribute.code
-                 }
-
-            result.append({
-                'category_id': assoc.category_id,
-                'attribute_id': assoc.attribute_id,
-                'required_flag': assoc.required_flag,
-                'attribute_details': attribute_data 
-            })
-        return jsonify(result), HTTPStatus.OK
+        return jsonify(associations), HTTPStatus.OK
     except FileNotFoundError as e:
         return jsonify({'message': str(e)}), HTTPStatus.NOT_FOUND
     except Exception as e:
@@ -912,25 +936,21 @@ def assign_attribute_to_category(cid):
 @super_admin_role_required
 def add_category_to_brand(bid, cid):
     try:
-        association = BrandCategoryController.add_category_to_brand(bid, cid)
-        return jsonify(association.serialize()), HTTPStatus.CREATED
-    except ValueError as e:
-        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+        brand = BrandController.add_category(bid, cid)
+        return jsonify(brand.serialize()), 200
     except Exception as e:
-        current_app.logger.error(f"Error adding category to brand: {e}")
-        return jsonify({'message': 'Failed to add category to brand.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+        current_app.logger.error(f"Error adding category to brand: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 @superadmin_bp.route('/brands/<int:bid>/categories/<int:cid>', methods=['DELETE'])
 @super_admin_role_required
 def remove_category_from_brand(bid, cid):
     try:
-        BrandCategoryController.remove_category_from_brand(bid, cid)
-        return '', HTTPStatus.NO_CONTENT
-    except ValueError as e:
-        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+        brand = BrandController.remove_category(bid, cid)
+        return jsonify(brand.serialize()), 200
     except Exception as e:
-        current_app.logger.error(f"Error removing category from brand: {e}")
-        return jsonify({'message': 'Failed to remove category from brand.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+        current_app.logger.error(f"Error removing category from brand: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 @superadmin_bp.route('/brands/<int:bid>/categories', methods=['GET'])
 @super_admin_role_required
