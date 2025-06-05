@@ -17,17 +17,11 @@ from controllers.merchant.product_meta_controller  import MerchantProductMetaCon
 from controllers.merchant.product_tax_controller   import MerchantProductTaxController
 from controllers.merchant.product_shipping_controller import MerchantProductShippingController
 from controllers.merchant.product_media_controller import MerchantProductMediaController
-from controllers.merchant.variant_controller       import MerchantVariantController
-from controllers.merchant.variant_stock_controller import MerchantVariantStockController
-from controllers.merchant.variant_media_controller import MerchantVariantMediaController
 from controllers.merchant.product_attribute_controller import MerchantProductAttributeController
-
 from controllers.merchant.product_placement_controller import MerchantProductPlacementController
-
 from controllers.merchant.tax_category_controller  import MerchantTaxCategoryController
 from controllers.merchant.product_stock_controller import MerchantProductStockController
 from flask_jwt_extended import get_jwt_identity, jwt_required
-
 from controllers.merchant.order_controller import MerchantOrderController
 from auth.models.models import MerchantProfile
 
@@ -204,6 +198,133 @@ def create_product():
     except Exception as e:
         current_app.logger.error(f"Error creating product: {e}")
         return jsonify({'message': 'Failed to create product'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchant_dashboard_bp.route('/products/<int:pid>/variants', methods=['POST'])
+@merchant_role_required
+def create_product_variant(pid):
+    """
+    Create a variant for a parent product
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    parameters:
+      - name: pid
+        in: path
+        type: integer
+        required: true
+        description: Parent product ID
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - sku
+              - stock_qty
+              - selling_price
+            properties:
+              sku:
+                type: string
+                description: Unique SKU for the variant
+              stock_qty:
+                type: integer
+                minimum: 0
+                description: Initial stock quantity
+              selling_price:
+                type: number
+                minimum: 0
+                description: Variant's selling price
+              cost_price:
+                type: number
+                minimum: 0
+                description: Optional variant's cost price (defaults to parent's cost price)
+              attributes:
+                type: object
+                description: Dictionary of attribute values for the variant
+                additionalProperties:
+                  type: string
+    responses:
+      201:
+        description: Variant created successfully
+        schema:
+          type: object
+          properties:
+            product_id:
+              type: integer
+            parent_product_id:
+              type: integer
+            sku:
+              type: string
+            stock_qty:
+              type: integer
+            selling_price:
+              type: number
+            attributes:
+              type: object
+      400:
+        description: Invalid request data
+      404:
+        description: Parent product not found
+      500:
+        description: Internal server error
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'message': 'No data provided'}), HTTPStatus.BAD_REQUEST
+
+        # Validate required fields
+        required_fields = ['sku', 'stock_qty', 'selling_price']
+        missing_fields = [field for field in required_fields if field not in data]
+        if missing_fields:
+            return jsonify({
+                'message': f'Missing required fields: {", ".join(missing_fields)}',
+                'error': 'MISSING_FIELDS'
+            }), HTTPStatus.BAD_REQUEST
+
+        # Validate numeric fields
+        try:
+            data['stock_qty'] = int(data['stock_qty'])
+            data['selling_price'] = float(data['selling_price'])
+            if 'cost_price' in data:
+                data['cost_price'] = float(data['cost_price'])
+        except ValueError as e:
+            return jsonify({
+                'message': f'Invalid numeric value: {str(e)}',
+                'error': 'INVALID_NUMERIC'
+            }), HTTPStatus.BAD_REQUEST
+
+        # Validate minimum values
+        if data['stock_qty'] < 0:
+            return jsonify({
+                'message': 'Stock quantity cannot be negative',
+                'error': 'INVALID_STOCK'
+            }), HTTPStatus.BAD_REQUEST
+        if data['selling_price'] < 0:
+            return jsonify({
+                'message': 'Selling price cannot be negative',
+                'error': 'INVALID_PRICE'
+            }), HTTPStatus.BAD_REQUEST
+
+        # Validate attributes if provided
+        if 'attributes' in data:
+            if not isinstance(data['attributes'], dict):
+                return jsonify({
+                    'message': 'Attributes must be a dictionary',
+                    'error': 'INVALID_ATTRIBUTES'
+                }), HTTPStatus.BAD_REQUEST
+
+        variant = MerchantProductController.create_variant(pid, data)
+        return jsonify(variant.serialize()), HTTPStatus.CREATED
+
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+    except Exception as e:
+        current_app.logger.error(f"Error creating variant for product {pid}: {e}")
+        return jsonify({'message': 'Failed to create product variant'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @merchant_dashboard_bp.route('/products/<int:pid>', methods=['GET'])
 @merchant_role_required
@@ -440,71 +561,6 @@ def delete_product_media(mid):
         if hasattr(e, 'code') and isinstance(e.code, int):
             return jsonify({'message': getattr(e, 'description', str(e))}), e.code
         return jsonify({'message': "Failed to delete product media."}), HTTPStatus.INTERNAL_SERVER_ERROR
-
-# VARIANTS
-@merchant_dashboard_bp.route('/products/<int:pid>/variants', methods=['GET'])
-@merchant_role_required
-def list_variants(pid):
-    vs = MerchantVariantController.list(pid)
-    return jsonify([v.serialize() for v in vs]), HTTPStatus.OK 
-
-@merchant_dashboard_bp.route('/products/<int:pid>/variants', methods=['POST'])
-@merchant_role_required
-def create_variant(pid):
-    data = request.get_json()
-    if not data: 
-        return jsonify({"message": "Request body cannot be empty."}), HTTPStatus.BAD_REQUEST
-    try:
-        v = MerchantVariantController.create(pid, data)
-        return jsonify(v.serialize()), HTTPStatus.CREATED 
-    except ValueError as e: 
-        return jsonify({"message": str(e)}), HTTPStatus.BAD_REQUEST
-    except Exception as e: 
-        
-        return jsonify({"message": "An error occurred while creating the variant."}), HTTPStatus.INTERNAL_SERVER_ERROR
-
-
-@merchant_dashboard_bp.route('/products/variants/<int:vid>', methods=['PUT'])
-@merchant_role_required
-def update_variant(vid):
-    data = request.get_json()
-    if not data:
-        return jsonify({"message": "Request body cannot be empty for update."}), HTTPStatus.BAD_REQUEST
-    try:
-        v = MerchantVariantController.update(vid, data)
-        return jsonify(v.serialize()), HTTPStatus.OK
-    except ValueError as e: 
-        return jsonify({"message": str(e)}), HTTPStatus.BAD_REQUEST
-    except Exception as e:
-        if hasattr(e, 'code') and e.code == 404: 
-            return jsonify({"message": getattr(e, 'description', "Variant not found.")}), HTTPStatus.NOT_FOUND
-        current_app.logger.error(f"Error updating variant {vid}: {e}")
-        return jsonify({"message": "An error occurred while updating the variant."}), HTTPStatus.INTERNAL_SERVER_ERROR
-
-@merchant_dashboard_bp.route('/products/variants/<int:vid>', methods=['DELETE'])
-@merchant_role_required
-def delete_variant(vid):
-    try:
-        v = MerchantVariantController.delete(vid)
-        return jsonify(v.serialize()), HTTPStatus.OK 
-    except Exception as e: 
-        if hasattr(e, 'code') and e.code == 404:
-            return jsonify({"message": getattr(e, 'description', "Variant not found.")}), HTTPStatus.NOT_FOUND
-        return jsonify({"message": "An error occurred while deleting the variant."}), HTTPStatus.INTERNAL_SERVER_ERROR
-
-# VARIANT STOCK
-@merchant_dashboard_bp.route('/products/variants/<int:vid>/stock', methods=['GET'])
-@merchant_role_required
-def get_variant_stock(vid):
-    vs = MerchantVariantStockController.get(vid)
-    return jsonify(vs.serialize()), 200
-
-@merchant_dashboard_bp.route('/products/variants/<int:vid>/stock', methods=['POST','PUT'])
-@merchant_role_required
-def upsert_variant_stock(vid):
-    data = request.get_json()
-    vs = MerchantVariantStockController.upsert(vid, data)
-    return jsonify(vs.serialize()), 200
 
 # PRODUCT ATTRIBUTES
 @merchant_dashboard_bp.route('/products/<int:pid>/attributes', methods=['GET'])
@@ -815,122 +871,6 @@ def get_low_stock_products():
     except Exception as e:
         current_app.logger.error(f"Error getting low stock products: {str(e)}")
         return jsonify({'message': 'Failed to retrieve low stock products.'}), HTTPStatus.INTERNAL_SERVER_ERROR
-
-# VARIANT MEDIA
-@merchant_dashboard_bp.route('/products/variants/<int:vid>/media', methods=['GET'])
-@merchant_role_required
-def list_variant_media(vid):
-    try:
-        m = MerchantVariantMediaController.list(vid)
-        return jsonify([x.serialize() for x in m]), HTTPStatus.OK
-    except Exception as e:
-        current_app.logger.error(f"Merchant: Error listing media for variant {vid}: {e}")
-        if hasattr(e, 'code') and isinstance(e.code, int):
-            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
-        return jsonify({'message': "Failed to retrieve variant media."}), HTTPStatus.INTERNAL_SERVER_ERROR
-
-@merchant_dashboard_bp.route('/products/variants/<int:vid>/media/stats', methods=['GET'])
-@merchant_role_required
-def get_variant_media_stats(vid):
-    try:
-        media_list = MerchantVariantMediaController.list(vid)
-        stats = {
-            'total_count': len(media_list),
-            'image_count': len([m for m in media_list if m.media_type == 'IMAGE']),
-            'video_count': len([m for m in media_list if m.media_type == 'VIDEO']),
-            'max_allowed': 5,  # This should match the frontend maxFiles
-            'remaining_slots': 5 - len(media_list)
-        }
-        return jsonify(stats), HTTPStatus.OK
-    except Exception as e:
-        current_app.logger.error(f"Merchant: Error getting media stats for variant {vid}: {e}")
-        return jsonify({'message': "Failed to retrieve variant media statistics."}), HTTPStatus.INTERNAL_SERVER_ERROR
-
-@merchant_dashboard_bp.route('/products/variants/<int:vid>/media', methods=['POST'])
-@merchant_role_required
-def create_variant_media(vid):
-    if 'media_file' not in request.files:
-        return jsonify({'message': 'No media file part in the request'}), HTTPStatus.BAD_REQUEST
-    
-    file = request.files['media_file']
-
-    if file.filename == '':
-        return jsonify({'message': 'No selected file'}), HTTPStatus.BAD_REQUEST
-
-    if not allowed_media_file(file.filename):
-        return jsonify({'message': f"Invalid file type. Allowed types: {', '.join(ALLOWED_MEDIA_EXTENSIONS)}"}), HTTPStatus.BAD_REQUEST
-
-    file_mimetype = file.mimetype.lower()
-    media_type_str = "IMAGE" 
-    if file_mimetype.startswith('video/'):
-        media_type_str = "VIDEO"
-    elif not file_mimetype.startswith('image/'):
-        return jsonify({'message': f"Unsupported file content type: {file.mimetype}"}), HTTPStatus.BAD_REQUEST
-
-    media_type_from_form = request.form.get('type', media_type_str).upper()
-    display_order_str = request.form.get('display_order', '0')
-    try:
-        display_order = int(display_order_str)
-    except ValueError:
-        return jsonify({'message': 'Invalid display_order format, must be an integer.'}), HTTPStatus.BAD_REQUEST
-    
-    is_primary = request.form.get('is_primary', 'false').lower() == 'true'
-    
-    cloudinary_url = None
-    cloudinary_public_id = None 
-    resource_type_for_cloudinary = "image" if media_type_from_form == "IMAGE" else "video"
-
-    try:
-        upload_result = cloudinary.uploader.upload(
-            file,
-            folder=f"variant_media/{vid}",
-            resource_type=resource_type_for_cloudinary
-        )
-        cloudinary_url = upload_result.get('secure_url')
-        cloudinary_public_id = upload_result.get('public_id') 
-
-        if not cloudinary_url:
-            current_app.logger.error("Cloudinary upload for variant media succeeded but no secure_url was returned.")
-            return jsonify({'message': 'Cloudinary upload succeeded but did not return a URL.'}), HTTPStatus.INTERNAL_SERVER_ERROR
-    
-    except cloudinary.exceptions.Error as e:
-        current_app.logger.error(f"Cloudinary upload failed for variant media (variant {vid}): {e}")
-        return jsonify({'message': f"Cloudinary media upload failed: {str(e)}"}), HTTPStatus.INTERNAL_SERVER_ERROR
-    except Exception as e:
-        current_app.logger.error(f"Error during variant media file upload (variant {vid}): {e}")
-        return jsonify({'message': f"An error occurred during media file upload: {str(e)}"}), HTTPStatus.INTERNAL_SERVER_ERROR
-
-    media_data = {
-        'media_url': cloudinary_url,
-        'media_type': media_type_from_form,
-        'display_order': display_order,
-        'is_primary': is_primary,
-        'public_id': cloudinary_public_id
-    }
-
-    try:
-        new_media = MerchantVariantMediaController.create(vid, media_data)
-        return jsonify(new_media.serialize()), HTTPStatus.CREATED
-    except ValueError as e:
-        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
-    except RuntimeError as e:
-        return jsonify({'message': str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Error saving variant media to DB for variant {vid}: {e}")
-        return jsonify({'message': 'Failed to save variant media information.'}), HTTPStatus.INTERNAL_SERVER_ERROR
-
-@merchant_dashboard_bp.route('/products/variants/media/<int:mid>', methods=['DELETE'])
-@merchant_role_required
-def delete_variant_media(mid):
-    try:
-        m = MerchantVariantMediaController.delete(mid)
-        return jsonify(m.serialize()), HTTPStatus.OK
-    except Exception as e:
-        current_app.logger.error(f"Merchant: Error deleting variant media {mid}: {e}")
-        if hasattr(e, 'code') and isinstance(e.code, int):
-            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
-        return jsonify({'message': "Failed to delete variant media."}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 # ── PRODUCT APPROVAL ───────────────────────────────────────────────────────────
 @merchant_dashboard_bp.route('/products/pending', methods=['GET'])

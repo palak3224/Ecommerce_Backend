@@ -1,6 +1,6 @@
 from flask import jsonify, request
 from models.order import Order, OrderItem, OrderStatusHistory
-from models.enums import OrderStatusEnum, PaymentStatusEnum
+from models.enums import OrderStatusEnum, PaymentStatusEnum, PaymentMethodEnum
 from models.product_stock import ProductStock
 from common.database import db
 from datetime import datetime, timezone
@@ -40,20 +40,21 @@ class OrderController:
                 shipping_amount=Decimal(str(order_data.get('shipping_amount', '0.00'))),
                 total_amount=Decimal(str(order_data['total_amount'])),
                 currency=order_data.get('currency', 'USD'),
+                payment_method=PaymentMethodEnum(order_data.get('payment_method')) if order_data.get('payment_method') else None,
+                payment_status=PaymentStatusEnum.PENDING,
                 shipping_address_id=order_data.get('shipping_address_id'),
                 billing_address_id=order_data.get('billing_address_id'),
                 shipping_method_name=order_data.get('shipping_method_name'),
-                customer_notes=order_data.get('customer_notes')
+                customer_notes=order_data.get('customer_notes'),
+                internal_notes=order_data.get('internal_notes')
             )
 
             # Create order items
             for item_data in order_data['items']:
                 order_item = OrderItem(
                     product_id=item_data.get('product_id'),
-                    variant_id=item_data.get('variant_id'),
                     merchant_id=item_data.get('merchant_id'),
                     product_name_at_purchase=item_data.get('product_name_at_purchase'),
-                    variant_details_at_purchase=item_data.get('variant_details_at_purchase'),
                     sku_at_purchase=item_data.get('sku_at_purchase'),
                     quantity=item_data.get('quantity'),
                     unit_price_at_purchase=Decimal(str(item_data.get('unit_price_at_purchase'))),
@@ -84,12 +85,20 @@ class OrderController:
         order = Order.query.get(order_id)
         if not order:
             return None
-        return order.serialize(include_items=True, include_history=True)
+        return order.serialize(include_items=True, include_history=True, include_shipments=True)
 
     @staticmethod
-    def get_user_orders(user_id, page=1, per_page=10):
-        orders = Order.query.filter_by(user_id=user_id)\
-            .order_by(desc(Order.order_date))\
+    def get_user_orders(user_id, page=1, per_page=10, status=None):
+        query = Order.query.filter_by(user_id=user_id)
+        
+        if status:
+            try:
+                status_enum = OrderStatusEnum(status)
+                query = query.filter_by(order_status=status_enum)
+            except ValueError:
+                pass
+        
+        orders = query.order_by(desc(Order.order_date))\
             .paginate(page=page, per_page=per_page)
         
         return {
@@ -138,8 +147,19 @@ class OrderController:
             if gateway_name:
                 order.payment_gateway_name = gateway_name
 
+            # If payment is successful, update order status to processing
+            if payment_status == PaymentStatusEnum.PAID:
+                order.order_status = OrderStatusEnum.PROCESSING
+                status_history = OrderStatusHistory(
+                    order_id=order_id,
+                    status=OrderStatusEnum.PROCESSING,
+                    changed_by_user_id=None,  # System change
+                    notes="Payment received, order moved to processing"
+                )
+                db.session.add(status_history)
+
             db.session.commit()
-            return order.serialize(include_items=True)
+            return order.serialize(include_items=True, include_history=True)
 
         except Exception as e:
             db.session.rollback()
@@ -155,8 +175,10 @@ class OrderController:
             raise ValueError("Cannot cancel an order that is already completed or cancelled")
 
         try:
+            # Update order status
             order.order_status = OrderStatusEnum.CANCELLED
             
+            # Create status history entry
             status_history = OrderStatusHistory(
                 order_id=order_id,
                 status=OrderStatusEnum.CANCELLED,
@@ -165,9 +187,40 @@ class OrderController:
             )
             db.session.add(status_history)
             
+            # Restore stock quantities
+            for item in order.items:
+                if item.product_id:
+                    product_stock = ProductStock.query.get(item.product_id)
+                    if product_stock:
+                        product_stock.stock_qty += item.quantity
+            
             db.session.commit()
             return order.serialize(include_items=True, include_history=True)
 
         except Exception as e:
             db.session.rollback()
-            raise e 
+            raise e
+
+    @staticmethod
+    def get_all_orders(page=1, per_page=10, status=None, merchant_id=None):
+        query = Order.query
+        
+        if status:
+            try:
+                status_enum = OrderStatusEnum(status)
+                query = query.filter_by(order_status=status_enum)
+            except ValueError:
+                pass
+                
+        if merchant_id:
+            query = query.join(OrderItem).filter(OrderItem.merchant_id == merchant_id)
+        
+        orders = query.order_by(desc(Order.order_date))\
+            .paginate(page=page, per_page=per_page)
+        
+        return {
+            'orders': [order.serialize(include_items=True) for order in orders.items],
+            'total': orders.total,
+            'pages': orders.pages,
+            'current_page': orders.page
+        } 

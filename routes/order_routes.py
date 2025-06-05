@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from controllers.order_controller import OrderController
-from models.enums import OrderStatusEnum, PaymentStatusEnum
+from models.enums import OrderStatusEnum, PaymentStatusEnum, PaymentMethodEnum
 from auth.utils import role_required
 from auth.models.models import UserRole
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -38,9 +38,9 @@ def create_order():
             'message': str(e)
         }), 500
 
-@order_bp.route('/<int:order_id>', methods=['GET'])
+@order_bp.route('/<string:order_id>', methods=['GET'])
 @jwt_required()
-@role_required([UserRole.USER.value])
+@role_required([UserRole.USER.value, UserRole.ADMIN.value, UserRole.MERCHANT.value])
 def get_order(order_id):
     try:
         user_id = get_jwt_identity()
@@ -52,7 +52,8 @@ def get_order(order_id):
                 'message': 'Order not found'
             }), 404
             
-        if user_id != order['user_id'] and not request.user.is_admin:
+        # Check if user has permission to view this order
+        if user_id != order['user_id'] and not request.user.is_admin and not request.user.is_merchant:
             return jsonify({
                 'status': 'error',
                 'message': 'Unauthorized access'
@@ -78,8 +79,9 @@ def get_user_orders():
         user_id = get_jwt_identity()
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 10, type=int)
+        status = request.args.get('status')
         
-        result = OrderController.get_user_orders(user_id, page, per_page)
+        result = OrderController.get_user_orders(user_id, page, per_page, status)
         return jsonify({
             'status': 'success',
             'data': result
@@ -92,9 +94,9 @@ def get_user_orders():
             'message': str(e)
         }), 500
 
-@order_bp.route('/<int:order_id>/status', methods=['PUT'])
+@order_bp.route('/<string:order_id>/status', methods=['PUT'])
 @jwt_required()
-@role_required([UserRole.USER.value])
+@role_required([UserRole.USER.value, UserRole.ADMIN.value, UserRole.MERCHANT.value])
 def update_order_status(order_id):
     try:
         data = request.get_json()
@@ -137,9 +139,9 @@ def update_order_status(order_id):
             'message': str(e)
         }), 500
 
-@order_bp.route('/<int:order_id>/payment', methods=['PUT'])
+@order_bp.route('/<string:order_id>/payment', methods=['PUT'])
 @jwt_required()
-@role_required([UserRole.USER.value])
+@role_required([UserRole.USER.value, UserRole.ADMIN.value])
 def update_payment_status(order_id):
     try:
         data = request.get_json()
@@ -182,9 +184,9 @@ def update_payment_status(order_id):
             'message': str(e)
         }), 500
 
-@order_bp.route('/<int:order_id>/cancel', methods=['POST'])
+@order_bp.route('/<string:order_id>/cancel', methods=['POST'])
 @jwt_required()
-@role_required([UserRole.USER.value])
+@role_required([UserRole.USER.value, UserRole.ADMIN.value])
 def cancel_order(order_id):
     try:
         data = request.get_json()
@@ -218,21 +220,26 @@ def cancel_order(order_id):
             'message': str(e)
         }), 500
 
-# Admin routes
+# Admin and Merchant routes
 @order_bp.route('/admin', methods=['GET'])
 @jwt_required()
-@role_required([UserRole.ADMIN.value])
+@role_required([UserRole.ADMIN.value, UserRole.MERCHANT.value])
 def get_all_orders():
     try:
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 10, type=int)
         status = request.args.get('status')
+        merchant_id = request.args.get('merchant_id')
         
-        # TODO: Implement admin order listing with filters
+        # If user is merchant, only show their orders
+        if request.user.is_merchant:
+            merchant_id = request.user.merchant_profile.id
+        
+        result = OrderController.get_all_orders(page, per_page, status, merchant_id)
         return jsonify({
-            'status': 'error',
-            'message': 'Not implemented yet'
-        }), 501
+            'status': 'success',
+            'data': result
+        })
         
     except Exception as e:
         logger.error(f"Error getting all orders: {str(e)}")

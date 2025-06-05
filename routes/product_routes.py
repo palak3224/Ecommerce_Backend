@@ -402,20 +402,6 @@ def get_product_details(product_id):
                   type: integer
                 name:
                   type: string
-            variants:
-              type: array
-              items:
-                type: object
-                properties:
-                  variant_id:
-                    type: integer
-                  sku:
-                    type: string
-                  price:
-                    type: number
-                    format: float
-                  stock:
-                    type: integer
       404:
         description: Product not found
       500:

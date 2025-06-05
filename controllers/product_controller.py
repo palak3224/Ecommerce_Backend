@@ -4,7 +4,6 @@ from models.product import Product
 from models.category import Category
 from models.brand import Brand
 from models.product_media import ProductMedia
-from models.variant_media import VariantMedia
 from models.enums import MediaType
 from sqlalchemy import desc, or_
 from flask_jwt_extended import get_jwt_identity
@@ -24,20 +23,7 @@ class ProductController:
             ProductMedia.sort_order
         ).first()
 
-        # If no product media, get primary variant media
-        if not primary_media:
-            variant_media = VariantMedia.query.filter_by(
-                variant_id=product_id,
-                deleted_at=None,
-                media_type='image',
-                is_primary=True
-            ).first()
-            
-            if variant_media:
-                return variant_media.serialize()
-            return None
-
-        return primary_media.serialize()
+        return primary_media.serialize() if primary_media else None
 
     @staticmethod
     def get_all_products():

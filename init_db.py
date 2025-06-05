@@ -49,9 +49,6 @@ from models.product_tax import ProductTax
 from models.product_shipping import ProductShipping
 from models.product_media import ProductMedia
 from models.product_stock import ProductStock
-from models.variant import Variant
-from models.variant_stock import VariantStock
-from models.variant_media import VariantMedia
 from models.review import Review
 from models.product_attribute import ProductAttribute
 from models.recently_viewed import RecentlyViewed
