@@ -15,7 +15,7 @@ def get_exchange_rates():
         base_currency = request.args.get('base', 'INR')
         
         response = requests.get(
-            f'https://v6.exchangerate-api.com/v6/{api_key}/latest/{base_currency}',
+            f'https://api.freecurrencyapi.com/v1/latest?apikey={api_key}&base_currency={base_currency}',
             headers={'Accept': 'application/json'}
         )
         
@@ -27,9 +27,9 @@ def get_exchange_rates():
             
         data = response.json()
         return jsonify({
-            'base_currency': data['base_code'],
-            'conversion_rates': data['conversion_rates'],
-            'last_updated': data['time_last_update_utc']
+            'base_currency': base_currency,
+            'conversion_rates': data['data'],
+            'last_updated': data.get('meta', {}).get('last_updated_at', '')
         })
         
     except Exception as e:

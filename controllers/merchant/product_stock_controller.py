@@ -139,15 +139,24 @@ class MerchantProductStockController:
             merchant_id = merchant.id
             logger.info(f"Fetching inventory stats for merchant: {merchant.business_name} (ID: {merchant_id})")
 
-            total_products = Product.query.filter_by(merchant_id=merchant_id).count()
+            total_products = Product.query.filter_by(
+                merchant_id=merchant_id,
+                deleted_at=None,
+                approval_status='approved'
+            ).count()
+
             total_stock = db.session.query(db.func.sum(ProductStock.stock_qty)).\
                 join(Product).\
                 filter(Product.merchant_id == merchant_id).\
+                filter(Product.deleted_at == None).\
+                filter(Product.approval_status == 'approved').\
                 scalar() or 0
             
             low_stock_count = db.session.query(Product).\
                 join(ProductStock).\
                 filter(Product.merchant_id == merchant_id).\
+                filter(Product.deleted_at == None).\
+                filter(Product.approval_status == 'approved').\
                 filter(ProductStock.stock_qty <= ProductStock.low_stock_threshold).\
                 filter(ProductStock.stock_qty > 0).\
                 count()
@@ -155,6 +164,8 @@ class MerchantProductStockController:
             out_of_stock_count = db.session.query(Product).\
                 join(ProductStock).\
                 filter(Product.merchant_id == merchant_id).\
+                filter(Product.deleted_at == None).\
+                filter(Product.approval_status == 'approved').\
                 filter(ProductStock.stock_qty == 0).\
                 count()
             
@@ -179,7 +190,11 @@ class MerchantProductStockController:
             merchant_id = merchant.id
             logger.info(f"Fetching products for merchant: {merchant.business_name} (ID: {merchant_id})")
 
-            query = Product.query.filter_by(merchant_id=merchant_id)
+            query = Product.query.filter_by(
+                merchant_id=merchant_id, 
+                deleted_at=None,
+                approval_status='approved'
+            )
             
             if search:
                 search_term = f"%{search}%"

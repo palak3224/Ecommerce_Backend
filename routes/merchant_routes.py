@@ -169,6 +169,50 @@ def list_attributes_for_merchant_category_view(cid):
             return jsonify({'message': getattr(e, 'description', str(e))}), e.code
         return jsonify({'message': 'An error occurred while retrieving category attributes.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
+@merchant_dashboard_bp.route('/categories/<int:cid>', methods=['GET'])
+@merchant_role_required
+def get_category(cid):
+    """
+    Get category details by ID
+    ---
+    tags:
+      - Merchant - Categories
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: cid
+        type: integer
+        required: true
+        description: Category ID
+    responses:
+      200:
+        description: Category details retrieved successfully
+        schema:
+          type: object
+          properties:
+            category_id:
+              type: integer
+            name:
+              type: string
+            slug:
+              type: string
+            parent_id:
+              type: integer
+              nullable: true
+      404:
+        description: Category not found
+      500:
+        description: Internal server error
+    """
+    try:
+        category = MerchantCategoryController.get(cid)
+        return jsonify(category), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Merchant: Error getting category {cid}: {e}")
+        if hasattr(e, 'code') and isinstance(e.code, int):
+            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
+        return jsonify({'message': 'Failed to retrieve category details.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 # ── PRODUCTS ─────────────────────────────────────────────────────────────────────
 @merchant_dashboard_bp.route('/products', methods=['GET'])
@@ -1231,3 +1275,48 @@ def list_inventory_products():
     except Exception as e:
         current_app.logger.error(f"Error listing inventory products: {str(e)}")
         return jsonify({'message': 'Failed to retrieve inventory products.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchant_dashboard_bp.route('/brands/<int:bid>', methods=['GET'])
+@merchant_role_required
+def get_brand(bid):
+    """
+    Get brand details by ID
+    ---
+    tags:
+      - Merchant - Brands
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: bid
+        type: integer
+        required: true
+        description: Brand ID
+    responses:
+      200:
+        description: Brand details retrieved successfully
+        schema:
+          type: object
+          properties:
+            brand_id:
+              type: integer
+            name:
+              type: string
+            slug:
+              type: string
+            icon_url:
+              type: string
+              nullable: true
+      404:
+        description: Brand not found
+      500:
+        description: Internal server error
+    """
+    try:
+        brand = MerchantBrandController.get(bid)
+        return jsonify(brand), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Merchant: Error getting brand {bid}: {e}")
+        if hasattr(e, 'code') and isinstance(e.code, int):
+            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
+        return jsonify({'message': 'Failed to retrieve brand details.'}), HTTPStatus.INTERNAL_SERVER_ERROR
