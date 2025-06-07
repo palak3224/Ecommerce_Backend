@@ -8,6 +8,7 @@ import mysql.connector
 from dotenv import load_dotenv
 from app import create_app
 from common.database import db
+from sqlalchemy import text
 
 # --- Auth models ---
 from auth.models.models import (
@@ -41,6 +42,7 @@ from models.promotion import Promotion
 from models.product_promotion import ProductPromotion
 from models.tax_category import TaxCategory
 from models.homepage import HomepageCategory
+from models.subscription import SubscriptionPlan
 
 # --- Merchant models ---
 from models.product import Product
@@ -216,13 +218,86 @@ def init_homepage_categories():
     else:
         print("Homepage categories table already exists.")
 
+def init_subscription_plans():
+    """Initialize standard subscription plans."""
+    print("\nInitializing Subscription Plans:")
+    print("------------------------------")
+    
+    # Check if can_place_premium column exists, if not add it
+    try:
+        with db.engine.connect() as conn:
+            conn.execute(text("""
+                SELECT can_place_premium 
+                FROM subscription_plans 
+                LIMIT 1
+            """))
+    except Exception:
+        print("Adding can_place_premium column to subscription_plans table...")
+        with db.engine.connect() as conn:
+            conn.execute(text("""
+                ALTER TABLE subscription_plans 
+                ADD COLUMN can_place_premium BOOLEAN NOT NULL DEFAULT FALSE
+            """))
+            conn.commit()
+    
+    subscription_plans = [
+        {
+            'name': 'Basic',
+            'description': 'Basic subscription plan with limited features',
+            'featured_limit': 10,
+            'promo_limit': 10,
+            'duration_days': 30,
+            'price': 29.99,
+            'active_flag': True,
+            'can_place_premium': False,
+            'approval_status': 'approved'
+        },
+        {
+            'name': 'Professional',
+            'description': 'Professional subscription plan with advanced features',
+            'featured_limit': 50,
+            'promo_limit': 50,
+            'duration_days': 30,
+            'price': 79.99,
+            'active_flag': True,
+            'can_place_premium': True,
+            'approval_status': 'approved'
+        },
+        {
+            'name': 'Enterprise',
+            'description': 'Enterprise subscription plan with unlimited features',
+            'featured_limit': 999999,
+            'promo_limit': 999999,
+            'duration_days': 30,
+            'price': 199.99,
+            'active_flag': True,
+            'can_place_premium': True,
+            'approval_status': 'approved'
+        }
+    ]
+    
+    for plan_data in subscription_plans:
+        existing_plan = SubscriptionPlan.query.filter_by(name=plan_data['name']).first()
+        if not existing_plan:
+            subscription_plan = SubscriptionPlan(**plan_data)
+            db.session.add(subscription_plan)
+            print(f"Created subscription plan: {plan_data['name']} (${plan_data['price']})")
+        else:
+            # Update existing plan with new values
+            for key, value in plan_data.items():
+                setattr(existing_plan, key, value)
+            print(f"Updated subscription plan: {plan_data['name']} (${plan_data['price']})")
+    
+    db.session.commit()
+    print("Subscription plans initialized successfully.")
+
 def init_database():
     """Initialize database tables and create super admin."""
     app = create_app()
     with app.app_context():
-        # Create all tables
+        # Create tables if they don't exist
         db.create_all()
-        print("Database tables created.")
+        print("Database tables created or already exist.")
 
         # Initialize country configurations
         init_country_configs()
@@ -242,7 +317,10 @@ def init_database():
         # Initialize homepage categories table
         init_homepage_categories()
 
-        # Create super admin user
+        # Initialize subscription plans
+        init_subscription_plans()
+
+        # Create super admin user if not exists
         admin_email = os.getenv("SUPER_ADMIN_EMAIL")
         admin_first_name = os.getenv("SUPER_ADMIN_FIRST_NAME")
         admin_last_name = os.getenv("SUPER_ADMIN_LAST_NAME")
