@@ -5,10 +5,12 @@ from models.category import Category
 from models.brand import Brand
 from models.product_media import ProductMedia
 from models.enums import MediaType
-from sqlalchemy import desc, or_
+from sqlalchemy import desc, or_, func
 from flask_jwt_extended import get_jwt_identity
 from models.product_meta import ProductMeta
 from models.product_attribute import ProductAttribute
+from datetime import datetime, timedelta
+from models.order import OrderItem, Order
 
 class ProductController:
     @staticmethod
@@ -654,4 +656,208 @@ class ProductController:
             return jsonify({
                 'error': 'Failed to fetch product variants',
                 'message': str(e)
+            }), 500 
+
+    @staticmethod
+    def get_new_products():
+        """Get products that were added within the last week (excluding variants)"""
+        try:
+            # Get pagination parameters
+            page = request.args.get('page', 1, type=int)
+            per_page = min(request.args.get('per_page', 10, type=int), 50)
+            
+            # Calculate the date one week ago
+            one_week_ago = datetime.utcnow() - timedelta(days=7)
+            
+            # Base query - only show approved products added within last week and exclude variants
+            query = Product.query.filter(
+                Product.deleted_at.is_(None),
+                Product.active_flag.is_(True),
+                Product.approval_status == 'approved',
+                Product.created_at >= one_week_ago,
+                Product.parent_product_id.is_(None)  # Exclude variants
+            )
+            
+            # Execute paginated query
+            pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+            
+            # Prepare response
+            products = pagination.items
+            total = pagination.total
+            pages = pagination.pages
+            
+            # Get product data with media
+            product_data = []
+            for product in products:
+                product_dict = product.serialize()
+                # Add frontend-specific fields
+                product_dict.update({
+                    'id': str(product.product_id),
+                    'name': product.product_name,
+                    'description': product.product_description,
+                    'price': float(product.selling_price),
+                    'originalPrice': float(product.cost_price),
+                    'stock': 100,  # TODO: Add stock tracking
+                    'isNew': True,  # These are new products
+                    'isBuiltIn': False,
+                })
+                
+                # Get primary media
+                media = ProductController.get_product_media(product.product_id)
+                if media:
+                    product_dict['primary_image'] = media['url']
+                    product_dict['image'] = media['url']
+                
+                product_data.append(product_dict)
+            
+            return jsonify({
+                'products': product_data,
+                'pagination': {
+                    'total': total,
+                    'pages': pages,
+                    'current_page': page,
+                    'per_page': per_page,
+                    'has_next': pagination.has_next,
+                    'has_prev': pagination.has_prev
+                }
+            })
+            
+        except Exception as e:
+            print(f"Error in get_new_products: {str(e)}")
+            return jsonify({
+                'error': str(e),
+                'products': [],
+                'pagination': {
+                    'total': 0,
+                    'pages': 0,
+                    'current_page': page,
+                    'per_page': per_page,
+                    'has_next': False,
+                    'has_prev': False
+                }
+            }), 500 
+
+    @staticmethod
+    def get_trendy_deals():
+        """Get products that have been ordered the most (trendy deals)"""
+        try:
+            # Get pagination parameters
+            page = request.args.get('page', 1, type=int)
+            per_page = min(request.args.get('per_page', 10, type=int), 50)
+            
+            # Calculate the date one month ago for recent orders
+            one_month_ago = datetime.utcnow() - timedelta(days=30)
+            
+            # Query to get products ordered the most in the last month
+            from sqlalchemy import func, desc
+            
+            # First, get all completed orders from the last month
+            recent_orders = db.session.query(Order).filter(
+                Order.order_status == 'completed',
+                Order.order_date >= one_month_ago
+            ).all()
+            
+            if not recent_orders:
+                # If no recent orders, get all completed orders
+                recent_orders = db.session.query(Order).filter(
+                    Order.order_status == 'completed'
+                ).all()
+            
+            # Get order IDs
+            order_ids = [order.order_id for order in recent_orders]
+            
+            # Get product IDs and their order counts
+            product_counts = db.session.query(
+                OrderItem.product_id,
+                func.sum(OrderItem.quantity).label('total_ordered')
+            ).filter(
+                OrderItem.order_id.in_(order_ids),
+                OrderItem.product_id.isnot(None)
+            ).group_by(
+                OrderItem.product_id
+            ).order_by(
+                desc('total_ordered')
+            ).limit(per_page).all()
+            
+            print(f"Found {len(product_counts)} products with orders")
+            
+            # Get the product IDs
+            product_ids = [pc[0] for pc in product_counts]
+            
+            if not product_ids:
+                # If no products found, get some active products as fallback
+                products = Product.query.filter(
+                    Product.deleted_at.is_(None),
+                    Product.active_flag.is_(True),
+                    Product.approval_status == 'approved',
+                    Product.parent_product_id.is_(None)
+                ).limit(per_page).all()
+            else:
+                # Get the products with their details
+                products = Product.query.filter(
+                    Product.product_id.in_(product_ids),
+                    Product.deleted_at.is_(None),
+                    Product.active_flag.is_(True),
+                    Product.approval_status == 'approved',
+                    Product.parent_product_id.is_(None)
+                ).all()
+            
+            # Create a dictionary to store order counts
+            order_counts = {pc[0]: pc[1] for pc in product_counts}
+            
+            # Sort products based on order counts
+            products.sort(key=lambda p: order_counts.get(p.product_id, 0), reverse=True)
+            
+            # Prepare response
+            product_data = []
+            for product in products:
+                product_dict = product.serialize()
+                # Add frontend-specific fields
+                product_dict.update({
+                    'id': str(product.product_id),
+                    'name': product.product_name,
+                    'description': product.product_description,
+                    'price': float(product.selling_price),
+                    'originalPrice': float(product.cost_price),
+                    'stock': 100,  # TODO: Add stock tracking
+                    'isNew': True,  # TODO: Add logic for new products
+                    'isBuiltIn': False,
+                    'orderCount': order_counts.get(product.product_id, 0)  # Add order count
+                })
+                
+                # Get primary media
+                media = ProductController.get_product_media(product.product_id)
+                if media:
+                    product_dict['primary_image'] = media['url']
+                    product_dict['image'] = media['url']
+                
+                product_data.append(product_dict)
+            
+            print(f"Returning {len(product_data)} products")
+            
+            return jsonify({
+                'products': product_data,
+                'pagination': {
+                    'total': len(product_data),
+                    'pages': 1,
+                    'current_page': page,
+                    'per_page': per_page,
+                    'has_next': False,
+                    'has_prev': False
+                }
+            })
+            
+        except Exception as e:
+            print(f"Error in get_trendy_deals: {str(e)}")
+            return jsonify({
+                'error': str(e),
+                'products': [],
+                'pagination': {
+                    'total': 0,
+                    'pages': 0,
+                    'current_page': page,
+                    'per_page': per_page,
+                    'has_next': False,
+                    'has_prev': False
+                }
             }), 500 

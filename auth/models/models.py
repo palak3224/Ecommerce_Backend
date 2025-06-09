@@ -92,6 +92,12 @@ class User(BaseModel):
         lazy='dynamic'
     )
 
+    payment_cards = db.relationship(
+        'PaymentCard', 
+        back_populates='user', 
+        lazy='dynamic', 
+        cascade='all, delete-orphan'
+    )
 
     def set_password(self, password):
         """Hash password."""

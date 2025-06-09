@@ -27,9 +27,7 @@ class MerchantOrderController:
             # Base query to get orders with merchant's products
             query = Order.query.join(OrderItem).filter(OrderItem.merchant_id == merchant_id).distinct()
             
-            # Log the SQL query for debugging
-            logger.debug(f"Base query SQL: {query.statement.compile(compile_kwargs={'literal_binds': True})}")
-
+            
             # Apply order status filter if provided
             if status:
                 try:
@@ -92,7 +90,6 @@ class MerchantOrderController:
                 order_data = order.serialize(include_items=False, include_history=True)
                 # Filter items to only include those from this merchant
                 merchant_items = [item.serialize() for item in order.items if item.merchant_id == merchant_id]
-                logger.debug(f"Order {order.order_id} has {len(merchant_items)} items for merchant {merchant_id}")
                 order_data['items'] = merchant_items
                 serialized_orders.append(order_data)
 

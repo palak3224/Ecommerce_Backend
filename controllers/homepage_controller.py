@@ -7,11 +7,12 @@ from common.database import db
 from flask import jsonify
 import logging
 from models.carousel import Carousel
+from sqlalchemy import or_
 
 class HomepageController:
     @staticmethod
     def get_homepage_products():
-        """Get products from categories that are selected for homepage display"""
+        """Get products from categories that are selected for homepage display (excluding variants)"""
         try:
             # Get active homepage categories ordered by display_order
             active_homepage_categories = HomepageCategory.query.filter_by(
@@ -59,13 +60,14 @@ class HomepageController:
                 return product_data
             
             def get_category_products(category_id, level=0):
-                """Recursively get all products from a category and its subcategories"""
-                # Get direct products in this category that are approved
+                """Recursively get all products from a category and its subcategories (excluding variants)"""
+                # Get direct products in this category that are approved and not variants
                 direct_products = Product.query.filter(
                     Product.category_id == category_id,
                     Product.active_flag == True,
                     Product.deleted_at == None,
-                    Product.approval_status == 'approved'  # Only get approved products
+                    Product.approval_status == 'approved',  # Only get approved products
+                    Product.parent_product_id.is_(None)  # Exclude variants
                 ).all()
                 
                 # Get all subcategories
@@ -86,12 +88,13 @@ class HomepageController:
                     parent_id=main_category.category_id
                 ).all()
                 
-                # Get products for main category (excluding products in subcategories)
+                # Get products for main category (excluding products in subcategories and variants)
                 main_category_products = Product.query.filter(
                     Product.category_id == main_category.category_id,
                     Product.active_flag == True,
                     Product.deleted_at == None,
                     Product.approval_status == 'approved',  # Only get approved products
+                    Product.parent_product_id.is_(None),  # Exclude variants
                     ~Product.product_id.in_(
                         db.session.query(Product.product_id)
                         .join(Category, Product.category_id == Category.category_id)
@@ -135,18 +138,23 @@ class HomepageController:
             }), 500
 
     @staticmethod
-    def get_homepage_carousels(carousel_type=None):
+    def get_homepage_carousels(carousel_types=None):
         """
-        Get all active carousel items for homepage (optionally filter by type).
+        Get all active carousel items for homepage (optionally filter by types).
         Args:
-            carousel_type (str): 'brand' or 'product' (optional)
+            carousel_types (list): List of types to filter by ('brand', 'promo', 'new', 'featured')
         Returns:
             list: List of carousel items (dicts)
         """
         try:
             query = Carousel.query.filter_by(is_active=True, deleted_at=None)
-            if carousel_type:
-                query = query.filter_by(type=carousel_type)
+            
+            if carousel_types:
+                # Create a list of conditions for each type
+                type_conditions = [Carousel.type == type_name for type_name in carousel_types]
+                # Combine conditions with OR
+                query = query.filter(or_(*type_conditions))
+            
             items = query.order_by(Carousel.display_order).all()
             return [item.serialize() for item in items]
         except Exception as e:

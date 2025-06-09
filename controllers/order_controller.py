@@ -2,6 +2,7 @@ from flask import jsonify, request
 from models.order import Order, OrderItem, OrderStatusHistory
 from models.enums import OrderStatusEnum, PaymentStatusEnum, PaymentMethodEnum
 from models.product_stock import ProductStock
+from models.payment_card import PaymentCard
 from common.database import db
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -13,6 +14,25 @@ class OrderController:
         try:
             # Start a transaction
             db.session.begin_nested()
+
+            # Validate payment card if payment method is card
+            payment_card = None
+            payment_method = PaymentMethodEnum(order_data.get('payment_method'))
+            if payment_method in [PaymentMethodEnum.CREDIT_CARD, PaymentMethodEnum.DEBIT_CARD]:
+                if not order_data.get('payment_card_id'):
+                    raise ValueError("Payment card ID is required for card payments")
+                
+                payment_card = PaymentCard.query.filter_by(
+                    card_id=order_data['payment_card_id'],
+                    user_id=user_id,
+                    status='active'
+                ).first()
+                
+                if not payment_card:
+                    raise ValueError("Invalid or inactive payment card")
+                
+                # Update last used timestamp
+                payment_card.update_last_used()
 
             # Check stock availability and update stock quantities
             for item_data in order_data['items']:
@@ -40,8 +60,9 @@ class OrderController:
                 shipping_amount=Decimal(str(order_data.get('shipping_amount', '0.00'))),
                 total_amount=Decimal(str(order_data['total_amount'])),
                 currency=order_data.get('currency', 'USD'),
-                payment_method=PaymentMethodEnum(order_data.get('payment_method')) if order_data.get('payment_method') else None,
+                payment_method=payment_method,
                 payment_status=PaymentStatusEnum.PENDING,
+                order_status=OrderStatusEnum.PENDING_PAYMENT,
                 shipping_address_id=order_data.get('shipping_address_id'),
                 billing_address_id=order_data.get('billing_address_id'),
                 shipping_method_name=order_data.get('shipping_method_name'),
@@ -73,6 +94,54 @@ class OrderController:
 
             db.session.add(new_order)
             db.session.commit()
+
+            # Process payment if payment method is card
+            if payment_card:
+                try:
+                    # Here you would integrate with your payment gateway
+                    # For now, we'll simulate a successful payment
+                    payment_success = True  # Replace with actual payment gateway integration
+                    
+                    if payment_success:
+                        # Update payment status
+                        new_order.payment_status = PaymentStatusEnum.SUCCESSFUL
+                        new_order.order_status = OrderStatusEnum.PROCESSING
+                        
+                        # Add payment success status history
+                        payment_history = OrderStatusHistory(
+                            order_id=new_order.order_id,
+                            status=OrderStatusEnum.PROCESSING,
+                            changed_by_user_id=user_id,
+                            notes=f"Payment successful via {payment_card.card_brand} ending in {payment_card.last_four_digits}"
+                        )
+                        db.session.add(payment_history)
+                    else:
+                        # Handle payment failure
+                        new_order.payment_status = PaymentStatusEnum.FAILED
+                        new_order.order_status = OrderStatusEnum.PAYMENT_FAILED
+                        
+                        # Add payment failure status history
+                        payment_history = OrderStatusHistory(
+                            order_id=new_order.order_id,
+                            status=OrderStatusEnum.PAYMENT_FAILED,
+                            changed_by_user_id=user_id,
+                            notes=f"Payment failed via {payment_card.card_brand} ending in {payment_card.last_four_digits}"
+                        )
+                        db.session.add(payment_history)
+                        
+                        # Restore stock quantities
+                        for item in new_order.items:
+                            if item.product_id:
+                                product_stock = ProductStock.query.get(item.product_id)
+                                if product_stock:
+                                    product_stock.stock_qty += item.quantity
+                    
+                    db.session.commit()
+                    
+                except Exception as payment_error:
+                    # Handle payment processing error
+                    db.session.rollback()
+                    raise ValueError(f"Payment processing failed: {str(payment_error)}")
 
             return new_order.serialize(include_items=True, include_history=True)
 
@@ -136,11 +205,12 @@ class OrderController:
 
     @staticmethod
     def update_payment_status(order_id, payment_status, transaction_id=None, gateway_name=None):
-        order = Order.query.get(order_id)
-        if not order:
-            return None
-
         try:
+            order = Order.query.get(order_id)
+            if not order:
+                raise ValueError(f"Order not found with ID: {order_id}")
+
+            # Update payment status
             order.payment_status = payment_status
             if transaction_id:
                 order.payment_gateway_transaction_id = transaction_id
@@ -148,22 +218,34 @@ class OrderController:
                 order.payment_gateway_name = gateway_name
 
             # If payment is successful, update order status to processing
-            if payment_status == PaymentStatusEnum.PAID:
+            if payment_status == PaymentStatusEnum.SUCCESSFUL:
                 order.order_status = OrderStatusEnum.PROCESSING
                 status_history = OrderStatusHistory(
                     order_id=order_id,
                     status=OrderStatusEnum.PROCESSING,
                     changed_by_user_id=None,  # System change
-                    notes="Payment received, order moved to processing"
+                    notes=f"Payment received via {gateway_name or 'payment gateway'}, order moved to processing"
+                )
+                db.session.add(status_history)
+            elif payment_status == PaymentStatusEnum.FAILED:
+                order.order_status = OrderStatusEnum.PAYMENT_FAILED
+                status_history = OrderStatusHistory(
+                    order_id=order_id,
+                    status=OrderStatusEnum.PAYMENT_FAILED,
+                    changed_by_user_id=None,  # System change
+                    notes=f"Payment failed via {gateway_name or 'payment gateway'}"
                 )
                 db.session.add(status_history)
 
             db.session.commit()
             return order.serialize(include_items=True, include_history=True)
 
+        except ValueError as ve:
+            db.session.rollback()
+            raise ve
         except Exception as e:
             db.session.rollback()
-            raise e
+            raise Exception(f"Failed to update payment status: {str(e)}")
 
     @staticmethod
     def cancel_order(order_id, user_id, notes=None):

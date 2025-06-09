@@ -724,4 +724,209 @@ def get_product_variants(product_id):
       500:
         description: Internal server error
     """
-    return ProductController.get_product_variants(product_id) 
+    return ProductController.get_product_variants(product_id)
+
+@product_bp.route('/api/products/new', methods=['GET'])
+@cross_origin()
+def get_new_products():
+    """
+    Get products that were added within the last week (excluding variants)
+    ---
+    tags:
+      - Products
+    parameters:
+      - in: query
+        name: page
+        type: integer
+        required: false
+        default: 1
+        description: Page number
+      - in: query
+        name: per_page
+        type: integer
+        required: false
+        default: 10
+        description: Items per page (max 50)
+    responses:
+      200:
+        description: List of new products retrieved successfully (excluding variants)
+        schema:
+          type: object
+          properties:
+            products:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  description:
+                    type: string
+                  price:
+                    type: number
+                    format: float
+                  originalPrice:
+                    type: number
+                    format: float
+                  stock:
+                    type: integer
+                  isNew:
+                    type: boolean
+                  isBuiltIn:
+                    type: boolean
+                  primary_image:
+                    type: string
+                  image:
+                    type: string
+            pagination:
+              type: object
+              properties:
+                total:
+                  type: integer
+                pages:
+                  type: integer
+                current_page:
+                  type: integer
+                per_page:
+                  type: integer
+                has_next:
+                  type: boolean
+                has_prev:
+                  type: boolean
+      500:
+        description: Internal server error
+    """
+    return ProductController.get_new_products()
+
+@product_bp.route('/api/products/trendy-deals', methods=['GET'])
+@cross_origin()
+def get_trendy_deals():
+    """
+    Get products that have been ordered the most (trendy deals)
+    ---
+    tags:
+      - Products
+    parameters:
+      - in: query
+        name: page
+        type: integer
+        required: false
+        default: 1
+        description: Page number
+      - in: query
+        name: per_page
+        type: integer
+        required: false
+        default: 10
+        description: Items per page (max 50)
+    responses:
+      200:
+        description: List of trendy products retrieved successfully
+        schema:
+          type: object
+          properties:
+            products:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  description:
+                    type: string
+                  price:
+                    type: number
+                    format: float
+                  originalPrice:
+                    type: number
+                    format: float
+                  stock:
+                    type: integer
+                  isNew:
+                    type: boolean
+                  isBuiltIn:
+                    type: boolean
+                  orderCount:
+                    type: integer
+                  primary_image:
+                    type: string
+                  image:
+                    type: string
+                  currency:
+                    type: string
+                  category:
+                    type: object
+                    properties:
+                      category_id:
+                        type: integer
+                      name:
+                        type: string
+                  brand:
+                    type: object
+                    properties:
+                      brand_id:
+                        type: integer
+                      name:
+                        type: string
+            pagination:
+              type: object
+              properties:
+                total:
+                  type: integer
+                pages:
+                  type: integer
+                current_page:
+                  type: integer
+                per_page:
+                  type: integer
+                has_next:
+                  type: boolean
+                has_prev:
+                  type: boolean
+      500:
+        description: Internal server error
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+            products:
+              type: array
+              items: {}
+            pagination:
+              type: object
+              properties:
+                total:
+                  type: integer
+                pages:
+                  type: integer
+                current_page:
+                  type: integer
+                per_page:
+                  type: integer
+                has_next:
+                  type: boolean
+                has_prev:
+                  type: boolean
+    """
+    try:
+        return ProductController.get_trendy_deals()
+    except Exception as e:
+        print(f"Error in get_trendy_deals route: {str(e)}")
+        return jsonify({
+            "error": "Failed to fetch trendy deals",
+            "message": str(e),
+            "products": [],
+            "pagination": {
+                "total": 0,
+                "pages": 0,
+                "current_page": 1,
+                "per_page": 10,
+                "has_next": False,
+                "has_prev": False
+            }
+        }), 500 

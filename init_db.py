@@ -55,6 +55,10 @@ from models.review import Review
 from models.product_attribute import ProductAttribute
 from models.recently_viewed import RecentlyViewed
 
+# --- Payment models ---
+from models.payment_card import PaymentCard
+from models.enums import CardTypeEnum, CardStatusEnum
+
 # Load environment variables
 load_dotenv()
 
@@ -291,6 +295,30 @@ def init_subscription_plans():
     db.session.commit()
     print("Subscription plans initialized successfully.")
 
+def init_payment_cards():
+    """Initialize payment cards table and encryption key."""
+    print("\nInitializing Payment Cards:")
+    print("--------------------------")
+    
+    # Check if the table exists using SQLAlchemy inspector
+    inspector = db.inspect(db.engine)
+    if 'payment_cards' not in inspector.get_table_names():
+        print("Creating payment_cards table...")
+        PaymentCard.__table__.create(db.engine)
+        print("Payment cards table created successfully.")
+    else:
+        print("Payment cards table already exists.")
+    
+    # Check if CARD_ENCRYPTION_KEY exists in app config
+    app = create_app()
+    with app.app_context():
+        if not app.config.get('CARD_ENCRYPTION_KEY'):
+            from cryptography.fernet import Fernet
+            app.config['CARD_ENCRYPTION_KEY'] = Fernet.generate_key()
+            print("Generated new card encryption key.")
+        else:
+            print("Card encryption key already exists.")
+
 def init_database():
     """Initialize database tables and create super admin."""
     app = create_app()
@@ -319,6 +347,9 @@ def init_database():
 
         # Initialize subscription plans
         init_subscription_plans()
+
+        # Initialize payment cards
+        init_payment_cards()
 
         # Create super admin user if not exists
         admin_email = os.getenv("SUPER_ADMIN_EMAIL")

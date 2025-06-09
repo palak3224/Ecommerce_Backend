@@ -9,13 +9,13 @@ homepage_bp = Blueprint('homepage', __name__)
 @cross_origin()
 def get_homepage_products():
     """
-    Get products from categories selected for homepage display
+    Get products from categories selected for homepage display (excluding variants)
     ---
     tags:
       - Homepage
     responses:
       200:
-        description: List of featured products retrieved successfully
+        description: List of featured products retrieved successfully (excluding variants)
         schema:
           type: array
           items:
@@ -68,13 +68,17 @@ def get_homepage_carousels():
     """
     Get all active carousel items for homepage (optionally filter by type).
     Query params:
-      - type: 'brand' or 'product' (optional)
+      - type: Comma-separated list of types ('brand', 'promo', 'new', 'featured')
+    Example:
+      /api/homepage/carousels?type=promo,new,featured
     """
     if request.method == 'OPTIONS':
         return '', 200
     try:
-        carousel_type = request.args.get('type')
-        items = HomepageController.get_homepage_carousels(carousel_type)
+        carousel_types = request.args.get('type', '').split(',')
+        # Remove any empty strings from the list
+        carousel_types = [t.strip() for t in carousel_types if t.strip()]
+        items = HomepageController.get_homepage_carousels(carousel_types)
         return jsonify(items), 200
     except Exception as e:
         current_app.logger.error(f"Error fetching homepage carousels: {e}")
