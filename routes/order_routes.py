@@ -451,4 +451,122 @@ def get_trendy_products():
         return jsonify({
             'status': 'error',
             'message': str(e)
+        }), 500
+
+@order_bp.route('/<string:order_id>/track', methods=['GET'])
+@jwt_required()
+@role_required([UserRole.USER.value, UserRole.ADMIN.value, UserRole.MERCHANT.value])
+def track_order(order_id):
+    """
+    Track an order and get detailed information including product details and images.
+    
+    ---
+    tags:
+      - Orders
+    parameters:
+      - in: path
+        name: order_id
+        type: string
+        required: true
+        description: The ID of the order to track
+    responses:
+      200:
+        description: Order tracking information
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+            data:
+              type: object
+              properties:
+                order_id:
+                  type: string
+                order_status:
+                  type: string
+                order_date:
+                  type: string
+                total_amount:
+                  type: string
+                currency:
+                  type: string
+                items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      product_name:
+                        type: string
+                      quantity:
+                        type: integer
+                      unit_price:
+                        type: string
+                      total_price:
+                        type: string
+                      product_image:
+                        type: string
+                      item_status:
+                        type: string
+                status_history:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                      changed_at:
+                        type: string
+                      notes:
+                        type: string
+      404:
+        description: Order not found
+      403:
+        description: Unauthorized access
+      500:
+        description: Internal server error
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        # Get tracking information
+        tracking_info = OrderController.track_order(order_id)
+        
+        if not tracking_info:
+            return jsonify({
+                'status': 'error',
+                'message': 'Order not found'
+            }), 404
+            
+        # Check if user has permission to view this order
+        order = Order.query.get(order_id)
+        if not order:
+            return jsonify({
+                'status': 'error',
+                'message': 'Order not found'
+            }), 404
+            
+        if (str(order.user_id) != str(user_id) and 
+            not request.user.is_admin and 
+            not request.user.is_merchant):
+            return jsonify({
+                'status': 'error',
+                'message': 'Unauthorized access'
+            }), 403
+            
+        return jsonify({
+            'status': 'success',
+            'data': tracking_info
+        })
+        
+    except ValueError as ve:
+        logger.error(f"Validation error tracking order: {str(ve)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(ve)
+        }), 400
+    except Exception as e:
+        logger.error(f"Error tracking order: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
         }), 500 
