@@ -25,6 +25,7 @@ from controllers.merchant.merchant_profile_controller import MerchantProfileCont
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from controllers.merchant.order_controller import MerchantOrderController
 from auth.models.models import MerchantProfile
+from datetime import datetime
 
 
 ALLOWED_MEDIA_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'mov', 'avi'} 
@@ -1817,3 +1818,303 @@ def update_placement_sort_order(placement_id):
     except Exception as e:
         current_app.logger.error(f"Error updating placement sort order: {str(e)}")
         return jsonify({'message': 'Failed to update placement sort order.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+# ── MERCHANT PRODUCT REVIEWS ─────────────────────────────────────────────────────
+@merchant_dashboard_bp.route('/product-reviews', methods=['GET'])
+@merchant_role_required
+def get_merchant_product_reviews():
+    """
+    Get all reviews for products owned by a merchant
+    ---
+    tags:
+      - Merchant - Reviews
+    security:
+      - Bearer: []
+    parameters:
+      - name: page
+        in: query
+        type: integer
+        default: 1
+        description: Page number for pagination
+      - name: per_page
+        in: query
+        type: integer
+        default: 10
+        description: Number of items per page
+      - name: rating
+        in: query
+        type: integer
+        description: Filter by rating (1-5)
+      - name: product_id
+        in: query
+        type: integer
+        description: Filter by specific product
+      - name: start_date
+        in: query
+        type: string
+        format: date
+        description: Filter by start date (YYYY-MM-DD)
+      - name: end_date
+        in: query
+        type: string
+        format: date
+        description: Filter by end date (YYYY-MM-DD)
+      - name: has_images
+        in: query
+        type: boolean
+        description: Filter reviews with/without images
+    responses:
+      200:
+        description: List of reviews with pagination and stats
+        schema:
+          type: object
+          properties:
+            reviews:
+              type: array
+              items:
+                type: object
+                properties:
+                  review_id:
+                    type: integer
+                  rating:
+                    type: integer
+                  title:
+                    type: string
+                  body:
+                    type: string
+                  created_at:
+                    type: string
+                    format: date-time
+                  user:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      first_name:
+                        type: string
+                      last_name:
+                        type: string
+                  product:
+                    type: object
+                    properties:
+                      product_id:
+                        type: integer
+                      name:
+                        type: string
+            pagination:
+              type: object
+              properties:
+                total:
+                  type: integer
+                page:
+                  type: integer
+                per_page:
+                  type: integer
+                pages:
+                  type: integer
+            stats:
+              type: object
+              properties:
+                average_rating:
+                  type: number
+                total_reviews:
+                  type: integer
+                rating_distribution:
+                  type: object
+                  properties:
+                    "1":
+                      type: integer
+                    "2":
+                      type: integer
+                    "3":
+                      type: integer
+                    "4":
+                      type: integer
+                    "5":
+                      type: integer
+      500:
+        description: Internal server error
+    """
+    try:
+        current_user_id = get_jwt_identity()
+        merchant = MerchantProfile.get_by_user_id(current_user_id)
+        
+        if not merchant:
+            return jsonify({'message': 'Merchant profile not found'}), HTTPStatus.NOT_FOUND
+
+        # Get query parameters
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 10, type=int)
+        
+        # Build filters
+        filters = {}
+        if 'rating' in request.args:
+            filters['rating'] = request.args.get('rating', type=int)
+        if 'product_id' in request.args:
+            filters['product_id'] = request.args.get('product_id', type=int)
+        if 'start_date' in request.args:
+            filters['start_date'] = datetime.strptime(request.args['start_date'], '%Y-%m-%d')
+        if 'end_date' in request.args:
+            filters['end_date'] = datetime.strptime(request.args['end_date'], '%Y-%m-%d')
+        if 'has_images' in request.args:
+            filters['has_images'] = request.args.get('has_images', type=bool)
+
+        from controllers.merchant.merchant_review_controller import MerchantReviewController
+        result = MerchantReviewController.get_merchant_product_reviews(
+            merchant_id=merchant.id,
+            page=page,
+            per_page=per_page,
+            filters=filters
+        )
+        
+        return jsonify(result), HTTPStatus.OK
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+    except Exception as e:
+        current_app.logger.error(f"Error getting merchant product reviews: {str(e)}")
+        return jsonify({'message': 'Failed to retrieve product reviews.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchant_dashboard_bp.route('/product-reviews/stats', methods=['GET'])
+@merchant_role_required
+def get_product_review_stats():
+    """
+    Get review statistics for merchant's products
+    ---
+    tags:
+      - Merchant - Reviews
+    security:
+      - Bearer: []
+    parameters:
+      - name: product_id
+        in: query
+        type: integer
+        description: Optional product ID to get stats for a specific product
+    responses:
+      200:
+        description: Review statistics for merchant's products
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id:
+                type: integer
+              product_name:
+                type: string
+              average_rating:
+                type: number
+              total_reviews:
+                type: integer
+              rating_distribution:
+                type: object
+                properties:
+                  "1":
+                    type: integer
+                  "2":
+                    type: integer
+                  "3":
+                    type: integer
+                  "4":
+                    type: integer
+                  "5":
+                    type: integer
+      500:
+        description: Internal server error
+    """
+    try:
+        current_user_id = get_jwt_identity()
+        merchant = MerchantProfile.get_by_user_id(current_user_id)
+        
+        if not merchant:
+            return jsonify({'message': 'Merchant profile not found'}), HTTPStatus.NOT_FOUND
+
+        product_id = request.args.get('product_id', type=int)
+        
+        from controllers.merchant.merchant_review_controller import MerchantReviewController
+        stats = MerchantReviewController.get_product_review_stats(
+            merchant_id=merchant.id,
+            product_id=product_id
+        )
+        
+        return jsonify(stats), HTTPStatus.OK
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+    except Exception as e:
+        current_app.logger.error(f"Error getting product review stats: {str(e)}")
+        return jsonify({'message': 'Failed to retrieve review statistics.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchant_dashboard_bp.route('/product-reviews/recent', methods=['GET'])
+@merchant_role_required
+def get_recent_reviews():
+    """
+    Get most recent reviews for merchant's products
+    ---
+    tags:
+      - Merchant - Reviews
+    security:
+      - Bearer: []
+    parameters:
+      - name: limit
+        in: query
+        type: integer
+        default: 5
+        description: Number of recent reviews to return
+    responses:
+      200:
+        description: List of recent reviews
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              review_id:
+                type: integer
+              rating:
+                type: integer
+              title:
+                type: string
+              body:
+                type: string
+              created_at:
+                type: string
+                format: date-time
+              user:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  first_name:
+                    type: string
+                  last_name:
+                    type: string
+              product:
+                type: object
+                properties:
+                  product_id:
+                    type: integer
+                  name:
+                    type: string
+      500:
+        description: Internal server error
+    """
+    try:
+        current_user_id = get_jwt_identity()
+        merchant = MerchantProfile.get_by_user_id(current_user_id)
+        
+        if not merchant:
+            return jsonify({'message': 'Merchant profile not found'}), HTTPStatus.NOT_FOUND
+
+        limit = request.args.get('limit', 5, type=int)
+        
+        from controllers.merchant.merchant_review_controller import MerchantReviewController
+        reviews = MerchantReviewController.get_recent_reviews(
+            merchant_id=merchant.id,
+            limit=limit
+        )
+        
+        return jsonify(reviews), HTTPStatus.OK
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+    except Exception as e:
+        current_app.logger.error(f"Error getting recent reviews: {str(e)}")
+        return jsonify({'message': 'Failed to retrieve recent reviews.'}), HTTPStatus.INTERNAL_SERVER_ERROR
