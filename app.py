@@ -146,6 +146,8 @@ def create_app(config_name='default'):
     app.register_blueprint(feature_product_bp, url_prefix='/api/featured-products')
     app.register_blueprint(promo_product_bp, url_prefix='/api/promo-products')
     app.register_blueprint(payment_card_bp)
+    app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
+    app.register_blueprint(review_bp, url_prefix='/api/reviews')
     # Add custom headers to every response
     app.after_request(add_headers)
 
