@@ -16,39 +16,105 @@ payment_card_bp = Blueprint('payment_card', __name__, url_prefix='/api/payment-c
 @role_required([UserRole.USER.value])
 def add_card():
     """
-    Add a new payment card.
-    
-    Request Body:
-    {
-        "card_number": "4111111111111111",
-        "cvv": "123",
-        "expiry_month": "12",
-        "expiry_year": "2025",
-        "card_holder_name": "John Doe",
-        "card_type": "credit",
-        "billing_address_id": 1,
-        "is_default": false
-    }
-    
-    Response:
-    {
-        "status": "success",
-        "message": "Card added successfully",
-        "data": {
-            "card_id": 1,
-            "user_id": 1,
-            "card_type": "credit",
-            "last_four_digits": "1111",
-            "card_holder_name": "John Doe",
-            "card_brand": "Visa",
-            "status": "active",
-            "is_default": true,
-            "billing_address": {...},
-            "last_used_at": null,
-            "created_at": "2024-03-14T12:00:00",
-            "updated_at": "2024-03-14T12:00:00"
-        }
-    }
+    Add a new payment card to the authenticated user's account
+    ---
+    tags:
+      - Payment Cards
+    security:
+      - Bearer: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - card_number
+              - cvv
+              - expiry_month
+              - expiry_year
+              - card_holder_name
+              - card_type
+              - billing_address_id
+            properties:
+              card_number:
+                type: string
+                description: Card number (will be encrypted)
+              cvv:
+                type: string
+                description: Card security code
+              expiry_month:
+                type: string
+                description: Card expiration month (MM)
+              expiry_year:
+                type: string
+                description: Card expiration year (YYYY)
+              card_holder_name:
+                type: string
+                description: Name on the card
+              card_type:
+                type: string
+                enum: [credit, debit]
+                description: Type of card
+              billing_address_id:
+                type: integer
+                description: ID of the billing address
+              is_default:
+                type: boolean
+                description: Whether this should be the default card
+    responses:
+      200:
+        description: Card added successfully
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            message:
+              type: string
+              example: Card added successfully
+            data:
+              type: object
+              properties:
+                card_id:
+                  type: integer
+                user_id:
+                  type: integer
+                card_type:
+                  type: string
+                  enum: [credit, debit]
+                last_four_digits:
+                  type: string
+                card_holder_name:
+                  type: string
+                card_brand:
+                  type: string
+                status:
+                  type: string
+                  enum: [active, inactive, expired]
+                is_default:
+                  type: boolean
+                billing_address:
+                  type: object
+                last_used_at:
+                  type: string
+                  format: date-time
+                  nullable: true
+                created_at:
+                  type: string
+                  format: date-time
+                updated_at:
+                  type: string
+                  format: date-time
+      400:
+        description: Invalid request - Missing or invalid card details
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have required role
+      500:
+        description: Internal server error
     """
     try:
         user_id = get_jwt_identity()
@@ -66,28 +132,62 @@ def add_card():
 @role_required([UserRole.USER.value])
 def get_user_cards():
     """
-    Get all payment cards for the current user.
-    
-    Response:
-    {
-        "status": "success",
-        "data": [
-            {
-                "card_id": 1,
-                "user_id": 1,
-                "card_type": "credit",
-                "last_four_digits": "1111",
-                "card_holder_name": "John Doe",
-                "card_brand": "Visa",
-                "status": "active",
-                "is_default": true,
-                "billing_address": {...},
-                "last_used_at": null,
-                "created_at": "2024-03-14T12:00:00",
-                "updated_at": "2024-03-14T12:00:00"
-            }
-        ]
-    }
+    Get all payment cards for the authenticated user
+    ---
+    tags:
+      - Payment Cards
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of user's payment cards retrieved successfully
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  card_id:
+                    type: integer
+                  user_id:
+                    type: integer
+                  card_type:
+                    type: string
+                    enum: [credit, debit]
+                  last_four_digits:
+                    type: string
+                  card_holder_name:
+                    type: string
+                  card_brand:
+                    type: string
+                  status:
+                    type: string
+                    enum: [active, inactive, expired]
+                  is_default:
+                    type: boolean
+                  billing_address:
+                    type: object
+                  last_used_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  created_at:
+                    type: string
+                    format: date-time
+                  updated_at:
+                    type: string
+                    format: date-time
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have required role
+      500:
+        description: Internal server error
     """
     try:
         user_id = get_jwt_identity()
@@ -104,26 +204,68 @@ def get_user_cards():
 @role_required([UserRole.USER.value])
 def get_card(card_id):
     """
-    Get a specific payment card by ID.
-    
-    Response:
-    {
-        "status": "success",
-        "data": {
-            "card_id": 1,
-            "user_id": 1,
-            "card_type": "credit",
-            "last_four_digits": "1111",
-            "card_holder_name": "John Doe",
-            "card_brand": "Visa",
-            "status": "active",
-            "is_default": true,
-            "billing_address": {...},
-            "last_used_at": null,
-            "created_at": "2024-03-14T12:00:00",
-            "updated_at": "2024-03-14T12:00:00"
-        }
-    }
+    Get a specific payment card by ID
+    ---
+    tags:
+      - Payment Cards
+    security:
+      - Bearer: []
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: ID of the payment card to retrieve
+    responses:
+      200:
+        description: Payment card retrieved successfully
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            data:
+              type: object
+              properties:
+                card_id:
+                  type: integer
+                user_id:
+                  type: integer
+                card_type:
+                  type: string
+                  enum: [credit, debit]
+                last_four_digits:
+                  type: string
+                card_holder_name:
+                  type: string
+                card_brand:
+                  type: string
+                status:
+                  type: string
+                  enum: [active, inactive, expired]
+                is_default:
+                  type: boolean
+                billing_address:
+                  type: object
+                last_used_at:
+                  type: string
+                  format: date-time
+                  nullable: true
+                created_at:
+                  type: string
+                  format: date-time
+                updated_at:
+                  type: string
+                  format: date-time
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have access to this card
+      404:
+        description: Card not found
+      500:
+        description: Internal server error
     """
     try:
         user_id = get_jwt_identity()
@@ -140,38 +282,101 @@ def get_card(card_id):
 @role_required([UserRole.USER.value])
 def update_card(card_id):
     """
-    Update a payment card.
-    
-    Request Body:
-    {
-        "card_holder_name": "John Doe",
-        "billing_address_id": 1,
-        "card_number": "4111111111111111",
-        "cvv": "123",
-        "expiry_month": "12",
-        "expiry_year": "2025",
-        "is_default": true
-    }
-    
-    Response:
-    {
-        "status": "success",
-        "message": "Card updated successfully",
-        "data": {
-            "card_id": 1,
-            "user_id": 1,
-            "card_type": "credit",
-            "last_four_digits": "1111",
-            "card_holder_name": "John Doe",
-            "card_brand": "Visa",
-            "status": "active",
-            "is_default": true,
-            "billing_address": {...},
-            "last_used_at": null,
-            "created_at": "2024-03-14T12:00:00",
-            "updated_at": "2024-03-14T12:00:00"
-        }
-    }
+    Update an existing payment card
+    ---
+    tags:
+      - Payment Cards
+    security:
+      - Bearer: []
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: ID of the payment card to update
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              card_holder_name:
+                type: string
+                description: Name on the card
+              billing_address_id:
+                type: integer
+                description: ID of the billing address
+              card_number:
+                type: string
+                description: New card number (will be encrypted)
+              cvv:
+                type: string
+                description: New card security code
+              expiry_month:
+                type: string
+                description: New card expiration month (MM)
+              expiry_year:
+                type: string
+                description: New card expiration year (YYYY)
+              is_default:
+                type: boolean
+                description: Whether this should be the default card
+    responses:
+      200:
+        description: Card updated successfully
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            message:
+              type: string
+              example: Card updated successfully
+            data:
+              type: object
+              properties:
+                card_id:
+                  type: integer
+                user_id:
+                  type: integer
+                card_type:
+                  type: string
+                  enum: [credit, debit]
+                last_four_digits:
+                  type: string
+                card_holder_name:
+                  type: string
+                card_brand:
+                  type: string
+                status:
+                  type: string
+                  enum: [active, inactive, expired]
+                is_default:
+                  type: boolean
+                billing_address:
+                  type: object
+                last_used_at:
+                  type: string
+                  format: date-time
+                  nullable: true
+                created_at:
+                  type: string
+                  format: date-time
+                updated_at:
+                  type: string
+                  format: date-time
+      400:
+        description: Invalid request - Missing or invalid card details
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have access to this card
+      404:
+        description: Card not found
+      500:
+        description: Internal server error
     """
     try:
         user_id = get_jwt_identity()
@@ -188,13 +393,38 @@ def update_card(card_id):
 @role_required([UserRole.USER.value])
 def delete_card(card_id):
     """
-    Delete a payment card.
-    
-    Response:
-    {
-        "status": "success",
-        "message": "Card deleted successfully"
-    }
+    Delete a payment card
+    ---
+    tags:
+      - Payment Cards
+    security:
+      - Bearer: []
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: ID of the payment card to delete
+    responses:
+      200:
+        description: Card deleted successfully
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            message:
+              type: string
+              example: Card deleted successfully
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have access to this card
+      404:
+        description: Card not found
+      500:
+        description: Internal server error
     """
     try:
         user_id = get_jwt_identity()
@@ -211,27 +441,72 @@ def delete_card(card_id):
 @role_required([UserRole.USER.value])
 def set_default_card(card_id):
     """
-    Set a card as the default payment method.
-    
-    Response:
-    {
-        "status": "success",
-        "message": "Default card updated successfully",
-        "data": {
-            "card_id": 1,
-            "user_id": 1,
-            "card_type": "credit",
-            "last_four_digits": "1111",
-            "card_holder_name": "John Doe",
-            "card_brand": "Visa",
-            "status": "active",
-            "is_default": true,
-            "billing_address": {...},
-            "last_used_at": null,
-            "created_at": "2024-03-14T12:00:00",
-            "updated_at": "2024-03-14T12:00:00"
-        }
-    }
+    Set a payment card as the default payment method
+    ---
+    tags:
+      - Payment Cards
+    security:
+      - Bearer: []
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: ID of the payment card to set as default
+    responses:
+      200:
+        description: Default card updated successfully
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            message:
+              type: string
+              example: Default card updated successfully
+            data:
+              type: object
+              properties:
+                card_id:
+                  type: integer
+                user_id:
+                  type: integer
+                card_type:
+                  type: string
+                  enum: [credit, debit]
+                last_four_digits:
+                  type: string
+                card_holder_name:
+                  type: string
+                card_brand:
+                  type: string
+                status:
+                  type: string
+                  enum: [active, inactive, expired]
+                is_default:
+                  type: boolean
+                  example: true
+                billing_address:
+                  type: object
+                last_used_at:
+                  type: string
+                  format: date-time
+                  nullable: true
+                created_at:
+                  type: string
+                  format: date-time
+                updated_at:
+                  type: string
+                  format: date-time
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have access to this card
+      404:
+        description: Card not found
+      500:
+        description: Internal server error
     """
     try:
         user_id = get_jwt_identity()

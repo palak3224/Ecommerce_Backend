@@ -39,7 +39,46 @@ def allowed_file(filename):
 @superadmin_bp.route('/categories', methods=['GET'])
 @super_admin_role_required
 def list_categories():
-    
+    """
+    Get a list of all categories
+    ---
+    tags:
+      - Categories
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of categories retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+              slug:
+                type: string
+              parent_id:
+                type: integer
+                nullable: true
+              icon_url:
+                type: string
+                nullable: true
+              created_at:
+                type: string
+                format: date-time
+              updated_at:
+                type: string
+                format: date-time
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      500:
+        description: Internal server error
+    """
     try:
         cats = CategoryController.list_all()
         return jsonify([c.serialize() for c in cats]), HTTPStatus.OK
@@ -218,7 +257,55 @@ def update_category(cid):
 @superadmin_bp.route('/categories/<int:cid>', methods=['DELETE'])
 @super_admin_role_required
 def delete_category(cid):
-    
+    """
+    Delete a category
+    ---
+    tags:
+      - Categories
+    security:
+      - Bearer: []
+    parameters:
+      - name: cid
+        in: path
+        type: integer
+        required: true
+        description: ID of the category to delete
+    responses:
+      200:
+        description: Category deleted successfully
+        schema:
+          type: object
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+            slug:
+              type: string
+            parent_id:
+              type: integer
+              nullable: true
+            icon_url:
+              type: string
+              nullable: true
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+            deleted_at:
+              type: string
+              format: date-time
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: Category not found
+      500:
+        description: Internal server error
+    """
     try:
         cat = CategoryController.delete(cid)
         return jsonify(cat.serialize()), HTTPStatus.OK
@@ -289,7 +376,57 @@ def upload_category_icon(cid):
 @superadmin_bp.route('/brand-requests', methods=['GET'])
 @super_admin_role_required
 def list_brand_requests():
-    
+    """
+    Get a list of all pending brand requests
+    ---
+    tags:
+      - Brand Requests
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of pending brand requests retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              brand_name:
+                type: string
+              slug:
+                type: string
+              description:
+                type: string
+              website_url:
+                type: string
+                nullable: true
+              status:
+                type: string
+                enum: [pending, approved, rejected]
+              requested_by:
+                type: integer
+              requested_at:
+                type: string
+                format: date-time
+              approved_by:
+                type: integer
+                nullable: true
+              approved_at:
+                type: string
+                format: date-time
+                nullable: true
+              rejection_notes:
+                type: string
+                nullable: true
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      500:
+        description: Internal server error
+    """
     try:
         requests = BrandRequestController.list_pending()
         return jsonify([r.serialize() for r in requests]), HTTPStatus.OK
@@ -345,7 +482,74 @@ def approve_brand_request(rid):
 @superadmin_bp.route('/brand-requests/<int:rid>/reject', methods=['POST'])
 @super_admin_role_required
 def reject_brand_request(rid):
-    
+    """
+    Reject a brand request
+    ---
+    tags:
+      - Brand Requests
+    security:
+      - Bearer: []
+    parameters:
+      - name: rid
+        in: path
+        type: integer
+        required: true
+        description: ID of the brand request to reject
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - notes
+            properties:
+              notes:
+                type: string
+                description: Reason for rejecting the brand request
+    responses:
+      200:
+        description: Brand request rejected successfully
+        schema:
+          type: object
+          properties:
+            id:
+              type: integer
+            brand_name:
+              type: string
+            slug:
+              type: string
+            description:
+              type: string
+            website_url:
+              type: string
+              nullable: true
+            status:
+              type: string
+              enum: [rejected]
+            requested_by:
+              type: integer
+            requested_at:
+              type: string
+              format: date-time
+            rejected_by:
+              type: integer
+            rejected_at:
+              type: string
+              format: date-time
+            rejection_notes:
+              type: string
+      400:
+        description: Bad request - Missing rejection notes
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: Brand request not found
+      500:
+        description: Internal server error
+    """
     user_id = get_jwt_identity()
     data = request.get_json()
     if not data:
@@ -371,7 +575,60 @@ def reject_brand_request(rid):
 @superadmin_bp.route('/brands', methods=['GET'])
 @super_admin_role_required
 def list_brands():
-    
+    """
+    Get a list of all brands
+    ---
+    tags:
+      - Brands
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of brands retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              brand_id:
+                type: integer
+              name:
+                type: string
+              slug:
+                type: string
+              description:
+                type: string
+              website_url:
+                type: string
+                nullable: true
+              icon_url:
+                type: string
+                nullable: true
+              status:
+                type: string
+                enum: [active, inactive]
+              approved_by:
+                type: integer
+              approved_at:
+                type: string
+                format: date-time
+              created_at:
+                type: string
+                format: date-time
+              updated_at:
+                type: string
+                format: date-time
+              deleted_at:
+                type: string
+                format: date-time
+                nullable: true
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      500:
+        description: Internal server error
+    """
     try:
         brands_list = BrandController.list_all()
         
@@ -592,7 +849,31 @@ def update_brand(bid):
 @superadmin_bp.route('/brands/<int:bid>', methods=['DELETE'])
 @super_admin_role_required
 def delete_brand(bid):
-    
+    """
+    Delete a brand
+    ---
+    tags:
+      - Brands
+    security:
+      - Bearer: []
+    parameters:
+      - name: bid
+        in: path
+        type: integer
+        required: true
+        description: ID of the brand to delete
+    responses:
+      204:
+        description: Brand deleted successfully
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: Brand not found
+      500:
+        description: Internal server error
+    """
     try:
         BrandController.delete(bid)
         return '', HTTPStatus.NO_CONTENT
@@ -604,7 +885,66 @@ def delete_brand(bid):
 @superadmin_bp.route('/brands/<int:bid>/restore', methods=['POST']) # Or PUT
 @super_admin_role_required
 def restore_brand(bid):
-    
+    """
+    Restore a previously deleted brand
+    ---
+    tags:
+      - Brands
+    security:
+      - Bearer: []
+    parameters:
+      - name: bid
+        in: path
+        type: integer
+        required: true
+        description: ID of the brand to restore
+    responses:
+      200:
+        description: Brand restored successfully
+        schema:
+          type: object
+          properties:
+            brand_id:
+              type: integer
+            name:
+              type: string
+            slug:
+              type: string
+            description:
+              type: string
+            website_url:
+              type: string
+              nullable: true
+            icon_url:
+              type: string
+              nullable: true
+            status:
+              type: string
+              enum: [active, inactive]
+            approved_by:
+              type: integer
+            approved_at:
+              type: string
+              format: date-time
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+            deleted_at:
+              type: string
+              format: date-time
+              nullable: true
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: Brand not found
+      500:
+        description: Internal server error
+    """
     try:
         restored_brand = BrandController.undelete(bid)
         return jsonify(restored_brand.serialize()), HTTPStatus.OK
@@ -620,14 +960,148 @@ def restore_brand(bid):
 @superadmin_bp.route('/promotions', methods=['GET'])
 @super_admin_role_required
 def list_promotions():
-    
+    """
+    Get a list of all promotions
+    ---
+    tags:
+      - Promotions
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of promotions retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              promotion_id:
+                type: integer
+              name:
+                type: string
+              description:
+                type: string
+              discount_type:
+                type: string
+                enum: [percentage, fixed_amount]
+              discount_value:
+                type: number
+              start_date:
+                type: string
+                format: date-time
+              end_date:
+                type: string
+                format: date-time
+              is_active:
+                type: boolean
+              created_at:
+                type: string
+                format: date-time
+              updated_at:
+                type: string
+                format: date-time
+              deleted_at:
+                type: string
+                format: date-time
+                nullable: true
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      500:
+        description: Internal server error
+    """
     ps = PromotionController.list_all()
     return jsonify([p.serialize() for p in ps]), 200
 
 @superadmin_bp.route('/promotions', methods=['POST'])
 @super_admin_role_required
 def create_promotion():
-    
+    """
+    Create a new promotion
+    ---
+    tags:
+      - Promotions
+    security:
+      - Bearer: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - name
+              - discount_type
+              - discount_value
+              - start_date
+              - end_date
+            properties:
+              name:
+                type: string
+                description: Name of the promotion
+              description:
+                type: string
+                description: Description of the promotion
+              discount_type:
+                type: string
+                enum: [percentage, fixed_amount]
+                description: Type of discount to apply
+              discount_value:
+                type: number
+                description: Value of the discount (percentage or fixed amount)
+              start_date:
+                type: string
+                format: date-time
+                description: Start date and time of the promotion
+              end_date:
+                type: string
+                format: date-time
+                description: End date and time of the promotion
+              is_active:
+                type: boolean
+                description: Whether the promotion is active
+                default: true
+    responses:
+      201:
+        description: Promotion created successfully
+        schema:
+          type: object
+          properties:
+            promotion_id:
+              type: integer
+            name:
+              type: string
+            description:
+              type: string
+            discount_type:
+              type: string
+              enum: [percentage, fixed_amount]
+            discount_value:
+              type: number
+            start_date:
+              type: string
+              format: date-time
+            end_date:
+              type: string
+              format: date-time
+            is_active:
+              type: boolean
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+      400:
+        description: Bad request - Missing required fields or invalid data
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      500:
+        description: Internal server error
+    """
     data = request.get_json()
     p = PromotionController.create(data)
     return jsonify(p.serialize()), 201
@@ -635,7 +1109,92 @@ def create_promotion():
 @superadmin_bp.route('/promotions/<int:pid>', methods=['PUT'])
 @super_admin_role_required
 def update_promotion(pid):
-    
+    """
+    Update an existing promotion
+    ---
+    tags:
+      - Promotions
+    security:
+      - Bearer: []
+    parameters:
+      - name: pid
+        in: path
+        type: integer
+        required: true
+        description: ID of the promotion to update
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              name:
+                type: string
+                description: New name for the promotion
+              description:
+                type: string
+                description: New description for the promotion
+              discount_type:
+                type: string
+                enum: [percentage, fixed_amount]
+                description: New type of discount to apply
+              discount_value:
+                type: number
+                description: New value of the discount (percentage or fixed amount)
+              start_date:
+                type: string
+                format: date-time
+                description: New start date and time of the promotion
+              end_date:
+                type: string
+                format: date-time
+                description: New end date and time of the promotion
+              is_active:
+                type: boolean
+                description: Whether the promotion is active
+    responses:
+      200:
+        description: Promotion updated successfully
+        schema:
+          type: object
+          properties:
+            promotion_id:
+              type: integer
+            name:
+              type: string
+            description:
+              type: string
+            discount_type:
+              type: string
+              enum: [percentage, fixed_amount]
+            discount_value:
+              type: number
+            start_date:
+              type: string
+              format: date-time
+            end_date:
+              type: string
+              format: date-time
+            is_active:
+              type: boolean
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+      400:
+        description: Bad request - Invalid data
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: Promotion not found
+      500:
+        description: Internal server error
+    """
     data = request.get_json()
     p = PromotionController.update(pid, data)
     return jsonify(p.serialize()), 200
@@ -643,7 +1202,62 @@ def update_promotion(pid):
 @superadmin_bp.route('/promotions/<int:pid>', methods=['DELETE'])
 @super_admin_role_required
 def delete_promotion(pid):
-    
+    """
+    Soft delete a promotion
+    ---
+    tags:
+      - Promotions
+    security:
+      - Bearer: []
+    parameters:
+      - name: pid
+        in: path
+        type: integer
+        required: true
+        description: ID of the promotion to delete
+    responses:
+      200:
+        description: Promotion deleted successfully
+        schema:
+          type: object
+          properties:
+            promotion_id:
+              type: integer
+            name:
+              type: string
+            description:
+              type: string
+            discount_type:
+              type: string
+              enum: [percentage, fixed_amount]
+            discount_value:
+              type: number
+            start_date:
+              type: string
+              format: date-time
+            end_date:
+              type: string
+              format: date-time
+            is_active:
+              type: boolean
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+            deleted_at:
+              type: string
+              format: date-time
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: Promotion not found
+      500:
+        description: Internal server error
+    """
     p = PromotionController.soft_delete(pid)
     return jsonify(p.serialize()), 200
 
@@ -651,14 +1265,113 @@ def delete_promotion(pid):
 @superadmin_bp.route('/reviews', methods=['GET'])
 @super_admin_role_required
 def list_reviews():
-    
+    """
+    Get a list of recent reviews
+    ---
+    tags:
+      - Reviews
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of recent reviews retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              review_id:
+                type: integer
+              product_id:
+                type: integer
+              user_id:
+                type: integer
+              rating:
+                type: integer
+                minimum: 1
+                maximum: 5
+              title:
+                type: string
+              content:
+                type: string
+              is_verified:
+                type: boolean
+              created_at:
+                type: string
+                format: date-time
+              updated_at:
+                type: string
+                format: date-time
+              deleted_at:
+                type: string
+                format: date-time
+                nullable: true
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      500:
+        description: Internal server error
+    """
     rs = ReviewController.list_recent()
     return jsonify([r.serialize() for r in rs]), 200
 
 @superadmin_bp.route('/reviews/<int:rid>', methods=['DELETE'])
 @super_admin_role_required
 def delete_review(rid):
-    
+    """
+    Delete a review
+    ---
+    tags:
+      - Reviews
+    security:
+      - Bearer: []
+    parameters:
+      - name: rid
+        in: path
+        type: integer
+        required: true
+        description: ID of the review to delete
+    responses:
+      200:
+        description: Review deleted successfully
+        schema:
+          type: object
+          properties:
+            review_id:
+              type: integer
+            product_id:
+              type: integer
+            user_id:
+              type: integer
+            rating:
+              type: integer
+              minimum: 1
+              maximum: 5
+            title:
+              type: string
+            content:
+              type: string
+            is_verified:
+              type: boolean
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+            deleted_at:
+              type: string
+              format: date-time
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: Review not found
+      500:
+        description: Internal server error
+    """
     r = ReviewController.delete(rid)
     return jsonify(r.serialize()), 200
 
@@ -669,7 +1382,37 @@ from controllers.superadmin.attribute_value_controller import AttributeValueCont
 @superadmin_bp.route('/attribute-values', methods=['GET'])
 @super_admin_role_required
 def list_attribute_values():
-    
+    """
+    Get a list of all attribute values
+    ---
+    tags:
+      - Attribute Values
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of attribute values retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              attribute_id:
+                type: integer
+                description: ID of the attribute this value belongs to
+              value_code:
+                type: string
+                description: Unique code for the attribute value
+              value_label:
+                type: string
+                description: Human-readable label for the attribute value
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      500:
+        description: Internal server error
+    """
     avs = AttributeValueController.list_all()
     return jsonify([ {
         'attribute_id': av.attribute_id,
@@ -680,7 +1423,45 @@ def list_attribute_values():
 @superadmin_bp.route('/attribute-values/<int:aid>', methods=['GET'])
 @super_admin_role_required
 def list_values_for_attribute(aid):
-    
+    """
+    Get a list of values for a specific attribute
+    ---
+    tags:
+      - Attribute Values
+    security:
+      - Bearer: []
+    parameters:
+      - name: aid
+        in: path
+        type: integer
+        required: true
+        description: ID of the attribute to get values for
+    responses:
+      200:
+        description: List of attribute values retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              attribute_id:
+                type: integer
+                description: ID of the attribute these values belong to
+              value_code:
+                type: string
+                description: Unique code for the attribute value
+              value_label:
+                type: string
+                description: Human-readable label for the attribute value
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: Attribute not found
+      500:
+        description: Internal server error
+    """
     avs = AttributeValueController.list_for_attribute(aid)
     return jsonify([ {
         'attribute_id': av.attribute_id,
@@ -691,7 +1472,61 @@ def list_values_for_attribute(aid):
 @superadmin_bp.route('/attribute-values', methods=['POST'])
 @super_admin_role_required
 def create_attribute_value():
-    
+    """
+    Create a new attribute value
+    ---
+    tags:
+      - Attribute Values
+    security:
+      - Bearer: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - attribute_id
+              - value_code
+              - value_label
+            properties:
+              attribute_id:
+                type: integer
+                description: ID of the attribute this value belongs to
+              value_code:
+                type: string
+                description: Unique code for the attribute value
+              value_label:
+                type: string
+                description: Human-readable label for the attribute value
+    responses:
+      201:
+        description: Attribute value created successfully
+        schema:
+          type: object
+          properties:
+            attribute_id:
+              type: integer
+              description: ID of the attribute this value belongs to
+            value_code:
+              type: string
+              description: Unique code for the attribute value
+            value_label:
+              type: string
+              description: Human-readable label for the attribute value
+      400:
+        description: Bad request - Missing required fields or invalid data
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: Attribute not found
+      409:
+        description: Conflict - Attribute value with this code already exists
+      500:
+        description: Internal server error
+    """
     data = request.get_json()
     av = AttributeValueController.create(data)
     return jsonify({
@@ -703,7 +1538,62 @@ def create_attribute_value():
 @superadmin_bp.route('/attribute-values/<int:aid>/<value_code>', methods=['PUT'])
 @super_admin_role_required
 def update_attribute_value(aid, value_code):
-    
+    """
+    Update an existing attribute value
+    ---
+    tags:
+      - Attribute Values
+    security:
+      - Bearer: []
+    parameters:
+      - name: aid
+        in: path
+        type: integer
+        required: true
+        description: ID of the attribute this value belongs to
+      - name: value_code
+        in: path
+        type: string
+        required: true
+        description: Code of the attribute value to update
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - value_label
+            properties:
+              value_label:
+                type: string
+                description: New human-readable label for the attribute value
+    responses:
+      200:
+        description: Attribute value updated successfully
+        schema:
+          type: object
+          properties:
+            attribute_id:
+              type: integer
+              description: ID of the attribute this value belongs to
+            value_code:
+              type: string
+              description: Code of the attribute value
+            value_label:
+              type: string
+              description: Updated human-readable label for the attribute value
+      400:
+        description: Bad request - Missing required fields or invalid data
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: Attribute value not found
+      500:
+        description: Internal server error
+    """
     data = request.get_json()
     av = AttributeValueController.update(aid, value_code, data)
     return jsonify({
@@ -715,20 +1605,91 @@ def update_attribute_value(aid, value_code):
 @superadmin_bp.route('/attribute-values/<int:aid>/<value_code>', methods=['DELETE'])
 @super_admin_role_required
 def delete_attribute_value(aid, value_code):
-    
+    """
+    Delete an attribute value
+    ---
+    tags:
+      - Attribute Values
+    security:
+      - Bearer: []
+    parameters:
+      - name: aid
+        in: path
+        type: integer
+        required: true
+        description: ID of the attribute this value belongs to
+      - name: value_code
+        in: path
+        type: string
+        required: true
+        description: Code of the attribute value to delete
+    responses:
+      204:
+        description: Attribute value deleted successfully
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: Attribute value not found
+      409:
+        description: Conflict - Attribute value is in use and cannot be deleted
+      500:
+        description: Internal server error
+    """
     AttributeValueController.delete(aid, value_code)
-    return '', 204
 
 
 # ── ATTRIBUTES ───────────────────────────────────────────────────────────────────
 @superadmin_bp.route('/attributes', methods=['GET'])
 @super_admin_role_required
 def list_attributes():
-    
+    """
+    Get a list of all attributes
+    ---
+    tags:
+      - Attributes
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of attributes retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              attribute_id:
+                type: integer
+                description: Unique identifier for the attribute
+              code:
+                type: string
+                description: Unique code for the attribute
+              name:
+                type: string
+                description: Human-readable name of the attribute
+              input_type:
+                type: string
+                enum: [text, number, select, multiselect, boolean]
+                description: Type of input field for this attribute
+              created_at:
+                type: string
+                format: date-time
+                description: When the attribute was created
+              updated_at:
+                type: string
+                format: date-time
+                description: When the attribute was last updated
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      500:
+        description: Internal server error
+    """
     try:
         attrs = AttributeController.list_all()
         return jsonify([a.serialize() for a in attrs]), HTTPStatus.OK
-
     except Exception as e:
         current_app.logger.error(f"Error listing attributes: {e}")
         return jsonify({'message': 'Failed to retrieve attributes.'}), HTTPStatus.INTERNAL_SERVER_ERROR
@@ -736,7 +1697,72 @@ def list_attributes():
 @superadmin_bp.route('/attributes', methods=['POST'])
 @super_admin_role_required
 def create_attribute():
-    
+    """
+    Create a new attribute
+    ---
+    tags:
+      - Attributes
+    security:
+      - Bearer: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - code
+              - name
+              - input_type
+            properties:
+              code:
+                type: string
+                description: Unique code for the attribute
+              name:
+                type: string
+                description: Human-readable name of the attribute
+              input_type:
+                type: string
+                enum: [text, number, select, multiselect, boolean]
+                description: Type of input field for this attribute
+    responses:
+      201:
+        description: Attribute created successfully
+        schema:
+          type: object
+          properties:
+            attribute_id:
+              type: integer
+              description: Unique identifier for the attribute
+            code:
+              type: string
+              description: Unique code for the attribute
+            name:
+              type: string
+              description: Human-readable name of the attribute
+            input_type:
+              type: string
+              enum: [text, number, select, multiselect, boolean]
+              description: Type of input field for this attribute
+            created_at:
+              type: string
+              format: date-time
+              description: When the attribute was created
+            updated_at:
+              type: string
+              format: date-time
+              description: When the attribute was last updated
+      400:
+        description: Bad request - Missing required fields or invalid input type
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      409:
+        description: Conflict - Attribute with this code already exists
+      500:
+        description: Internal server error
+    """
     data = request.get_json()
     if not data:
         return jsonify({'message': 'No input data provided'}), HTTPStatus.BAD_REQUEST
@@ -779,9 +1805,57 @@ def create_attribute():
 @superadmin_bp.route('/attributes/<int:attribute_id>', methods=['GET'])
 @super_admin_role_required
 def get_attribute(attribute_id):
-    
+    """
+    Get details of a specific attribute
+    ---
+    tags:
+      - Attributes
+    security:
+      - Bearer: []
+    parameters:
+      - name: attribute_id
+        in: path
+        type: integer
+        required: true
+        description: ID of the attribute to retrieve
+    responses:
+      200:
+        description: Attribute details retrieved successfully
+        schema:
+          type: object
+          properties:
+            attribute_id:
+              type: integer
+              description: Unique identifier for the attribute
+            code:
+              type: string
+              description: Unique code for the attribute
+            name:
+              type: string
+              description: Human-readable name of the attribute
+            input_type:
+              type: string
+              enum: [text, number, select, multiselect, boolean]
+              description: Type of input field for this attribute
+            created_at:
+              type: string
+              format: date-time
+              description: When the attribute was created
+            updated_at:
+              type: string
+              format: date-time
+              description: When the attribute was last updated
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: Attribute not found
+      500:
+        description: Internal server error
+    """
     try:
-        from models.attribute import Attribute 
+        from models.attribute import Attribute
         attr = Attribute.query.get_or_404(attribute_id)
         return jsonify(attr.serialize()), HTTPStatus.OK
     except FileNotFoundError: 
@@ -794,7 +1868,71 @@ def get_attribute(attribute_id):
 @superadmin_bp.route('/attributes/<int:attribute_id>', methods=['PUT'])
 @super_admin_role_required
 def update_attribute(attribute_id):
-    
+    """
+    Update an existing attribute
+    ---
+    tags:
+      - Attributes
+    security:
+      - Bearer: []
+    parameters:
+      - name: attribute_id
+        in: path
+        type: integer
+        required: true
+        description: ID of the attribute to update
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              name:
+                type: string
+                description: New human-readable name of the attribute
+              input_type:
+                type: string
+                enum: [text, number, select, multiselect, boolean]
+                description: New type of input field for this attribute
+    responses:
+      200:
+        description: Attribute updated successfully
+        schema:
+          type: object
+          properties:
+            attribute_id:
+              type: integer
+              description: Unique identifier for the attribute
+            code:
+              type: string
+              description: Unique code for the attribute
+            name:
+              type: string
+              description: Updated human-readable name of the attribute
+            input_type:
+              type: string
+              enum: [text, number, select, multiselect, boolean]
+              description: Updated type of input field for this attribute
+            created_at:
+              type: string
+              format: date-time
+              description: When the attribute was created
+            updated_at:
+              type: string
+              format: date-time
+              description: When the attribute was last updated
+      400:
+        description: Bad request - No fields to update provided
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: Attribute not found
+      500:
+        description: Internal server error
+    """
     data = request.get_json()
     if not data:
         return jsonify({'message': 'No input data provided for update'}), HTTPStatus.BAD_REQUEST
@@ -816,12 +1954,44 @@ def update_attribute(attribute_id):
 @superadmin_bp.route('/attributes/<int:attribute_id>', methods=['DELETE'])
 @super_admin_role_required
 def delete_attribute(attribute_id):
-    
+    """
+    Delete an attribute
+    ---
+    tags:
+      - Attributes
+    security:
+      - Bearer: []
+    parameters:
+      - name: attribute_id
+        in: path
+        type: integer
+        required: true
+        description: ID of the attribute to delete
+    responses:
+      200:
+        description: Attribute deleted successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              description: Success message with the deleted attribute ID
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: Attribute not found
+      409:
+        description: Conflict - Attribute is in use by other records and cannot be deleted
+      500:
+        description: Internal server error
+    """
     try:
         AttributeController.delete(attribute_id)
         return jsonify({'message': f'Attribute with ID {attribute_id} deleted successfully.'}), HTTPStatus.OK
-    # except from_werkzeug.exceptions.NotFound:
-    #     return jsonify({'message': 'Attribute not found'}), HTTPStatus.NOT_FOUND
+    except FileNotFoundError: 
+        return jsonify({'message': 'Attribute not found'}), HTTPStatus.NOT_FOUND
     except IntegrityError as e:
         db.session.rollback()
         current_app.logger.warning(f"IntegrityError deleting attribute {attribute_id}: {e}")
@@ -837,6 +2007,62 @@ def delete_attribute(attribute_id):
 @superadmin_bp.route('/categories/<int:cid>/attributes', methods=['GET'])
 @super_admin_role_required
 def list_category_attributes_for_category(cid):
+    """
+    Get a list of attributes associated with a specific category
+    ---
+    tags:
+      - Category Attributes
+    security:
+      - Bearer: []
+    parameters:
+      - name: cid
+        in: path
+        type: integer
+        required: true
+        description: ID of the category to get attributes for
+    responses:
+      200:
+        description: List of category attributes retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              category_id:
+                type: integer
+                description: ID of the category
+              attribute_id:
+                type: integer
+                description: ID of the attribute
+              required_flag:
+                type: boolean
+                description: Whether this attribute is required for products in this category
+              attribute:
+                type: object
+                description: Details of the associated attribute
+                properties:
+                  attribute_id:
+                    type: integer
+                    description: Unique identifier for the attribute
+                  code:
+                    type: string
+                    description: Unique code for the attribute
+                  name:
+                    type: string
+                    description: Human-readable name of the attribute
+                  input_type:
+                    type: string
+                    enum: [text, number, select, multiselect, boolean]
+                    description: Type of input field for this attribute
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: Category not found
+      500:
+        description: Internal server error
+    """
     try:
         associations = CategoryAttributeController.list_attributes_for_category(cid)
         return jsonify(associations), HTTPStatus.OK
@@ -850,6 +2076,76 @@ def list_category_attributes_for_category(cid):
 @superadmin_bp.route('/categories/<int:cid>/attributes', methods=['POST'])
 @super_admin_role_required
 def add_attribute_to_category(cid):
+    """
+    Add an attribute to a category
+    ---
+    tags:
+      - Category Attributes
+    security:
+      - Bearer: []
+    parameters:
+      - name: cid
+        in: path
+        type: integer
+        required: true
+        description: ID of the category to add the attribute to
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - attribute_id
+            properties:
+              attribute_id:
+                type: integer
+                description: ID of the attribute to add to the category
+              required_flag:
+                type: boolean
+                description: Whether this attribute should be required for products in this category
+                default: false
+    responses:
+      201:
+        description: Attribute added to category successfully
+        schema:
+          type: object
+          properties:
+            category_id:
+              type: integer
+              description: ID of the category
+            attribute_id:
+              type: integer
+              description: ID of the attribute
+            required_flag:
+              type: boolean
+              description: Whether this attribute is required for products in this category
+            attribute_details:
+              type: object
+              description: Details of the associated attribute
+              properties:
+                attribute_id:
+                  type: integer
+                  description: Unique identifier for the attribute
+                name:
+                  type: string
+                  description: Human-readable name of the attribute
+                code:
+                  type: string
+                  description: Unique code for the attribute
+      400:
+        description: Bad request - Missing required fields or invalid data
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: Category or attribute not found
+      409:
+        description: Conflict - Attribute is already associated with this category
+      500:
+        description: Internal server error
+    """
     data = request.get_json()
     if not data:
         return jsonify({'message': 'Request body is missing or not JSON.'}), HTTPStatus.BAD_REQUEST
@@ -888,6 +2184,77 @@ def add_attribute_to_category(cid):
 @superadmin_bp.route('/categories/<int:cid>/attributes/<int:aid>', methods=['PUT'])
 @super_admin_role_required
 def update_attribute_for_category(cid, aid):
+    """
+    Update an attribute's settings for a specific category
+    ---
+    tags:
+      - Category Attributes
+    security:
+      - Bearer: []
+    parameters:
+      - name: cid
+        in: path
+        type: integer
+        required: true
+        description: ID of the category
+      - name: aid
+        in: path
+        type: integer
+        required: true
+        description: ID of the attribute to update
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              required_flag:
+                type: boolean
+                description: Whether this attribute should be required for products in this category
+    responses:
+      200:
+        description: Category attribute updated successfully
+        schema:
+          type: object
+          properties:
+            category_id:
+              type: integer
+              description: ID of the category
+            attribute_id:
+              type: integer
+              description: ID of the attribute
+            required_flag:
+              type: boolean
+              description: Whether this attribute is required for products in this category
+            attribute:
+              type: object
+              description: Details of the associated attribute
+              properties:
+                attribute_id:
+                  type: integer
+                  description: Unique identifier for the attribute
+                code:
+                  type: string
+                  description: Unique code for the attribute
+                name:
+                  type: string
+                  description: Human-readable name of the attribute
+                input_type:
+                  type: string
+                  enum: [text, number, select, multiselect, boolean]
+                  description: Type of input field for this attribute
+      400:
+        description: Bad request - Invalid data
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: Category or attribute not found
+      500:
+        description: Internal server error
+    """
     data = request.get_json()
     if not data:
         return jsonify({'message': 'Request body is missing or not JSON.'}), HTTPStatus.BAD_REQUEST
@@ -905,6 +2272,38 @@ def update_attribute_for_category(cid, aid):
 @superadmin_bp.route('/categories/<int:cid>/attributes/<int:aid>', methods=['DELETE'])
 @super_admin_role_required
 def remove_attribute_from_category(cid, aid):
+    """
+    Remove an attribute from a category
+    ---
+    tags:
+      - Category Attributes
+    security:
+      - Bearer: []
+    parameters:
+      - name: cid
+        in: path
+        type: integer
+        required: true
+        description: ID of the category
+      - name: aid
+        in: path
+        type: integer
+        required: true
+        description: ID of the attribute to remove
+    responses:
+      204:
+        description: Attribute removed from category successfully
+      400:
+        description: Bad request - Invalid category or attribute ID
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: Category or attribute not found
+      500:
+        description: Internal server error
+    """
     try:
         CategoryAttributeController.remove_attribute_from_category(cid, aid)
         return '', HTTPStatus.NO_CONTENT
@@ -918,6 +2317,80 @@ def remove_attribute_from_category(cid, aid):
 @superadmin_bp.route('/categories/<int:cid>/assign-attribute', methods=['POST'])
 @super_admin_role_required
 def assign_attribute_to_category(cid):
+    """
+    Assign an attribute to a category
+    ---
+    tags:
+      - Category Attributes
+    security:
+      - Bearer: []
+    parameters:
+      - name: cid
+        in: path
+        type: integer
+        required: true
+        description: ID of the category to assign the attribute to
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - attribute_id
+            properties:
+              attribute_id:
+                type: integer
+                description: ID of the attribute to assign to the category
+              required_flag:
+                type: boolean
+                description: Whether this attribute should be required for products in this category
+                default: false
+    responses:
+      201:
+        description: Attribute assigned to category successfully
+        schema:
+          type: object
+          properties:
+            category_id:
+              type: integer
+              description: ID of the category
+            attribute_id:
+              type: integer
+              description: ID of the attribute
+            required_flag:
+              type: boolean
+              description: Whether this attribute is required for products in this category
+            attribute:
+              type: object
+              description: Details of the associated attribute
+              properties:
+                attribute_id:
+                  type: integer
+                  description: Unique identifier for the attribute
+                code:
+                  type: string
+                  description: Unique code for the attribute
+                name:
+                  type: string
+                  description: Human-readable name of the attribute
+                input_type:
+                  type: string
+                  enum: [text, number, select, multiselect, boolean]
+                  description: Type of input field for this attribute
+      400:
+        description: Bad request - Missing required fields or invalid data
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: Category or attribute not found
+      409:
+        description: Conflict - Attribute is already assigned to this category
+      500:
+        description: Internal server error
+    """
     data = request.get_json()
     if not data:
         return jsonify({'message': 'Request body is missing or not JSON.'}), HTTPStatus.BAD_REQUEST
@@ -935,6 +2408,80 @@ def assign_attribute_to_category(cid):
 @superadmin_bp.route('/brands/<int:bid>/categories/<int:cid>', methods=['POST'])
 @super_admin_role_required
 def add_category_to_brand(bid, cid):
+    """
+    Add a category to a brand
+    ---
+    tags:
+      - Brand Categories
+    security:
+      - Bearer: []
+    parameters:
+      - name: bid
+        in: path
+        type: integer
+        required: true
+        description: ID of the brand
+      - name: cid
+        in: path
+        type: integer
+        required: true
+        description: ID of the category to add to the brand
+    responses:
+      200:
+        description: Category added to brand successfully
+        schema:
+          type: object
+          properties:
+            brand_id:
+              type: integer
+              description: ID of the brand
+            name:
+              type: string
+              description: Name of the brand
+            slug:
+              type: string
+              description: URL-friendly slug for the brand
+            description:
+              type: string
+              description: Description of the brand
+            website_url:
+              type: string
+              nullable: true
+              description: Website URL of the brand
+            icon_url:
+              type: string
+              nullable: true
+              description: URL of the brand's icon
+            status:
+              type: string
+              enum: [active, inactive]
+              description: Current status of the brand
+            categories:
+              type: array
+              description: List of categories associated with the brand
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    description: ID of the category
+                  name:
+                    type: string
+                    description: Name of the category
+                  slug:
+                    type: string
+                    description: URL-friendly slug for the category
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: Brand or category not found
+      409:
+        description: Conflict - Category is already associated with this brand
+      500:
+        description: Internal server error
+    """
     try:
         brand = BrandController.add_category(bid, cid)
         return jsonify(brand.serialize()), 200
@@ -945,6 +2492,78 @@ def add_category_to_brand(bid, cid):
 @superadmin_bp.route('/brands/<int:bid>/categories/<int:cid>', methods=['DELETE'])
 @super_admin_role_required
 def remove_category_from_brand(bid, cid):
+    """
+    Remove a category from a brand
+    ---
+    tags:
+      - Brand Categories
+    security:
+      - Bearer: []
+    parameters:
+      - name: bid
+        in: path
+        type: integer
+        required: true
+        description: ID of the brand
+      - name: cid
+        in: path
+        type: integer
+        required: true
+        description: ID of the category to remove from the brand
+    responses:
+      200:
+        description: Category removed from brand successfully
+        schema:
+          type: object
+          properties:
+            brand_id:
+              type: integer
+              description: ID of the brand
+            name:
+              type: string
+              description: Name of the brand
+            slug:
+              type: string
+              description: URL-friendly slug for the brand
+            description:
+              type: string
+              description: Description of the brand
+            website_url:
+              type: string
+              nullable: true
+              description: Website URL of the brand
+            icon_url:
+              type: string
+              nullable: true
+              description: URL of the brand's icon
+            status:
+              type: string
+              enum: [active, inactive]
+              description: Current status of the brand
+            categories:
+              type: array
+              description: Updated list of categories associated with the brand
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    description: ID of the category
+                  name:
+                    type: string
+                    description: Name of the category
+                  slug:
+                    type: string
+                    description: URL-friendly slug for the category
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: Brand or category not found
+      500:
+        description: Internal server error
+    """
     try:
         brand = BrandController.remove_category(bid, cid)
         return jsonify(brand.serialize()), 200
@@ -955,6 +2574,61 @@ def remove_category_from_brand(bid, cid):
 @superadmin_bp.route('/brands/<int:bid>/categories', methods=['GET'])
 @super_admin_role_required
 def get_brand_categories(bid):
+    """
+    Get all categories associated with a brand
+    ---
+    tags:
+      - Brand Categories
+    security:
+      - Bearer: []
+    parameters:
+      - name: bid
+        in: path
+        type: integer
+        required: true
+        description: ID of the brand to get categories for
+    responses:
+      200:
+        description: List of categories retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+                description: ID of the category
+              name:
+                type: string
+                description: Name of the category
+              slug:
+                type: string
+                description: URL-friendly slug for the category
+              parent_id:
+                type: integer
+                nullable: true
+                description: ID of the parent category, if any
+              icon_url:
+                type: string
+                nullable: true
+                description: URL of the category's icon
+              created_at:
+                type: string
+                format: date-time
+                description: When the category was created
+              updated_at:
+                type: string
+                format: date-time
+                description: When the category was last updated
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: Brand not found
+      500:
+        description: Internal server error
+    """
     try:
         categories = BrandCategoryController.get_categories_for_brand(bid)
         return jsonify([c.serialize() for c in categories]), HTTPStatus.OK
@@ -967,9 +2641,79 @@ def get_brand_categories(bid):
 @superadmin_bp.route('/categories/main', methods=['GET'])
 @super_admin_role_required
 def list_main_categories():
+    """
+    Get all main categories (categories without a parent)
+    ---
+    tags:
+      - Categories
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of main categories retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+                description: ID of the category
+              name:
+                type: string
+                description: Name of the category
+              slug:
+                type: string
+                description: URL-friendly slug for the category
+              icon_url:
+                type: string
+                nullable: true
+                description: URL of the category's icon
+              status:
+                type: string
+                enum: [active, inactive]
+                description: Current status of the category
+              created_at:
+                type: string
+                format: date-time
+                description: When the category was created
+              updated_at:
+                type: string
+                format: date-time
+                description: When the category was last updated
+              subcategories:
+                type: array
+                description: List of subcategories under this main category
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                      description: ID of the subcategory
+                    name:
+                      type: string
+                      description: Name of the subcategory
+                    slug:
+                      type: string
+                      description: URL-friendly slug for the subcategory
+                    icon_url:
+                      type: string
+                      nullable: true
+                      description: URL of the subcategory's icon
+                    status:
+                      type: string
+                      enum: [active, inactive]
+                      description: Current status of the subcategory
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      500:
+        description: Internal server error
+    """
     try:
-        cats = CategoryController.get_main_categories()
-        return jsonify([c.serialize() for c in cats]), HTTPStatus.OK
+        categories = CategoryController.get_main_categories()
+        return jsonify([category.serialize() for category in categories]), 200
     except Exception as e:
         current_app.logger.error(f"Error listing main categories: {e}")
         return jsonify({'message': 'Failed to retrieve main categories.'}), HTTPStatus.INTERNAL_SERVER_ERROR
@@ -977,8 +2721,58 @@ def list_main_categories():
 @superadmin_bp.route('/homepage/categories', methods=['GET'])
 @super_admin_role_required
 def get_featured_categories():
+    """
+    Get all categories that are featured on the homepage
+    ---
+    tags:
+      - Categories
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of featured categories retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+                description: ID of the category
+              name:
+                type: string
+                description: Name of the category
+              slug:
+                type: string
+                description: URL-friendly slug for the category
+              icon_url:
+                type: string
+                nullable: true
+                description: URL of the category's icon
+              status:
+                type: string
+                enum: [active, inactive]
+                description: Current status of the category
+              featured_order:
+                type: integer
+                description: Order in which this category appears on the homepage
+              created_at:
+                type: string
+                format: date-time
+                description: When the category was created
+              updated_at:
+                type: string
+                format: date-time
+                description: When the category was last updated
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      500:
+        description: Internal server error
+    """
     try:
-        categories = HomepageController.get_featured_categories()
+        categories = CategoryController.get_featured_categories()
         return jsonify([c.serialize() for c in categories]), HTTPStatus.OK
     except Exception as e:
         current_app.logger.error(f"Error getting featured categories: {e}")
@@ -987,11 +2781,72 @@ def get_featured_categories():
 @superadmin_bp.route('/homepage/categories', methods=['POST'])
 @super_admin_role_required
 def update_featured_categories():
+    """
+    Update the list of categories featured on the homepage
+    ---
+    tags:
+      - Categories
+    security:
+      - Bearer: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - category_ids
+            properties:
+              category_ids:
+                type: array
+                description: List of category IDs in the order they should appear on the homepage
+                items:
+                  type: integer
+                  description: ID of a category to feature
+    responses:
+      200:
+        description: Featured categories updated successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+                description: ID of the category
+              name:
+                type: string
+                description: Name of the category
+              slug:
+                type: string
+                description: URL-friendly slug for the category
+              icon_url:
+                type: string
+                nullable: true
+                description: URL of the category's icon
+              status:
+                type: string
+                enum: [active, inactive]
+                description: Current status of the category
+              featured_order:
+                type: integer
+                description: Order in which this category appears on the homepage
+      400:
+        description: Bad request - Invalid category IDs or missing required fields
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: One or more categories not found
+      500:
+        description: Internal server error
+    """
     try:
         data = request.get_json()
         if not data or 'category_ids' not in data:
-            return jsonify({'message': 'category_ids is required'}), HTTPStatus.BAD_REQUEST
-
+            return jsonify({'message': 'Missing category_ids in request body'}), HTTPStatus.BAD_REQUEST
+        
         categories = HomepageController.update_featured_categories(data['category_ids'])
         return jsonify([c.serialize() for c in categories]), HTTPStatus.OK
     except Exception as e:
@@ -1002,7 +2857,79 @@ def update_featured_categories():
 @superadmin_bp.route('/products/pending', methods=['GET'])
 @super_admin_role_required
 def list_pending_products():
+    """
+    Get all products that are pending approval
+    ---
+    tags:
+      - Products
+    security:
+      - Bearer: []
+    parameters:
+      - name: page
+        in: query
+        type: integer
+        description: Page number for pagination
+        default: 1
+      - name: per_page
+        in: query
+        type: integer
+        description: Number of items per page
+        default: 10
+    responses:
+      200:
+        description: List of pending products retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id:
+                type: integer
+                description: ID of the product
+              product_name:
+                type: string
+                description: Name of the product
+              sku:
+                type: string
+                description: Stock Keeping Unit of the product
+              status:
+                type: string
+                enum: [pending, approved, rejected]
+                description: Current approval status of the product
+              cost_price:
+                type: number
+                description: Cost price of the product
+              selling_price:
+                type: number
+                description: Selling price of the product
+              media:
+                type: array
+                description: List of media associated with the product
+                items:
+                  type: object
+                  description: Media object
+              meta:
+                type: object
+                nullable: true
+                description: Additional metadata for the product
+              brand:
+                type: object
+                nullable: true
+                description: Brand information
+              category:
+                type: object
+                nullable: true
+                description: Category information
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      500:
+        description: Internal server error
+    """
     try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 10, type=int)
         products = ProductMonitoringController.get_pending_products()
         return jsonify([{
             'product_id': p.product_id,
@@ -1023,8 +2950,79 @@ def list_pending_products():
 @superadmin_bp.route('/products/approved', methods=['GET'])
 @super_admin_role_required
 def list_approved_products():
-    
+    """
+    Get all products that have been approved
+    ---
+    tags:
+      - Products
+    security:
+      - Bearer: []
+    parameters:
+      - name: page
+        in: query
+        type: integer
+        description: Page number for pagination
+        default: 1
+      - name: per_page
+        in: query
+        type: integer
+        description: Number of items per page
+        default: 10
+    responses:
+      200:
+        description: List of approved products retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id:
+                type: integer
+                description: ID of the product
+              product_name:
+                type: string
+                description: Name of the product
+              sku:
+                type: string
+                description: Stock Keeping Unit of the product
+              status:
+                type: string
+                enum: [pending, approved, rejected]
+                description: Current approval status of the product
+              cost_price:
+                type: number
+                description: Cost price of the product
+              selling_price:
+                type: number
+                description: Selling price of the product
+              media:
+                type: array
+                description: List of media associated with the product
+                items:
+                  type: object
+                  description: Media object
+              meta:
+                type: object
+                nullable: true
+                description: Additional metadata for the product
+              brand:
+                type: object
+                nullable: true
+                description: Brand information
+              category:
+                type: object
+                nullable: true
+                description: Category information
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      500:
+        description: Internal server error
+    """
     try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 10, type=int)
         products = ProductMonitoringController.get_approved_products()
         return jsonify([{
             'product_id': p.product_id,
@@ -1045,8 +3043,82 @@ def list_approved_products():
 @superadmin_bp.route('/products/rejected', methods=['GET'])
 @super_admin_role_required
 def list_rejected_products():
-    
+    """
+    Get all products that have been rejected
+    ---
+    tags:
+      - Products
+    security:
+      - Bearer: []
+    parameters:
+      - name: page
+        in: query
+        type: integer
+        description: Page number for pagination
+        default: 1
+      - name: per_page
+        in: query
+        type: integer
+        description: Number of items per page
+        default: 10
+    responses:
+      200:
+        description: List of rejected products retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id:
+                type: integer
+                description: ID of the product
+              product_name:
+                type: string
+                description: Name of the product
+              sku:
+                type: string
+                description: Stock Keeping Unit of the product
+              status:
+                type: string
+                enum: [pending, approved, rejected]
+                description: Current approval status of the product
+              cost_price:
+                type: number
+                description: Cost price of the product
+              selling_price:
+                type: number
+                description: Selling price of the product
+              media:
+                type: array
+                description: List of media associated with the product
+                items:
+                  type: object
+                  description: Media object
+              meta:
+                type: object
+                nullable: true
+                description: Additional metadata for the product
+              brand:
+                type: object
+                nullable: true
+                description: Brand information
+              category:
+                type: object
+                nullable: true
+                description: Category information
+              rejection_reason:
+                type: string
+                description: Reason why the product was rejected
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      500:
+        description: Internal server error
+    """
     try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 10, type=int)
         products = ProductMonitoringController.get_rejected_products()
         return jsonify([{
             'product_id': p.product_id,
@@ -1068,6 +3140,40 @@ def list_rejected_products():
 @superadmin_bp.route('/products/<int:product_id>/approve', methods=['POST'])
 @super_admin_role_required
 def approve_product(product_id):
+    """
+    Approve a product by product ID
+    ---
+    tags:
+      - Product Monitoring
+    parameters:
+      - in: path
+        name: product_id
+        type: integer
+        required: true
+        description: ID of the product to approve
+    responses:
+      200:
+        description: Product approved successfully
+        schema:
+          type: object
+          properties:
+            product_id:
+              type: integer
+            product_name:
+              type: string
+            status:
+              type: string
+            approved_at:
+              type: string
+              format: date-time
+            approved_by:
+              type: integer
+      400:
+        description: Bad request (e.g. invalid product ID or already approved)
+      500:
+        description: Internal server error
+    """
+
     try:
         admin_id = get_jwt_identity()
         product = ProductMonitoringController.approve_product(product_id, admin_id)
@@ -1087,6 +3193,53 @@ def approve_product(product_id):
 @superadmin_bp.route('/products/<int:product_id>/reject', methods=['POST'])
 @super_admin_role_required
 def reject_product(product_id):
+    """
+    Reject a product by product ID
+    ---
+    tags:
+      - Product Monitoring
+    parameters:
+      - in: path
+        name: product_id
+        type: integer
+        required: true
+        description: ID of the product to reject
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - reason
+          properties:
+            reason:
+              type: string
+              description: Reason for rejecting the product
+    responses:
+      200:
+        description: Product rejected successfully
+        schema:
+          type: object
+          properties:
+            product_id:
+              type: integer
+            product_name:
+              type: string
+            status:
+              type: string
+            rejection_reason:
+              type: string
+            approved_at:
+              type: string
+              format: date-time
+            approved_by:
+              type: integer
+      400:
+        description: Bad request (e.g. missing rejection reason)
+      500:
+        description: Internal server error
+    """
+
     try:
         data = request.get_json()
         if not data or 'reason' not in data:
@@ -1111,6 +3264,26 @@ def reject_product(product_id):
 @superadmin_bp.route('/products/<int:product_id>', methods=['GET'])
 @super_admin_role_required
 def get_product_details(product_id):
+    """
+    Get product details by product ID
+    ---
+    tags:
+      - Product Monitoring
+    parameters:
+      - in: path
+        name: product_id
+        type: integer
+        required: true
+        description: ID of the product to retrieve
+    responses:
+      200:
+        description: Product details retrieved successfully
+        schema:
+          type: object
+          additionalProperties: true
+      500:
+        description: Internal server error
+    """
     
     try:
         product_details = ProductMonitoringController.get_product_details(product_id)
@@ -1123,6 +3296,26 @@ def get_product_details(product_id):
 @cross_origin()
 @super_admin_role_required
 def list_products():
+    """
+    List all products
+    ---
+    tags:
+      - Product Monitoring
+    responses:
+      200:
+        description: List of products retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id:
+                type: integer
+              product_name:
+                type: string
+      500:
+        description: Internal server error
+    """
     
     if request.method == 'OPTIONS':
         return '', HTTPStatus.OK
@@ -1142,10 +3335,90 @@ def list_products():
 @super_admin_role_required
 def carousels_handler():
     """
-    GET: List all carousel items.
-    POST: Create a new carousel item (with image upload and shareable_link).
-    OPTIONS: CORS preflight.
+    Get all carousels or create a new carousel
+    ---
+    tags:
+      - Carousels
+    consumes:
+      - multipart/form-data
+    parameters:
+      - in: formData
+        name: type
+        type: string
+        required: true
+        description: Type of the carousel (e.g., product, banner)
+      - in: formData
+        name: target_id
+        type: integer
+        required: true
+        description: Target ID the carousel refers to
+      - in: formData
+        name: image
+        type: file
+        required: true
+        description: Image file for the carousel
+      - in: formData
+        name: display_order
+        type: integer
+        required: false
+        description: Order in which the carousel should be displayed
+      - in: formData
+        name: is_active
+        type: boolean
+        required: false
+        description: Whether the carousel is active
+      - in: formData
+        name: shareable_link
+        type: string
+        required: false
+        description: Optional shareable link for the carousel
+    responses:
+      200:
+        description: List of carousels retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              type:
+                type: string
+              image_url:
+                type: string
+              target_id:
+                type: integer
+              display_order:
+                type: integer
+              is_active:
+                type: boolean
+              shareable_link:
+                type: string
+      201:
+        description: Carousel created successfully
+        schema:
+          type: object
+          properties:
+            id:
+              type: integer
+            type:
+              type: string
+            image_url:
+              type: string
+            target_id:
+              type: integer
+            display_order:
+              type: integer
+            is_active:
+              type: boolean
+            shareable_link:
+              type: string
+      400:
+        description: Missing required fields
+      500:
+        description: Internal server error
     """
+
     from controllers.superadmin.carousel_controller import CarouselController
     from flask import request, jsonify, current_app
     from http import HTTPStatus
@@ -1197,8 +3470,30 @@ def carousels_handler():
 @super_admin_role_required
 def delete_carousel(carousel_id):
     """
-    Soft delete a carousel item.
+    Delete a carousel item by ID
+    ---
+    tags:
+      - Carousels
+    parameters:
+      - in: path
+        name: carousel_id
+        type: integer
+        required: true
+        description: ID of the carousel item to delete
+    responses:
+      200:
+        description: Carousel item deleted successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            id:
+              type: integer
+      500:
+        description: Internal server error
     """
+
     from controllers.superadmin.carousel_controller import CarouselController
     from flask import jsonify, current_app
     from http import HTTPStatus
@@ -1214,8 +3509,38 @@ def delete_carousel(carousel_id):
 @super_admin_role_required
 def update_carousel_order():
     """
-    Update display order for carousel items.
+    Update display order of carousel items
+    ---
+    tags:
+      - Carousels
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - order
+          properties:
+            order:
+              type: array
+              description: List of carousel IDs in the new display order
+              items:
+                type: integer
+    responses:
+      200:
+        description: Carousel order updated successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+      400:
+        description: Bad request (e.g. missing order data)
+      500:
+        description: Internal server error
     """
+
     from controllers.superadmin.carousel_controller import CarouselController
     from flask import request, jsonify, current_app
     from http import HTTPStatus
@@ -1228,3 +3553,173 @@ def update_carousel_order():
     except Exception as e:
         current_app.logger.error(f"Error updating carousel order: {e}")
         return jsonify({'message': f'Failed to update carousel order: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+# ── PERFORMANCE ANALYTICS ───────────────────────────────────────────────────────
+@superadmin_bp.route('/analytics/revenue', methods=['GET'])
+@super_admin_role_required
+def get_total_revenue():
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        result = PerformanceAnalyticsController.get_total_revenue()
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting total revenue: {e}")
+        return jsonify({'message': 'Failed to retrieve revenue data.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/active-users', methods=['GET'])
+@super_admin_role_required
+def get_active_users():
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        result = PerformanceAnalyticsController.get_active_users()
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting active users: {e}")
+        return jsonify({'message': 'Failed to retrieve active users data.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/total-merchants', methods=['GET'])
+@super_admin_role_required
+def get_total_merchants():
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        result = PerformanceAnalyticsController.get_total_merchants()
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting total merchants: {e}")
+        return jsonify({'message': 'Failed to retrieve merchants data.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/monthly-orders', methods=['GET'])
+@super_admin_role_required
+def get_monthly_orders():
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        result = PerformanceAnalyticsController.get_orders_this_month()
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting monthly orders: {e}")
+        return jsonify({'message': 'Failed to retrieve monthly orders data.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/dashboard', methods=['GET'])
+@super_admin_role_required
+def get_all_metrics():
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        result = PerformanceAnalyticsController.get_all_metrics()
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting all metrics: {e}")
+        return jsonify({'message': 'Failed to retrieve dashboard metrics.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/revenue-orders-trend', methods=['GET'])
+@super_admin_role_required
+def get_revenue_orders_trend():
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        months = request.args.get('months', default=12, type=int)
+        result = PerformanceAnalyticsController.get_revenue_orders_trend(months)
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting revenue and orders trend: {e}")
+        return jsonify({'message': 'Failed to retrieve revenue and orders trend data.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/merchant-performance', methods=['GET'])
+@super_admin_role_required
+def get_merchant_performance():
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        months = request.args.get('months', default=12, type=int)
+        result = PerformanceAnalyticsController.get_merchant_performance(months)
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting merchant performance: {e}")
+        return jsonify({'message': 'Failed to retrieve merchant performance data.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/user-growth-trend', methods=['GET'])
+@super_admin_role_required
+def get_user_growth_trend():
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        months = request.args.get('months', default=12, type=int)
+        result = PerformanceAnalyticsController.get_user_growth_trend(months)
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting user growth trend: {e}")
+        return jsonify({'message': 'Failed to retrieve user growth trend data.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/average-order-value', methods=['GET'])
+@super_admin_role_required
+def get_average_order_value():
+    """Get average order value analytics"""
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        months = request.args.get('months', default=1, type=int)
+        result = PerformanceAnalyticsController.get_average_order_value()
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error in get_average_order_value: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to fetch average order value data"
+        }), 500
+
+@superadmin_bp.route('/analytics/total-products', methods=['GET'])
+@super_admin_role_required
+def get_total_products():
+    """Get total products analytics"""
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        months = request.args.get('months', default=1, type=int)
+        result = PerformanceAnalyticsController.get_total_products()
+        return jsonify(result)
+    except Exception as e:
+        current_app.logger.error(f"Error in get_total_products: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to fetch total products data"
+        }), 500
+
+@superadmin_bp.route('/analytics/category-distribution', methods=['GET'])
+@super_admin_role_required
+def get_category_distribution():
+    """Get product category distribution analytics"""
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        result = PerformanceAnalyticsController.get_category_distribution()
+        return jsonify(result)
+    except Exception as e:
+        current_app.logger.error(f"Error in get_category_distribution: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to fetch category distribution data"
+        }), 500
+
+@superadmin_bp.route('/analytics/top-merchants', methods=['GET'])
+@super_admin_role_required
+def get_top_merchants():
+    """Get top performing merchants based on revenue"""
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        result = PerformanceAnalyticsController.get_top_merchants()
+        return jsonify(result)
+    except Exception as e:
+        current_app.logger.error(f"Error in get_top_merchants: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to fetch top merchants data"
+        }), 500
+
+@superadmin_bp.route('/analytics/merchant-performance-details', methods=['GET'])
+@super_admin_role_required
+def get_merchant_performance_details():
+    """Get detailed merchant performance metrics including revenue, orders, ratings, and product metrics"""
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        months = request.args.get('months', default=12, type=int)
+        result = PerformanceAnalyticsController.get_merchant_performance_details(months)
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting merchant performance details: {e}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to retrieve merchant performance details"
+        }), HTTPStatus.INTERNAL_SERVER_ERROR

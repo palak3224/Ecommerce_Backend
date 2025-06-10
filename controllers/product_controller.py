@@ -303,6 +303,42 @@ class ProductController:
                 print(f"Error tracking recently viewed: {str(e)}")
                 # Continue with the response even if tracking fails
 
+            # Get variants and parent product information
+            variants = []
+            parent_product = None
+
+            if product.parent_product_id is None:
+                # If this is a parent product, get its variants
+                variants = Product.query.filter_by(
+                    parent_product_id=product_id,
+                    deleted_at=None,
+                    active_flag=True,
+                    approval_status='approved'
+                ).all()
+            else:
+                # If this is a variant product, get its parent and siblings
+                parent_product = Product.query.filter_by(
+                    product_id=product.parent_product_id,
+                    deleted_at=None,
+                    active_flag=True,
+                    approval_status='approved'
+                ).first()
+
+                # Get all variants (siblings) including the parent
+                all_variants = Product.query.filter_by(
+                    parent_product_id=product.parent_product_id,
+                    deleted_at=None,
+                    active_flag=True,
+                    approval_status='approved'
+                ).all()
+                
+                # Add parent product to variants list if it exists
+                if parent_product:
+                    variants.append(parent_product)
+                
+                # Add sibling variants (excluding current product)
+                variants.extend([v for v in all_variants if v.product_id != product_id])
+
             # Prepare response data
             response_data = {
                 "product_id": product.product_id,
@@ -340,7 +376,26 @@ class ProductController:
                 "isBuiltIn": False,
                 "rating": 0,
                 "reviews": [],
-                "sku": product.sku if hasattr(product, 'sku') else None
+                "sku": product.sku if hasattr(product, 'sku') else None,
+                "parent_product_id": product.parent_product_id,
+                "is_variant": product.parent_product_id is not None,
+                "variants": [{
+                    "id": str(v.product_id),
+                    "name": v.product_name,
+                    "price": float(v.selling_price),
+                    "originalPrice": float(v.cost_price),
+                    "sku": v.sku if hasattr(v, 'sku') else None,
+                    "isVariant": v.product_id != product.parent_product_id,
+                    "isParent": v.product_id == product.parent_product_id,
+                    "parentProductId": str(v.parent_product_id) if v.parent_product_id else None,
+                    "media": [media.serialize() for media in ProductMedia.query.filter_by(
+                        product_id=v.product_id,
+                        deleted_at=None
+                    ).order_by(ProductMedia.sort_order).all()] if ProductMedia.query.filter_by(
+                        product_id=v.product_id,
+                        deleted_at=None
+                    ).first() else []
+                } for v in variants]
             }
 
             return jsonify(response_data)

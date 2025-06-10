@@ -13,7 +13,7 @@ class Config:
     TESTING = False
 
     # Database
-    SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URI', 'mysql+mysqlconnector://user:password@localhost/ecommerce_db')
+    SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URI', 'mysql+pymysql://root:nihalsql@localhost:3306/ecommerce_db')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     # JWT
