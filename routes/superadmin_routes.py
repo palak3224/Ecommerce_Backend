@@ -1228,3 +1228,157 @@ def update_carousel_order():
     except Exception as e:
         current_app.logger.error(f"Error updating carousel order: {e}")
         return jsonify({'message': f'Failed to update carousel order: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+# ── PERFORMANCE ANALYTICS ───────────────────────────────────────────────────────
+@superadmin_bp.route('/analytics/revenue', methods=['GET'])
+@super_admin_role_required
+def get_total_revenue():
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        result = PerformanceAnalyticsController.get_total_revenue()
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting total revenue: {e}")
+        return jsonify({'message': 'Failed to retrieve revenue data.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/active-users', methods=['GET'])
+@super_admin_role_required
+def get_active_users():
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        result = PerformanceAnalyticsController.get_active_users()
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting active users: {e}")
+        return jsonify({'message': 'Failed to retrieve active users data.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/total-merchants', methods=['GET'])
+@super_admin_role_required
+def get_total_merchants():
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        result = PerformanceAnalyticsController.get_total_merchants()
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting total merchants: {e}")
+        return jsonify({'message': 'Failed to retrieve merchants data.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/monthly-orders', methods=['GET'])
+@super_admin_role_required
+def get_monthly_orders():
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        result = PerformanceAnalyticsController.get_orders_this_month()
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting monthly orders: {e}")
+        return jsonify({'message': 'Failed to retrieve monthly orders data.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/dashboard', methods=['GET'])
+@super_admin_role_required
+def get_all_metrics():
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        result = PerformanceAnalyticsController.get_all_metrics()
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting all metrics: {e}")
+        return jsonify({'message': 'Failed to retrieve dashboard metrics.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/revenue-orders-trend', methods=['GET'])
+@super_admin_role_required
+def get_revenue_orders_trend():
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        months = request.args.get('months', default=12, type=int)
+        result = PerformanceAnalyticsController.get_revenue_orders_trend(months)
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting revenue and orders trend: {e}")
+        return jsonify({'message': 'Failed to retrieve revenue and orders trend data.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/merchant-performance', methods=['GET'])
+@super_admin_role_required
+def get_merchant_performance():
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        months = request.args.get('months', default=12, type=int)
+        result = PerformanceAnalyticsController.get_merchant_performance(months)
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting merchant performance: {e}")
+        return jsonify({'message': 'Failed to retrieve merchant performance data.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/user-growth-trend', methods=['GET'])
+@super_admin_role_required
+def get_user_growth_trend():
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        months = request.args.get('months', default=12, type=int)
+        result = PerformanceAnalyticsController.get_user_growth_trend(months)
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting user growth trend: {e}")
+        return jsonify({'message': 'Failed to retrieve user growth trend data.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/average-order-value', methods=['GET'])
+@super_admin_role_required
+def get_average_order_value():
+    """Get average order value analytics"""
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        months = request.args.get('months', default=1, type=int)
+        result = PerformanceAnalyticsController.get_average_order_value()
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error in get_average_order_value: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to fetch average order value data"
+        }), 500
+
+@superadmin_bp.route('/analytics/total-products', methods=['GET'])
+@super_admin_role_required
+def get_total_products():
+    """Get total products analytics"""
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        months = request.args.get('months', default=1, type=int)
+        result = PerformanceAnalyticsController.get_total_products()
+        return jsonify(result)
+    except Exception as e:
+        current_app.logger.error(f"Error in get_total_products: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to fetch total products data"
+        }), 500
+
+@superadmin_bp.route('/analytics/category-distribution', methods=['GET'])
+@super_admin_role_required
+def get_category_distribution():
+    """Get product category distribution analytics"""
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        result = PerformanceAnalyticsController.get_category_distribution()
+        return jsonify(result)
+    except Exception as e:
+        current_app.logger.error(f"Error in get_category_distribution: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to fetch category distribution data"
+        }), 500
+
+@superadmin_bp.route('/analytics/top-merchants', methods=['GET'])
+@super_admin_role_required
+def get_top_merchants():
+    """Get top performing merchants based on revenue"""
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        result = PerformanceAnalyticsController.get_top_merchants()
+        return jsonify(result)
+    except Exception as e:
+        current_app.logger.error(f"Error in get_top_merchants: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to fetch top merchants data"
+        }), 500

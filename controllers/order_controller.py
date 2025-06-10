@@ -1,12 +1,14 @@
 from flask import jsonify, request
 from models.order import Order, OrderItem, OrderStatusHistory
-from models.enums import OrderStatusEnum, PaymentStatusEnum, PaymentMethodEnum
+from models.enums import OrderStatusEnum, PaymentStatusEnum, PaymentMethodEnum, MediaType
 from models.product_stock import ProductStock
 from models.payment_card import PaymentCard
 from common.database import db
 from datetime import datetime, timezone
 from decimal import Decimal
 from sqlalchemy import desc
+from models.product import Product
+from models.product_media import ProductMedia
 
 class OrderController:
     @staticmethod
@@ -305,4 +307,71 @@ class OrderController:
             'total': orders.total,
             'pages': orders.pages,
             'current_page': orders.page
-        } 
+        }
+
+    @staticmethod
+    def track_order(order_id):
+        """
+        Track an order and return detailed information including product details and images.
+        
+        Args:
+            order_id (str): The ID of the order to track
+            
+        Returns:
+            dict: Order tracking information including product details and images
+        """
+        try:
+            # Get the order with its items
+            order = Order.query.get(order_id)
+            if not order:
+                raise ValueError(f"Order not found with ID: {order_id}")
+
+            # Get tracking information for each item in the order
+            tracking_items = []
+            for item in order.items:
+                # Get the product
+                product = Product.query.get(item.product_id) if item.product_id else None
+                
+                # Get the first product image if available
+                product_image = None
+                if product:
+                    media = ProductMedia.query.filter_by(
+                        product_id=product.product_id,
+                        type=MediaType.IMAGE
+                    ).order_by(ProductMedia.sort_order).first()
+                    if media:
+                        product_image = media.url
+
+                tracking_item = {
+                    "order_item_id": item.order_item_id,
+                    "product_name": item.product_name_at_purchase,
+                    "quantity": item.quantity,
+                    "unit_price": str(item.unit_price_at_purchase),
+                    "total_price": str(item.final_price_for_item),
+                    "product_image": product_image,
+                    "item_status": item.item_status.value
+                }
+                tracking_items.append(tracking_item)
+
+            # Compile the complete tracking information
+            tracking_info = {
+                "order_id": order.order_id,
+                "order_status": order.order_status.value,
+                "order_date": order.order_date.isoformat(),
+                "total_amount": str(order.total_amount),
+                "currency": order.currency,
+                "shipping_address": order.shipping_address_obj.serialize() if order.shipping_address_obj else None,
+                "items": tracking_items,
+                "status_history": [
+                    {
+                        "status": hist.status.value,
+                        "changed_at": hist.changed_at.isoformat(),
+                        "notes": hist.notes
+                    } for hist in order.status_history.limit(5).all()
+                ]
+            }
+
+            return tracking_info
+
+        except Exception as e:
+            raise Exception(f"Failed to track order: {str(e)}") 

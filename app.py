@@ -31,6 +31,7 @@ from routes.dashboard_routes import dashboard_bp
 from routes.promo_product_routes import promo_product_bp
 from auth.admin_routes import admin_bp
 from routes.payment_card_routes import payment_card_bp
+from routes.review_routes import review_bp
 
 from flasgger import Swagger
 from cryptography.fernet import Fernet
@@ -145,8 +146,6 @@ def create_app(config_name='default'):
     app.register_blueprint(feature_product_bp, url_prefix='/api/featured-products')
     app.register_blueprint(promo_product_bp, url_prefix='/api/promo-products')
     app.register_blueprint(payment_card_bp)
-    app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
-
     # Add custom headers to every response
     app.after_request(add_headers)
 
