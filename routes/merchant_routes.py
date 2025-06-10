@@ -26,6 +26,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 from controllers.merchant.order_controller import MerchantOrderController
 from auth.models.models import MerchantProfile
 from datetime import datetime
+from controllers.merchant.dashboard_controller import MerchantDashboardController
 
 
 ALLOWED_MEDIA_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'mov', 'avi'} 
@@ -2118,3 +2119,80 @@ def get_recent_reviews():
     except Exception as e:
         current_app.logger.error(f"Error getting recent reviews: {str(e)}")
         return jsonify({'message': 'Failed to retrieve recent reviews.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+# Analytics Routes
+@merchant_dashboard_bp.route('/analytics/revenue-orders-trend', methods=['GET'])
+@jwt_required()
+@merchant_role_required
+def get_revenue_orders_trend():
+    """Get revenue and orders trend data."""
+    try:
+        current_user_id = get_jwt_identity()
+        trend_data = MerchantDashboardController.get_sales_data(current_user_id)
+        return jsonify({
+            'status': 'success',
+            'data': trend_data
+        }), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting revenue orders trend: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchant_dashboard_bp.route('/analytics/merchant-performance', methods=['GET'])
+@jwt_required()
+@merchant_role_required
+def get_merchant_performance():
+    """Get merchant performance metrics."""
+    try:
+        current_user_id = get_jwt_identity()
+        performance_data = MerchantDashboardController.get_monthly_summary(current_user_id)
+        return jsonify({
+            'status': 'success',
+            'data': performance_data
+        }), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting merchant performance: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchant_dashboard_bp.route('/analytics/top-products', methods=['GET'])
+@jwt_required()
+@merchant_role_required
+def get_top_products():
+    """Get top performing products."""
+    try:
+        current_user_id = get_jwt_identity()
+        products_data = MerchantDashboardController.get_top_products(current_user_id)
+        return jsonify({
+            'status': 'success',
+            'data': products_data
+        }), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting top products: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchant_dashboard_bp.route('/analytics/recent-orders', methods=['GET'])
+@jwt_required()
+@merchant_role_required
+def get_recent_orders():
+    """Get recent orders."""
+    try:
+        current_user_id = get_jwt_identity()
+        orders_data = MerchantDashboardController.get_recent_orders(current_user_id)
+        return jsonify({
+            'status': 'success',
+            'data': orders_data
+        }), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting recent orders: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
