@@ -1382,3 +1382,19 @@ def get_top_merchants():
             "status": "error",
             "message": "Failed to fetch top merchants data"
         }), 500
+
+@superadmin_bp.route('/analytics/merchant-performance-details', methods=['GET'])
+@super_admin_role_required
+def get_merchant_performance_details():
+    """Get detailed merchant performance metrics including revenue, orders, ratings, and product metrics"""
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        months = request.args.get('months', default=12, type=int)
+        result = PerformanceAnalyticsController.get_merchant_performance_details(months)
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting merchant performance details: {e}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to retrieve merchant performance details"
+        }), HTTPStatus.INTERNAL_SERVER_ERROR

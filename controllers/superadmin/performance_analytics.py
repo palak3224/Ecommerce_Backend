@@ -6,6 +6,7 @@ from models.user_address import UserAddress
 from models.product import Product
 from models.category import Category
 from common.database import db
+from models.review import Review
 
 class PerformanceAnalyticsController:
     @staticmethod
@@ -770,6 +771,121 @@ class PerformanceAnalyticsController:
                 "status": "success",
                 "data": {
                     "merchants": top_merchants
+                }
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+
+    @staticmethod
+    def get_merchant_performance_details(months=12):
+        """Get detailed merchant performance metrics including revenue, orders, and ratings"""
+        try:
+            end_date = datetime.now(timezone.utc)
+            start_date = end_date - timedelta(days=30 * months)
+
+            # Get merchant performance data with revenue and orders
+            merchant_data = db.session.query(
+                MerchantProfile.id,
+                MerchantProfile.business_name,
+                func.sum(OrderItem.final_price_for_item).label('total_revenue'),
+                func.count(func.distinct(Order.order_id)).label('total_orders'),
+                func.avg(Review.rating).label('average_rating')
+            ).outerjoin(
+                OrderItem,
+                OrderItem.merchant_id == MerchantProfile.id
+            ).outerjoin(
+                Order,
+                Order.order_id == OrderItem.order_id
+            ).outerjoin(
+                Product,
+                Product.merchant_id == MerchantProfile.id
+            ).outerjoin(
+                Review,
+                Review.product_id == Product.product_id
+            ).filter(
+                and_(
+                    Order.order_date >= start_date,
+                    Order.order_date <= end_date,
+                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL
+                )
+            ).group_by(
+                MerchantProfile.id,
+                MerchantProfile.business_name
+            ).order_by(
+                func.sum(OrderItem.final_price_for_item).desc()
+            ).all()
+
+            # Format the data
+            merchant_performance = []
+            for data in merchant_data:
+                # Get product count for this merchant
+                product_count = db.session.query(
+                    func.count(Product.product_id)
+                ).filter(
+                    and_(
+                        Product.merchant_id == data.id,
+                        Product.active_flag == True,
+                        Product.approval_status == 'approved'
+                    )
+                ).scalar() or 0
+
+                # Get review count for this merchant's products
+                review_count = db.session.query(
+                    func.count(Review.review_id)
+                ).join(
+                    Product,
+                    Product.product_id == Review.product_id
+                ).filter(
+                    Product.merchant_id == data.id
+                ).scalar() or 0
+
+                merchant_performance.append({
+                    "merchant_id": data.id,
+                    "name": data.business_name,
+                    "revenue": float(data.total_revenue or 0),
+                    "orders": int(data.total_orders or 0),
+                    "average_order_value": round(
+                        float(data.total_revenue or 0) / int(data.total_orders or 1),
+                        2
+                    ),
+                    "rating": round(float(data.average_rating or 0), 1),
+                    "product_count": product_count,
+                    "review_count": review_count,
+                    "metrics": {
+                        "revenue_per_product": round(
+                            float(data.total_revenue or 0) / product_count if product_count > 0 else 0,
+                            2
+                        ),
+                        "orders_per_product": round(
+                            float(data.total_orders or 0) / product_count if product_count > 0 else 0,
+                            2
+                        ),
+                        "reviews_per_product": round(
+                            float(review_count) / product_count if product_count > 0 else 0,
+                            2
+                        )
+                    }
+                })
+
+            return {
+                "status": "success",
+                "data": {
+                    "merchants": merchant_performance,
+                    "summary": {
+                        "total_merchants": len(merchant_performance),
+                        "total_revenue": sum(item["revenue"] for item in merchant_performance),
+                        "total_orders": sum(item["orders"] for item in merchant_performance),
+                        "average_rating": round(
+                            sum(item["rating"] for item in merchant_performance) / len(merchant_performance) if merchant_performance else 0,
+                            1
+                        ),
+                        "total_products": sum(item["product_count"] for item in merchant_performance),
+                        "total_reviews": sum(item["review_count"] for item in merchant_performance),
+                        "currency": "INR"
+                    }
                 }
             }
         except Exception as e:
