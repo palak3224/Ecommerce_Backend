@@ -26,6 +26,7 @@ from routes.order_routes import order_bp
 from routes.user_address_routes import user_address_bp
 from routes.currency_routes import currency_bp
 from routes.feature_product_routes import feature_product_bp
+from routes.dashboard_routes import dashboard_bp
 
 from routes.promo_product_routes import promo_product_bp
 from auth.admin_routes import admin_bp
@@ -145,6 +146,7 @@ def create_app(config_name='default'):
     app.register_blueprint(feature_product_bp, url_prefix='/api/featured-products')
     app.register_blueprint(promo_product_bp, url_prefix='/api/promo-products')
     app.register_blueprint(payment_card_bp)
+    app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
     app.register_blueprint(review_bp, url_prefix='/api/reviews')
     # Add custom headers to every response
     app.after_request(add_headers)
