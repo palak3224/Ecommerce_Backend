@@ -30,6 +30,21 @@ from auth.models.models import MerchantProfile
 ALLOWED_MEDIA_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'mov', 'avi'} 
 
 def allowed_media_file(filename):
+    """
+    Check if the given filename has an allowed media file extension
+    ---
+    tags:
+      - Merchant - Media
+    parameters:
+      - name: filename
+        in: path
+        type: string
+        required: true
+        description: Name of the file to check
+    responses:
+      type: boolean
+      description: True if the file extension is allowed, False otherwise
+    """
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_MEDIA_EXTENSIONS
 
@@ -45,12 +60,93 @@ merchant_dashboard_bp = Blueprint('merchant_dashboard_bp', __name__)
 @merchant_dashboard_bp.route('/brand-requests', methods=['GET'])
 @merchant_role_required
 def list_brand_requests():
+    """
+    Get all brand requests made by the merchant
+    ---
+    tags:
+      - Merchant - Brand Requests
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of brand requests retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              request_id:
+                type: integer
+              brand_name:
+                type: string
+              status:
+                type: string
+                enum: [PENDING, APPROVED, REJECTED]
+              created_at:
+                type: string
+                format: date-time
+              updated_at:
+                type: string
+                format: date-time
+      500:
+        description: Internal server error
+    """
     items = MerchantBrandRequestController.list_all()
     return jsonify([i.serialize() for i in items]), 200
 
 @merchant_dashboard_bp.route('/brand-requests', methods=['POST'])
 @merchant_role_required
 def create_brand_request():
+    """
+    Create a new brand request
+    ---
+    tags:
+      - Merchant - Brand Requests
+    security:
+      - Bearer: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - brand_name
+            properties:
+              brand_name:
+                type: string
+                description: Name of the brand to request
+              description:
+                type: string
+                description: Optional description of the brand
+              website:
+                type: string
+                format: uri
+                description: Optional website URL of the brand
+    responses:
+      201:
+        description: Brand request created successfully
+        schema:
+          type: object
+          properties:
+            request_id:
+              type: integer
+            brand_name:
+              type: string
+            status:
+              type: string
+              enum: [PENDING]
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+      400:
+        description: Invalid request data
+      500:
+        description: Internal server error
+    """
     data = request.get_json()
     br = MerchantBrandRequestController.create(data)
     return jsonify(br.serialize()), 201
@@ -59,6 +155,43 @@ def create_brand_request():
 @merchant_dashboard_bp.route('/brands', methods=['GET'])
 @merchant_role_required
 def list_brands():
+    """
+    Get all brands available to the merchant
+    ---
+    tags:
+      - Merchant - Brands
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of brands retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              brand_id:
+                type: integer
+              name:
+                type: string
+              slug:
+                type: string
+              icon_url:
+                type: string
+                nullable: true
+              description:
+                type: string
+                nullable: true
+              website:
+                type: string
+                format: uri
+                nullable: true
+              status:
+                type: string
+                enum: [ACTIVE, INACTIVE]
+      500:
+        description: Internal server error
+    """
     items = MerchantBrandController.list_all()
     return jsonify([i.serialize() for i in items]), 200
 
@@ -67,6 +200,47 @@ def list_brands():
 @merchant_dashboard_bp.route('/categories', methods=['GET'])
 @merchant_role_required
 def list_merchant_categories():
+    """
+    Get all categories available to the merchant
+    ---
+    tags:
+      - Merchant - Categories
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of categories retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              category_id:
+                type: integer
+              name:
+                type: string
+              slug:
+                type: string
+              parent_id:
+                type: integer
+                nullable: true
+              description:
+                type: string
+                nullable: true
+              image_url:
+                type: string
+                nullable: true
+              status:
+                type: string
+                enum: [ACTIVE, INACTIVE]
+      500:
+        description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+    """
     try:
         cats = MerchantCategoryController.list_all()
        
@@ -219,12 +393,186 @@ def get_category(cid):
 @merchant_dashboard_bp.route('/products', methods=['GET'])
 @merchant_role_required
 def list_products():
+    """
+    Get all products for the merchant
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    parameters:
+      - name: page
+        in: query
+        type: integer
+        default: 1
+        description: Page number for pagination
+      - name: per_page
+        in: query
+        type: integer
+        default: 50
+        description: Number of items per page
+      - name: search
+        in: query
+        type: string
+        description: Search term for product name or SKU
+      - name: category
+        in: query
+        type: string
+        description: Filter by category (ID or slug)
+      - name: brand
+        in: query
+        type: string
+        description: Filter by brand (ID or slug)
+      - name: status
+        in: query
+        type: string
+        enum: [DRAFT, PENDING, APPROVED, REJECTED]
+        description: Filter by product status
+    responses:
+      200:
+        description: List of products retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id:
+                type: integer
+              product_name:
+                type: string
+              sku:
+                type: string
+              selling_price:
+                type: number
+                format: float
+              cost_price:
+                type: number
+                format: float
+              stock_qty:
+                type: integer
+              status:
+                type: string
+                enum: [DRAFT, PENDING, APPROVED, REJECTED]
+              category:
+                type: object
+                properties:
+                  category_id:
+                    type: integer
+                  name:
+                    type: string
+              brand:
+                type: object
+                properties:
+                  brand_id:
+                    type: integer
+                  name:
+                    type: string
+      500:
+        description: Internal server error
+    """
     ps = MerchantProductController.list_all()
     return jsonify([p.serialize() for p in ps]), 200
 
 @merchant_dashboard_bp.route('/products', methods=['POST'])
 @merchant_role_required
 def create_product():
+    """
+    Create a new product
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - product_name
+              - sku
+              - selling_price
+              - category_id
+              - brand_id
+            properties:
+              product_name:
+                type: string
+                description: Name of the product
+              sku:
+                type: string
+                description: Unique SKU for the product
+              description:
+                type: string
+                description: Product description
+              selling_price:
+                type: number
+                format: float
+                minimum: 0
+                description: Product selling price
+              cost_price:
+                type: number
+                format: float
+                minimum: 0
+                description: Product cost price
+              category_id:
+                type: integer
+                description: ID of the product category
+              brand_id:
+                type: integer
+                description: ID of the product brand
+              stock_qty:
+                type: integer
+                minimum: 0
+                default: 0
+                description: Initial stock quantity
+              low_stock_threshold:
+                type: integer
+                minimum: 0
+                default: 5
+                description: Threshold for low stock alerts
+    responses:
+      201:
+        description: Product created successfully
+        schema:
+          type: object
+          properties:
+            product_id:
+              type: integer
+            product_name:
+              type: string
+            sku:
+              type: string
+            selling_price:
+              type: number
+              format: float
+            cost_price:
+              type: number
+              format: float
+            stock_qty:
+              type: integer
+            status:
+              type: string
+              enum: [DRAFT]
+            category_id:
+              type: integer
+            brand_id:
+              type: integer
+      400:
+        description: Invalid request data
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+      500:
+        description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+    """
     try:
         data = request.get_json()
         if not data:
@@ -374,12 +722,177 @@ def create_product_variant(pid):
 @merchant_dashboard_bp.route('/products/<int:pid>', methods=['GET'])
 @merchant_role_required
 def get_product(pid):
+    """
+    Get detailed information about a specific product
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    parameters:
+      - name: pid
+        in: path
+        type: integer
+        required: true
+        description: Product ID
+    responses:
+      200:
+        description: Product details retrieved successfully
+        schema:
+          type: object
+          properties:
+            product_id:
+              type: integer
+            product_name:
+              type: string
+            sku:
+              type: string
+            description:
+              type: string
+            selling_price:
+              type: number
+              format: float
+            cost_price:
+              type: number
+              format: float
+            stock_qty:
+              type: integer
+            status:
+              type: string
+              enum: [DRAFT, PENDING, APPROVED, REJECTED]
+            category:
+              type: object
+              properties:
+                category_id:
+                  type: integer
+                name:
+                  type: string
+                slug:
+                  type: string
+            brand:
+              type: object
+              properties:
+                brand_id:
+                  type: integer
+                name:
+                  type: string
+                slug:
+                  type: string
+            variants:
+              type: array
+              items:
+                type: object
+                properties:
+                  variant_id:
+                    type: integer
+                  sku:
+                    type: string
+                  attributes:
+                    type: object
+                  stock_qty:
+                    type: integer
+                  selling_price:
+                    type: number
+                    format: float
+      404:
+        description: Product not found
+      500:
+        description: Internal server error
+    """
     p = MerchantProductController.get(pid)
     return jsonify(p.serialize()), 200
 
 @merchant_dashboard_bp.route('/products/<int:pid>', methods=['PUT'])
 @merchant_role_required
 def update_product(pid):
+    """
+    Update an existing product
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    parameters:
+      - name: pid
+        in: path
+        type: integer
+        required: true
+        description: Product ID
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              product_name:
+                type: string
+                description: Updated product name
+              description:
+                type: string
+                description: Updated product description
+              selling_price:
+                type: number
+                format: float
+                minimum: 0
+                description: Updated selling price
+              cost_price:
+                type: number
+                format: float
+                minimum: 0
+                description: Updated cost price
+              category_id:
+                type: integer
+                description: Updated category ID
+              brand_id:
+                type: integer
+                description: Updated brand ID
+              status:
+                type: string
+                enum: [DRAFT, PENDING]
+                description: Updated product status
+    responses:
+      200:
+        description: Product updated successfully
+        schema:
+          type: object
+          properties:
+            product_id:
+              type: integer
+            product_name:
+              type: string
+            sku:
+              type: string
+            selling_price:
+              type: number
+              format: float
+            cost_price:
+              type: number
+              format: float
+            status:
+              type: string
+              enum: [DRAFT, PENDING]
+            category_id:
+              type: integer
+            brand_id:
+              type: integer
+      400:
+        description: Invalid request data
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+      404:
+        description: Product not found
+      500:
+        description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+    """
     try:
         data = request.get_json()
         if not data:
@@ -402,6 +915,44 @@ def update_product(pid):
 @merchant_dashboard_bp.route('/products/<int:pid>', methods=['DELETE'])
 @merchant_role_required
 def delete_product(pid):
+    """
+    Delete a product
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    parameters:
+      - name: pid
+        in: path
+        type: integer
+        required: true
+        description: Product ID to delete
+    responses:
+      200:
+        description: Product deleted successfully
+        schema:
+          type: object
+          properties:
+            product_id:
+              type: integer
+            product_name:
+              type: string
+            sku:
+              type: string
+            status:
+              type: string
+              enum: [DELETED]
+      404:
+        description: Product not found
+      500:
+        description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+    """
     p = MerchantProductController.delete(pid)
     return jsonify(p.serialize()), 200
 
@@ -411,12 +962,136 @@ def delete_product(pid):
 @merchant_dashboard_bp.route('/products/<int:pid>/meta', methods=['GET'])
 @merchant_role_required
 def get_product_meta(pid):
+    """
+    Get meta information for a product
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    parameters:
+      - name: pid
+        in: path
+        type: integer
+        required: true
+        description: Product ID
+    responses:
+      200:
+        description: Product meta information retrieved successfully
+        schema:
+          type: object
+          properties:
+            product_id:
+              type: integer
+            short_desc:
+              type: string
+              description: Short description of the product
+            full_desc:
+              type: string
+              description: Full detailed description of the product
+            meta_title:
+              type: string
+              description: SEO meta title
+            meta_description:
+              type: string
+              description: SEO meta description
+            meta_keywords:
+              type: string
+              description: SEO meta keywords
+      404:
+        description: Product not found
+      500:
+        description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+    """
     pm = MerchantProductMetaController.get(pid)
     return jsonify(pm.serialize()), 200
 
 @merchant_dashboard_bp.route('/products/<int:pid>/meta', methods=['POST','PUT'])
 @merchant_role_required
 def upsert_product_meta(pid):
+    """
+    Create or update product meta information
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    parameters:
+      - name: pid
+        in: path
+        type: integer
+        required: true
+        description: Product ID
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - short_desc
+              - full_desc
+            properties:
+              short_desc:
+                type: string
+                description: Short description of the product
+              full_desc:
+                type: string
+                description: Full detailed description of the product
+              meta_title:
+                type: string
+                description: SEO meta title
+              meta_description:
+                type: string
+                description: SEO meta description
+              meta_keywords:
+                type: string
+                description: SEO meta keywords
+    responses:
+      200:
+        description: Product meta information updated successfully
+        schema:
+          type: object
+          properties:
+            product_id:
+              type: integer
+            short_desc:
+              type: string
+            full_desc:
+              type: string
+            meta_title:
+              type: string
+            meta_description:
+              type: string
+            meta_keywords:
+              type: string
+      400:
+        description: Invalid request data
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            error:
+              type: string
+              enum: [MISSING_FIELDS, EMPTY_FIELD]
+      404:
+        description: Product not found
+      500:
+        description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            error:
+              type: string
+    """
     try:
         data = request.get_json()
         if not data:
@@ -452,12 +1127,102 @@ def upsert_product_meta(pid):
 @merchant_dashboard_bp.route('/products/<int:pid>/tax', methods=['GET'])
 @merchant_role_required
 def get_product_tax(pid):
+    """
+    Get tax information for a product
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    parameters:
+      - name: pid
+        in: path
+        type: integer
+        required: true
+        description: Product ID
+    responses:
+      200:
+        description: Product tax information retrieved successfully
+        schema:
+          type: object
+          properties:
+            product_id:
+              type: integer
+            tax_rate:
+              type: string
+              description: Tax rate as a decimal string (e.g., "0.20" for 20%)
+      404:
+        description: Product not found
+      500:
+        description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+    """
     t = MerchantProductTaxController.get(pid)
     return jsonify({'product_id': t.product_id, 'tax_rate': str(t.tax_rate)}), 200
 
 @merchant_dashboard_bp.route('/products/<int:pid>/tax', methods=['POST','PUT'])
 @merchant_role_required
 def upsert_product_tax(pid):
+    """
+    Create or update tax information for a product
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    parameters:
+      - name: pid
+        in: path
+        type: integer
+        required: true
+        description: Product ID
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - tax_rate
+            properties:
+              tax_rate:
+                type: number
+                format: float
+                minimum: 0
+                maximum: 1
+                description: Tax rate as a decimal (e.g., 0.20 for 20%)
+    responses:
+      200:
+        description: Product tax information updated successfully
+        schema:
+          type: object
+          properties:
+            product_id:
+              type: integer
+            tax_rate:
+              type: string
+              description: Tax rate as a decimal string
+      400:
+        description: Invalid request data
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+      404:
+        description: Product not found
+      500:
+        description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+    """
     data = request.get_json()
     t = MerchantProductTaxController.upsert(pid, data)
     return jsonify({'product_id': t.product_id, 'tax_rate': str(t.tax_rate)}), 200
@@ -466,12 +1231,157 @@ def upsert_product_tax(pid):
 @merchant_dashboard_bp.route('/products/<int:pid>/shipping', methods=['GET'])
 @merchant_role_required
 def get_product_shipping(pid):
+    """
+    Get shipping information for a product
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    parameters:
+      - name: pid
+        in: path
+        type: integer
+        required: true
+        description: Product ID
+    responses:
+      200:
+        description: Product shipping information retrieved successfully
+        schema:
+          type: object
+          properties:
+            product_id:
+              type: integer
+            weight:
+              type: number
+              format: float
+              description: Product weight in kilograms
+            length:
+              type: number
+              format: float
+              description: Product length in centimeters
+            width:
+              type: number
+              format: float
+              description: Product width in centimeters
+            height:
+              type: number
+              format: float
+              description: Product height in centimeters
+            shipping_class:
+              type: string
+              description: Shipping class/category
+            free_shipping:
+              type: boolean
+              description: Whether the product qualifies for free shipping
+      404:
+        description: Product not found
+      500:
+        description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+    """
     s = MerchantProductShippingController.get(pid)
     return jsonify(s.serialize()), 200
 
 @merchant_dashboard_bp.route('/products/<int:pid>/shipping', methods=['POST','PUT'])
 @merchant_role_required
 def upsert_product_shipping(pid):
+    """
+    Create or update shipping information for a product
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    parameters:
+      - name: pid
+        in: path
+        type: integer
+        required: true
+        description: Product ID
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - weight
+              - length
+              - width
+              - height
+            properties:
+              weight:
+                type: number
+                format: float
+                minimum: 0
+                description: Product weight in kilograms
+              length:
+                type: number
+                format: float
+                minimum: 0
+                description: Product length in centimeters
+              width:
+                type: number
+                format: float
+                minimum: 0
+                description: Product width in centimeters
+              height:
+                type: number
+                format: float
+                minimum: 0
+                description: Product height in centimeters
+              shipping_class:
+                type: string
+                description: Shipping class/category
+              free_shipping:
+                type: boolean
+                description: Whether the product qualifies for free shipping
+    responses:
+      200:
+        description: Product shipping information updated successfully
+        schema:
+          type: object
+          properties:
+            product_id:
+              type: integer
+            weight:
+              type: number
+              format: float
+            length:
+              type: number
+              format: float
+            width:
+              type: number
+              format: float
+            height:
+              type: number
+              format: float
+            shipping_class:
+              type: string
+            free_shipping:
+              type: boolean
+      400:
+        description: Invalid request data
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+      404:
+        description: Product not found
+      500:
+        description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+    """
     data = request.get_json()
     s = MerchantProductShippingController.upsert(pid, data)
     return jsonify(s.serialize()), 200
@@ -480,6 +1390,52 @@ def upsert_product_shipping(pid):
 @merchant_dashboard_bp.route('/products/<int:pid>/media', methods=['GET'])
 @merchant_role_required
 def list_product_media(pid):
+    """
+    Get all media files associated with a product
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    parameters:
+      - name: pid
+        in: path
+        type: integer
+        required: true
+        description: Product ID
+    responses:
+      200:
+        description: List of media files retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              media_id:
+                type: integer
+              product_id:
+                type: integer
+              url:
+                type: string
+                format: uri
+              type:
+                type: string
+                enum: [IMAGE, VIDEO]
+              sort_order:
+                type: integer
+              created_at:
+                type: string
+                format: date-time
+      404:
+        description: Product not found
+      500:
+        description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+    """
     try:
         m = MerchantProductMediaController.list(pid)
         return jsonify([x.serialize() for x in m]), HTTPStatus.OK
@@ -492,6 +1448,50 @@ def list_product_media(pid):
 @merchant_dashboard_bp.route('/products/<int:pid>/media/stats', methods=['GET'])
 @merchant_role_required
 def get_product_media_stats(pid):
+    """
+    Get statistics about media files associated with a product
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    parameters:
+      - name: pid
+        in: path
+        type: integer
+        required: true
+        description: Product ID
+    responses:
+      200:
+        description: Media statistics retrieved successfully
+        schema:
+          type: object
+          properties:
+            total_count:
+              type: integer
+              description: Total number of media files
+            image_count:
+              type: integer
+              description: Number of image files
+            video_count:
+              type: integer
+              description: Number of video files
+            max_allowed:
+              type: integer
+              description: Maximum number of media files allowed
+            remaining_slots:
+              type: integer
+              description: Number of remaining media slots available
+      404:
+        description: Product not found
+      500:
+        description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+    """
     try:
         media_list = MerchantProductMediaController.list(pid)
         stats = {
@@ -509,8 +1509,79 @@ def get_product_media_stats(pid):
 @merchant_dashboard_bp.route('/products/<int:pid>/media', methods=['POST'])
 @merchant_role_required
 def create_product_media(pid):
-   
-    
+    """
+    Upload and create a new media file for a product
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    parameters:
+      - name: pid
+        in: path
+        type: integer
+        required: true
+        description: Product ID
+    requestBody:
+      required: true
+      content:
+        multipart/form-data:
+          schema:
+            type: object
+            required:
+              - media_file
+            properties:
+              media_file:
+                type: string
+                format: binary
+                description: Media file to upload (image or video)
+              type:
+                type: string
+                enum: [IMAGE, VIDEO]
+                description: Type of media (defaults to IMAGE for images, VIDEO for videos)
+              sort_order:
+                type: integer
+                default: 0
+                description: Order in which the media should appear
+    responses:
+      201:
+        description: Media file uploaded and created successfully
+        schema:
+          type: object
+          properties:
+            media_id:
+              type: integer
+            product_id:
+              type: integer
+            url:
+              type: string
+              format: uri
+            type:
+              type: string
+              enum: [IMAGE, VIDEO]
+            sort_order:
+              type: integer
+            created_at:
+              type: string
+              format: date-time
+      400:
+        description: Invalid request data
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              description: Error message explaining what went wrong
+      404:
+        description: Product not found
+      500:
+        description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+    """
     if 'media_file' not in request.files:
         return jsonify({'message': 'No media file part in the request'}), HTTPStatus.BAD_REQUEST
     
@@ -596,12 +1667,54 @@ def create_product_media(pid):
 @merchant_dashboard_bp.route('/products/media/<int:mid>', methods=['DELETE'])
 @merchant_role_required
 def delete_product_media(mid):
+    """
+    Delete a media file associated with a product
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    parameters:
+      - name: mid
+        in: path
+        type: integer
+        required: true
+        description: Media ID to delete
+    responses:
+      200:
+        description: Media file deleted successfully
+        schema:
+          type: object
+          properties:
+            media_id:
+              type: integer
+            product_id:
+              type: integer
+            url:
+              type: string
+              format: uri
+            type:
+              type: string
+              enum: [IMAGE, VIDEO]
+            sort_order:
+              type: integer
+            created_at:
+              type: string
+              format: date-time
+      404:
+        description: Media file not found
+      500:
+        description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+    """
     try:
-       
         m = MerchantProductMediaController.delete(mid)
         return jsonify(m.serialize()), HTTPStatus.OK 
     except Exception as e:
-      
         current_app.logger.error(f"Merchant: Error deleting media {mid}: {e}")
         if hasattr(e, 'code') and isinstance(e.code, int):
             return jsonify({'message': getattr(e, 'description', str(e))}), e.code
@@ -611,126 +1724,388 @@ def delete_product_media(mid):
 @merchant_dashboard_bp.route('/products/<int:pid>/attributes', methods=['GET'])
 @merchant_role_required
 def list_product_attributes(pid):
+    """
+    Get all attributes and their values for a product
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    parameters:
+      - name: pid
+        in: path
+        type: integer
+        required: true
+        description: Product ID
+    responses:
+      200:
+        description: List of product attributes with their values
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              attribute_id:
+                type: integer
+              attribute_name:
+                type: string
+              attribute_code:
+                type: string
+              values:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    value_id:
+                      type: integer
+                    value_name:
+                      type: string
+                    value_code:
+                      type: string
+                    is_selected:
+                      type: boolean
+      404:
+        description: Product not found
+      500:
+        description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+    """
     try:
-        pas = MerchantProductAttributeController.list(pid)
-        return jsonify([p.serialize() for p in pas]), HTTPStatus.OK
+        attributes = MerchantProductAttributeController.list(pid)
+        return jsonify(attributes), HTTPStatus.OK
     except Exception as e:
-        current_app.logger.error(f"Error listing product attributes for product {pid}: {e}")
-        return jsonify({'message': 'Failed to retrieve product attributes.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+        current_app.logger.error(f"Merchant: Error listing product attributes for product {pid}: {e}")
+        if hasattr(e, 'code') and isinstance(e.code, int):
+            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
+        return jsonify({'message': "Failed to list product attributes."}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @merchant_dashboard_bp.route('/products/<int:pid>/attributes/values', methods=['POST'])
 @merchant_role_required
 def set_product_attribute_values(pid):
+    """
+    Set attribute values for a product
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    parameters:
+      - name: pid
+        in: path
+        type: integer
+        required: true
+        description: Product ID
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - attributes
+            properties:
+              attributes:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - attribute_id
+                    - value_codes
+                  properties:
+                    attribute_id:
+                      type: integer
+                      description: ID of the attribute
+                    value_codes:
+                      type: array
+                      items:
+                        type: string
+                      description: List of value codes to set for this attribute
+    responses:
+      200:
+        description: Attribute values set successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              attribute_id:
+                type: integer
+              attribute_name:
+                type: string
+              attribute_code:
+                type: string
+              values:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    value_id:
+                      type: integer
+                    value_name:
+                      type: string
+                    value_code:
+                      type: string
+                    is_selected:
+                      type: boolean
+      400:
+        description: Invalid request data
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+      404:
+        description: Product not found
+      500:
+        description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+    """
     try:
         data = request.get_json()
-        current_app.logger.info(f"Received attribute values request for product {pid}: {data}")
-        
-        if not data or not isinstance(data, dict):
-            return jsonify({
-                'message': 'Invalid data format. Expected a dictionary of attribute values.',
-                'error': 'INVALID_FORMAT'
-            }), HTTPStatus.BAD_REQUEST
-
-        # Format: { attribute_id: value }
-        # value can be string, string[], or null
-        for attribute_id, value in data.items():
-            try:
-                attribute_id = int(attribute_id)
-                
-                # Skip if value is null or empty
-                if value is None or (isinstance(value, list) and len(value) == 0):
-                    continue
-                    
-                # Create or update the attribute value
-                MerchantProductAttributeController.upsert(pid, attribute_id, value)
-            except ValueError as e:
-                current_app.logger.error(f"Invalid attribute value for product {pid}, attribute {attribute_id}: {e}")
-                return jsonify({
-                    'message': str(e),
-                    'error': 'INVALID_VALUE',
-                    'attribute_id': attribute_id
-                }), HTTPStatus.BAD_REQUEST
-            except Exception as e:
-                current_app.logger.error(f"Error setting attribute value for product {pid}, attribute {attribute_id}: {e}")
-                return jsonify({
-                    'message': f'Failed to set attribute value: {str(e)}',
-                    'error': 'SERVER_ERROR',
-                    'attribute_id': attribute_id
-                }), HTTPStatus.INTERNAL_SERVER_ERROR
-
-        # Return updated attributes
-        updated_attributes = MerchantProductAttributeController.list(pid)
-        return jsonify({
-            'message': 'Attribute values updated successfully',
-            'attributes': [p.serialize() for p in updated_attributes]
-        }), HTTPStatus.OK
-
+        if not data or 'attributes' not in data:
+            return jsonify({'message': 'Missing required field: attributes'}), HTTPStatus.BAD_REQUEST
+            
+        attributes = MerchantProductAttributeController.set_values(pid, data['attributes'])
+        return jsonify(attributes), HTTPStatus.OK
     except Exception as e:
-        current_app.logger.error(f"Error setting product attribute values for product {pid}: {e}")
-        return jsonify({
-            'message': 'Failed to set product attribute values.',
-            'error': 'SERVER_ERROR'
-        }), HTTPStatus.INTERNAL_SERVER_ERROR
+        current_app.logger.error(f"Merchant: Error setting product attribute values for product {pid}: {e}")
+        if hasattr(e, 'code') and isinstance(e.code, int):
+            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
+        return jsonify({'message': "Failed to set product attribute values."}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @merchant_dashboard_bp.route('/products/<int:pid>/attributes/<int:aid>/<value_code>', methods=['PUT'])
 @merchant_role_required
 def update_product_attribute(pid, aid, value_code):
+    """
+    Update a specific attribute value for a product
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    parameters:
+      - name: pid
+        in: path
+        type: integer
+        required: true
+        description: Product ID
+      - name: aid
+        in: path
+        type: integer
+        required: true
+        description: Attribute ID
+      - name: value_code
+        in: path
+        type: string
+        required: true
+        description: Value code to update
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - value_code
+            properties:
+              value_code:
+                type: string
+                description: New value code to set
+    responses:
+      200:
+        description: Attribute value updated successfully
+        schema:
+          type: object
+          properties:
+            attribute_id:
+              type: integer
+            attribute_name:
+              type: string
+            attribute_code:
+              type: string
+            values:
+              type: array
+              items:
+                type: object
+                properties:
+                  value_id:
+                    type: integer
+                  value_name:
+                    type: string
+                  value_code:
+                    type: string
+                  is_selected:
+                    type: boolean
+      400:
+        description: Invalid request data
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+      404:
+        description: Product, attribute, or value not found
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+      500:
+        description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+    """
     try:
         data = request.get_json()
-        if not data:
-            return jsonify({'message': 'No data provided for update.'}), HTTPStatus.BAD_REQUEST
+        if not data or 'value_code' not in data:
+            return jsonify({'message': 'Missing required field: value_code'}), HTTPStatus.BAD_REQUEST
             
-        pa = MerchantProductAttributeController.update(pid, aid, value_code, data)
-        return jsonify(pa.serialize()), HTTPStatus.OK
-    except ValueError as e:
-        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+        attribute = MerchantProductAttributeController.update_value(pid, aid, value_code, data['value_code'])
+        return jsonify(attribute), HTTPStatus.OK
     except Exception as e:
-        current_app.logger.error(f"Error updating product attribute for product {pid}, attribute {aid}: {e}")
-        return jsonify({'message': 'Failed to update product attribute.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+        current_app.logger.error(f"Merchant: Error updating product attribute value for product {pid}, attribute {aid}, value {value_code}: {e}")
+        if hasattr(e, 'code') and isinstance(e.code, int):
+            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
+        return jsonify({'message': "Failed to update product attribute value."}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @merchant_dashboard_bp.route('/products/<int:pid>/attributes/<int:aid>/<value_code>', methods=['DELETE'])
 @merchant_role_required
 def delete_product_attribute(pid, aid, value_code):
+    """
+    Delete a specific attribute value from a product
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    parameters:
+      - name: pid
+        in: path
+        type: integer
+        required: true
+        description: Product ID
+      - name: aid
+        in: path
+        type: integer
+        required: true
+        description: Attribute ID
+      - name: value_code
+        in: path
+        type: string
+        required: true
+        description: Value code to delete
+    responses:
+      200:
+        description: Attribute value deleted successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: Attribute value deleted successfully
+      404:
+        description: Product, attribute, or value not found
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+      500:
+        description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+    """
     try:
-        MerchantProductAttributeController.delete(pid, aid, value_code)
-        return '', HTTPStatus.NO_CONTENT
-    except ValueError as e:
-        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+        MerchantProductAttributeController.delete_value(pid, aid, value_code)
+        return jsonify({'message': 'Attribute value deleted successfully'}), HTTPStatus.OK
     except Exception as e:
-        current_app.logger.error(f"Error deleting product attribute for product {pid}, attribute {aid}: {e}")
-        return jsonify({'message': 'Failed to delete product attribute.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+        current_app.logger.error(f"Merchant: Error deleting product attribute value for product {pid}, attribute {aid}, value {value_code}: {e}")
+        if hasattr(e, 'code') and isinstance(e.code, int):
+            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
+        return jsonify({'message': "Failed to delete product attribute value."}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 # TAX CATEGORIES
 @merchant_dashboard_bp.route('/tax-categories', methods=['GET'])
 @merchant_role_required
 def list_tax_categories():
+    """
+    Get all available tax categories
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of tax categories
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              category_id:
+                type: integer
+              name:
+                type: string
+              code:
+                type: string
+              description:
+                type: string
+              default_rate:
+                type: number
+                format: float
+                description: Default tax rate as a decimal (e.g., 0.20 for 20%)
+      500:
+        description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+    """
     try:
         categories = MerchantTaxCategoryController.list_all()
         return jsonify(categories), HTTPStatus.OK
     except Exception as e:
         current_app.logger.error(f"Merchant: Error listing tax categories: {e}")
-        return jsonify({'message': 'Failed to retrieve tax categories.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+        if hasattr(e, 'code') and isinstance(e.code, int):
+            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
+        return jsonify({'message': "Failed to list tax categories."}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 # ── BRAND CATEGORIES ────────────────────────────────────────────────────────────
 @merchant_dashboard_bp.route('/brands/categories/<int:cid>', methods=['GET'])
 @merchant_role_required
 def get_brands_for_category(cid):
     """
-    Get all brands associated with a specific category.
+    Get all brands associated with a specific category
     ---
     tags:
-      - Merchant - Brands
+      - Merchant - Products
     security:
       - Bearer: []
     parameters:
-      - in: path
-        name: cid
+      - name: cid
+        in: path
         type: integer
         required: true
         description: Category ID
     responses:
       200:
-        description: List of brands retrieved successfully
+        description: List of brands for the category
         schema:
           type: array
           items:
@@ -740,33 +2115,51 @@ def get_brands_for_category(cid):
                 type: integer
               name:
                 type: string
-              slug:
+              code:
                 type: string
-              icon_url:
+              description:
                 type: string
+              logo_url:
+                type: string
+                format: uri
+              is_active:
+                type: boolean
+              created_at:
+                type: string
+                format: date-time
       404:
         description: Category not found
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
       500:
         description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
     """
     try:
-        brands = MerchantBrandController.get_brands_for_category(cid)
-        return jsonify([b.serialize() for b in brands]), HTTPStatus.OK
-    except FileNotFoundError as e:
-        return jsonify({'message': str(e)}), HTTPStatus.NOT_FOUND
+        brands = MerchantBrandController.get_by_category(cid)
+        return jsonify(brands), HTTPStatus.OK
     except Exception as e:
-        current_app.logger.error(f"Error getting brands for category {cid}: {e}")
-        return jsonify({'message': f'Could not get brands for category: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+        current_app.logger.error(f"Merchant: Error getting brands for category {cid}: {e}")
+        if hasattr(e, 'code') and isinstance(e.code, int):
+            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
+        return jsonify({'message': "Failed to get brands for category."}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 # PRODUCT STOCK
 @merchant_dashboard_bp.route('/products/<int:pid>/stock', methods=['GET'])
 @merchant_role_required
 def get_product_stock(pid):
     """
-    Get stock information for a specific product
+    Get stock information for a product
     ---
     tags:
-      - Merchant - Inventory
+      - Merchant - Products
     security:
       - Bearer: []
     parameters:
@@ -777,27 +2170,72 @@ def get_product_stock(pid):
         description: Product ID
     responses:
       200:
-        description: Stock information retrieved successfully
+        description: Product stock information
+        schema:
+          type: object
+          properties:
+            product_id:
+              type: integer
+            sku:
+              type: string
+            stock_quantity:
+              type: integer
+            low_stock_threshold:
+              type: integer
+            is_low_stock:
+              type: boolean
+            is_out_of_stock:
+              type: boolean
+            last_restocked_at:
+              type: string
+              format: date-time
+            variants:
+              type: array
+              items:
+                type: object
+                properties:
+                  variant_id:
+                    type: integer
+                  sku:
+                    type: string
+                  stock_quantity:
+                    type: integer
+                  is_low_stock:
+                    type: boolean
+                  is_out_of_stock:
+                    type: boolean
       404:
         description: Product not found
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
       500:
         description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
     """
     try:
         stock = MerchantProductStockController.get(pid)
-        return jsonify(stock.serialize()), HTTPStatus.OK
+        return jsonify(stock), HTTPStatus.OK
     except Exception as e:
-        current_app.logger.error(f"Error getting stock for product {pid}: {str(e)}")
-        return jsonify({'message': 'Failed to retrieve product stock.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+        current_app.logger.error(f"Merchant: Error getting product stock for product {pid}: {e}")
+        if hasattr(e, 'code') and isinstance(e.code, int):
+            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
+        return jsonify({'message': "Failed to get product stock."}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @merchant_dashboard_bp.route('/products/<int:pid>/stock', methods=['PUT'])
 @merchant_role_required
 def update_product_stock(pid):
     """
-    Update stock information for a specific product
+    Update stock information for a product
     ---
     tags:
-      - Merchant - Inventory
+      - Merchant - Products
     security:
       - Bearer: []
     parameters:
@@ -812,42 +2250,81 @@ def update_product_stock(pid):
         application/json:
           schema:
             type: object
+            required:
+              - stock_quantity
             properties:
-              stock_qty:
+              stock_quantity:
                 type: integer
                 minimum: 0
+                description: New stock quantity
               low_stock_threshold:
                 type: integer
                 minimum: 0
+                description: Threshold for low stock warning
     responses:
       200:
         description: Stock information updated successfully
+        schema:
+          type: object
+          properties:
+            product_id:
+              type: integer
+            sku:
+              type: string
+            stock_quantity:
+              type: integer
+            low_stock_threshold:
+              type: integer
+            is_low_stock:
+              type: boolean
+            is_out_of_stock:
+              type: boolean
+            last_restocked_at:
+              type: string
+              format: date-time
       400:
         description: Invalid request data
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
       404:
         description: Product not found
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
       500:
         description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
     """
     try:
         data = request.get_json()
-        if not data:
-            return jsonify({'message': 'No data provided'}), HTTPStatus.BAD_REQUEST
-
-        result = MerchantProductStockController.update(pid, data)
-        return jsonify(result), HTTPStatus.OK
+        if not data or 'stock_quantity' not in data:
+            return jsonify({'message': 'Missing required field: stock_quantity'}), HTTPStatus.BAD_REQUEST
+            
+        stock = MerchantProductStockController.update(pid, data)
+        return jsonify(stock), HTTPStatus.OK
     except Exception as e:
-        current_app.logger.error(f"Error updating stock for product {pid}: {str(e)}")
-        return jsonify({'message': 'Failed to update product stock.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+        current_app.logger.error(f"Merchant: Error updating product stock for product {pid}: {e}")
+        if hasattr(e, 'code') and isinstance(e.code, int):
+            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
+        return jsonify({'message': "Failed to update product stock."}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @merchant_dashboard_bp.route('/products/<int:pid>/stock/bulk-update', methods=['POST'])
 @merchant_role_required
 def bulk_update_product_stock(pid):
     """
-    Bulk update stock information for multiple variants of a product
+    Bulk update stock information for a product and its variants
     ---
     tags:
-      - Merchant - Inventory
+      - Merchant - Products
     security:
       - Bearer: []
     parameters:
@@ -861,73 +2338,220 @@ def bulk_update_product_stock(pid):
       content:
         application/json:
           schema:
-            type: array
-            items:
-              type: object
-              properties:
-                variant_id:
-                  type: integer
-                stock_qty:
-                  type: integer
-                  minimum: 0
-                low_stock_threshold:
-                  type: integer
-                  minimum: 0
+            type: object
+            required:
+              - updates
+            properties:
+              updates:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - variant_id
+                    - stock_quantity
+                  properties:
+                    variant_id:
+                      type: integer
+                      description: Variant ID (use 0 for main product)
+                    stock_quantity:
+                      type: integer
+                      minimum: 0
+                      description: New stock quantity
+                    low_stock_threshold:
+                      type: integer
+                      minimum: 0
+                      description: Threshold for low stock warning
     responses:
       200:
         description: Stock information updated successfully
+        schema:
+          type: object
+          properties:
+            product_id:
+              type: integer
+            sku:
+              type: string
+            stock_quantity:
+              type: integer
+            low_stock_threshold:
+              type: integer
+            is_low_stock:
+              type: boolean
+            is_out_of_stock:
+              type: boolean
+            last_restocked_at:
+              type: string
+              format: date-time
+            variants:
+              type: array
+              items:
+                type: object
+                properties:
+                  variant_id:
+                    type: integer
+                  sku:
+                    type: string
+                  stock_quantity:
+                    type: integer
+                  is_low_stock:
+                    type: boolean
+                  is_out_of_stock:
+                    type: boolean
       400:
         description: Invalid request data
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
       404:
         description: Product not found
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
       500:
         description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
     """
     try:
         data = request.get_json()
-        if not data or not isinstance(data, list):
-            return jsonify({'message': 'Invalid data format'}), HTTPStatus.BAD_REQUEST
-
-        results = MerchantProductStockController.bulk_update(pid, data)
-        return jsonify([stock.serialize() for stock in results]), HTTPStatus.OK
+        if not data or 'updates' not in data:
+            return jsonify({'message': 'Missing required field: updates'}), HTTPStatus.BAD_REQUEST
+            
+        stock = MerchantProductStockController.bulk_update(pid, data['updates'])
+        return jsonify(stock), HTTPStatus.OK
     except Exception as e:
-        current_app.logger.error(f"Error bulk updating stock for product {pid}: {str(e)}")
-        return jsonify({'message': 'Failed to bulk update product stock.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+        current_app.logger.error(f"Merchant: Error bulk updating product stock for product {pid}: {e}")
+        if hasattr(e, 'code') and isinstance(e.code, int):
+            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
+        return jsonify({'message': "Failed to bulk update product stock."}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @merchant_dashboard_bp.route('/products/stock/low-stock', methods=['GET'])
 @merchant_role_required
 def get_low_stock_products():
     """
-    Get all products with stock below their threshold
+    Get all products with low stock
     ---
     tags:
-      - Merchant - Inventory
+      - Merchant - Products
     security:
       - Bearer: []
     responses:
       200:
-        description: List of low stock products retrieved successfully
+        description: List of products with low stock
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id:
+                type: integer
+              name:
+                type: string
+              sku:
+                type: string
+              stock_quantity:
+                type: integer
+              low_stock_threshold:
+                type: integer
+              is_low_stock:
+                type: boolean
+              is_out_of_stock:
+                type: boolean
+              variants:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    variant_id:
+                      type: integer
+                    name:
+                      type: string
+                    sku:
+                      type: string
+                    stock_quantity:
+                      type: integer
+                    is_low_stock:
+                      type: boolean
+                    is_out_of_stock:
+                      type: boolean
       500:
         description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
     """
     try:
-        low_stock = MerchantProductStockController.get_low_stock()
-        return jsonify([stock.serialize() for stock in low_stock]), HTTPStatus.OK
+        products = MerchantProductStockController.get_low_stock()
+        return jsonify(products), HTTPStatus.OK
     except Exception as e:
-        current_app.logger.error(f"Error getting low stock products: {str(e)}")
-        return jsonify({'message': 'Failed to retrieve low stock products.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+        current_app.logger.error(f"Merchant: Error getting low stock products: {e}")
+        if hasattr(e, 'code') and isinstance(e.code, int):
+            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
+        return jsonify({'message': "Failed to get low stock products."}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 # ── PRODUCT APPROVAL ───────────────────────────────────────────────────────────
 @merchant_dashboard_bp.route('/products/pending', methods=['GET'])
 @super_admin_role_required
 def list_pending_products():
-    """Get all products pending approval."""
+    """
+    Get all products pending approval
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of products pending approval
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id:
+                type: integer
+              name:
+                type: string
+              sku:
+                type: string
+              merchant_id:
+                type: integer
+              merchant_name:
+                type: string
+              status:
+                type: string
+                enum: [PENDING]
+              created_at:
+                type: string
+                format: date-time
+              updated_at:
+                type: string
+                format: date-time
+      500:
+        description: Internal server error
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+    """
     try:
-        products = MerchantProductController.get_pending_products()
-        return jsonify([p.serialize() for p in products]), HTTPStatus.OK
+        products = MerchantProductController.list_pending()
+        return jsonify(products), HTTPStatus.OK
     except Exception as e:
-        current_app.logger.error(f"Error listing pending products: {e}")
-        return jsonify({'message': 'Failed to retrieve pending products.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+        current_app.logger.error(f"Merchant: Error listing pending products: {e}")
+        if hasattr(e, 'code') and isinstance(e.code, int):
+            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
+        return jsonify({'message': "Failed to list pending products."}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @merchant_dashboard_bp.route('/products/approved', methods=['GET'])
 @super_admin_role_required
@@ -984,8 +2608,12 @@ def reject_product(pid):
 @jwt_required()
 def get_merchant_orders():
     """
-    Get all orders for a merchant's products
+    Get all orders for the merchant
     ---
+    tags:
+      - Merchant - Orders
+    security:
+      - Bearer: []
     parameters:
       - name: page
         in: query
@@ -995,31 +2623,74 @@ def get_merchant_orders():
       - name: per_page
         in: query
         type: integer
-        default: 50
+        default: 20
         description: Number of items per page
       - name: status
         in: query
         type: string
-        description: Filter by order status (PENDING_PAYMENT, PROCESSING, SHIPPED, DELIVERED, CANCELLED)
-      - name: payment_status
-        in: query
-        type: string
-        description: Filter by payment status (PENDING, COMPLETED, FAILED, REFUNDED)
+        enum: [PENDING, PROCESSING, SHIPPED, DELIVERED, CANCELLED]
+        description: Filter orders by status
       - name: start_date
         in: query
         type: string
         format: date
-        description: Filter by start date (ISO format)
+        description: Filter orders from this date (YYYY-MM-DD)
       - name: end_date
         in: query
         type: string
         format: date
-        description: Filter by end date (ISO format)
+        description: Filter orders until this date (YYYY-MM-DD)
     responses:
       200:
-        description: List of orders
-      400:
-        description: Invalid parameters
+        description: List of orders retrieved successfully
+        schema:
+          type: object
+          properties:
+            orders:
+              type: array
+              items:
+                type: object
+                properties:
+                  order_id:
+                    type: string
+                  user_id:
+                    type: integer
+                  total_amount:
+                    type: number
+                    format: float
+                  status:
+                    type: string
+                    enum: [PENDING, PROCESSING, SHIPPED, DELIVERED, CANCELLED]
+                  created_at:
+                    type: string
+                    format: date-time
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        product_id:
+                          type: integer
+                        product_name:
+                          type: string
+                        quantity:
+                          type: integer
+                        unit_price:
+                          type: number
+                          format: float
+            pagination:
+              type: object
+              properties:
+                total:
+                  type: integer
+                pages:
+                  type: integer
+                current_page:
+                  type: integer
+                per_page:
+                  type: integer
+      401:
+        description: Unauthorized - Invalid or missing token
       500:
         description: Internal server error
     """
@@ -1028,9 +2699,8 @@ def get_merchant_orders():
         current_user_id = get_jwt_identity()
         
         page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 50, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
         status = request.args.get('status')
-        payment_status = request.args.get('payment_status')
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
 
@@ -1039,7 +2709,6 @@ def get_merchant_orders():
             page=page,
             per_page=per_page,
             status=status,
-            payment_status=payment_status,
             start_date=start_date,
             end_date=end_date
         )
@@ -1056,15 +2725,74 @@ def get_merchant_order_details(order_id):
     """
     Get detailed information about a specific order
     ---
+    tags:
+      - Merchant - Orders
+    security:
+      - Bearer: []
     parameters:
       - name: order_id
         in: path
         type: string
         required: true
-        description: Order ID
+        description: ID of the order to retrieve
     responses:
       200:
-        description: Order details
+        description: Order details retrieved successfully
+        schema:
+          type: object
+          properties:
+            order_id:
+              type: string
+            user_id:
+              type: integer
+            status:
+              type: string
+              enum: [PENDING, PROCESSING, SHIPPED, DELIVERED, CANCELLED]
+            total_amount:
+              type: number
+              format: float
+            shipping_address:
+              type: object
+              properties:
+                address_line1:
+                  type: string
+                address_line2:
+                  type: string
+                city:
+                  type: string
+                state:
+                  type: string
+                postal_code:
+                  type: string
+                country:
+                  type: string
+            items:
+              type: array
+              items:
+                type: object
+                properties:
+                  product_id:
+                    type: integer
+                  product_name:
+                    type: string
+                  sku:
+                    type: string
+                  quantity:
+                    type: integer
+                  unit_price:
+                    type: number
+                    format: float
+                  subtotal:
+                    type: number
+                    format: float
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+      401:
+        description: Unauthorized - Invalid or missing token
       404:
         description: Order not found
       500:
@@ -1089,40 +2817,87 @@ def get_merchant_order_details(order_id):
 @jwt_required()
 def get_merchant_order_stats():
     """
-    Get order statistics for a merchant
+    Get order statistics for the merchant
     ---
+    tags:
+      - Merchant - Orders
+    security:
+      - Bearer: []
     parameters:
-      - name: days
+      - name: start_date
         in: query
-        type: integer
-        default: 30
-        description: Number of days to include in statistics
+        type: string
+        format: date
+        description: Start date for statistics (YYYY-MM-DD)
+      - name: end_date
+        in: query
+        type: string
+        format: date
+        description: End date for statistics (YYYY-MM-DD)
     responses:
       200:
-        description: Order statistics
+        description: Order statistics retrieved successfully
+        schema:
+          type: object
+          properties:
+            total_orders:
+              type: integer
+              description: Total number of orders in the period
+            total_revenue:
+              type: number
+              format: float
+              description: Total revenue in the period
+            average_order_value:
+              type: number
+              format: float
+              description: Average value per order
+            orders_by_status:
+              type: object
+              properties:
+                PENDING:
+                  type: integer
+                PROCESSING:
+                  type: integer
+                SHIPPED:
+                  type: integer
+                DELIVERED:
+                  type: integer
+                CANCELLED:
+                  type: integer
+            daily_stats:
+              type: array
+              items:
+                type: object
+                properties:
+                  date:
+                    type: string
+                    format: date
+                  orders:
+                    type: integer
+                  revenue:
+                    type: number
+                    format: float
+      401:
+        description: Unauthorized - Invalid or missing token
       500:
         description: Internal server error
     """
     try:
-        # Get the current user's ID from the JWT token
-        current_user_id = get_jwt_identity()
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
         
-        days = request.args.get('days', 30, type=int)
-        result = MerchantOrderController.get_merchant_order_stats(
-            user_id=current_user_id,
-            days=days
-        )
-        return jsonify(result), 200
+        stats = MerchantOrderController.get_order_stats(start_date, end_date)
+        return jsonify(stats), HTTPStatus.OK
     except Exception as e:
-        current_app.logger.error(f"Error getting merchant order stats: {str(e)}")
-        return jsonify({'error': 'Internal server error'}), 500
+        current_app.logger.error(f"Merchant: Error getting order stats: {e}")
+        return jsonify({'message': 'Failed to retrieve order statistics.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 # ── INVENTORY MANAGEMENT ─────────────────────────────────────────────────────
 @merchant_dashboard_bp.route('/inventory/stats', methods=['GET'])
 @merchant_role_required
 def get_inventory_stats():
     """
-    Get inventory statistics for a merchant
+    Get inventory statistics for the merchant
     ---
     tags:
       - Merchant - Inventory
@@ -1136,12 +2911,41 @@ def get_inventory_stats():
           properties:
             total_products:
               type: integer
-            low_stock_products:
-              type: integer
-            out_of_stock_products:
-              type: integer
-            inventory_value:
+              description: Total number of products in inventory
+            total_stock_value:
               type: number
+              format: float
+              description: Total value of all inventory items
+            low_stock_items:
+              type: integer
+              description: Number of products with stock below threshold
+            out_of_stock_items:
+              type: integer
+              description: Number of products with zero stock
+            stock_by_category:
+              type: object
+              properties:
+                category_id:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    count:
+                      type: integer
+                    value:
+                      type: number
+                      format: float
+            stock_status:
+              type: object
+              properties:
+                in_stock:
+                  type: integer
+                low_stock:
+                  type: integer
+                out_of_stock:
+                  type: integer
+      401:
+        description: Unauthorized - Invalid or missing token
       500:
         description: Internal server error
     """
@@ -1159,7 +2963,7 @@ def get_inventory_stats():
 @merchant_role_required
 def list_inventory_products():
     """
-    Get all products with their inventory information
+    Get a list of all products in the merchant's inventory
     ---
     tags:
       - Merchant - Inventory
@@ -1174,20 +2978,20 @@ def list_inventory_products():
       - name: per_page
         in: query
         type: integer
-        default: 50
+        default: 20
         description: Number of items per page
       - name: search
         in: query
         type: string
         description: Search term for product name or SKU
-      - name: category
+      - name: category_id
         in: query
-        type: string
-        description: Filter by category (ID or slug)
-      - name: brand
+        type: integer
+        description: Filter by category ID
+      - name: brand_id
         in: query
-        type: string
-        description: Filter by brand (ID or slug)
+        type: integer
+        description: Filter by brand ID
       - name: stock_status
         in: query
         type: string
@@ -1195,7 +2999,7 @@ def list_inventory_products():
         description: Filter by stock status
     responses:
       200:
-        description: List of products with inventory information
+        description: List of inventory products retrieved successfully
         schema:
           type: object
           properties:
@@ -1204,7 +3008,7 @@ def list_inventory_products():
               items:
                 type: object
                 properties:
-                  id:
+                  product_id:
                     type: integer
                   name:
                     type: string
@@ -1232,21 +3036,28 @@ def list_inventory_products():
                     type: integer
                   low_stock_threshold:
                     type: integer
-                  available:
-                    type: integer
-                  image_url:
-                    type: string
+                  cost_price:
+                    type: number
+                    format: float
+                  selling_price:
+                    type: number
+                    format: float
+                  stock_value:
+                    type: number
+                    format: float
             pagination:
               type: object
               properties:
                 total:
                   type: integer
+                pages:
+                  type: integer
                 current_page:
                   type: integer
                 per_page:
                   type: integer
-                pages:
-                  type: integer
+      401:
+        description: Unauthorized - Invalid or missing token
       500:
         description: Internal server error
     """
@@ -1254,10 +3065,10 @@ def list_inventory_products():
         current_user_id = get_jwt_identity()
         
         page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 50, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
         search = request.args.get('search', '')
-        category = request.args.get('category')
-        brand = request.args.get('brand')
+        category_id = request.args.get('category_id')
+        brand_id = request.args.get('brand_id')
         stock_status = request.args.get('stock_status')
 
         result = MerchantProductStockController.get_products(
@@ -1265,8 +3076,8 @@ def list_inventory_products():
             page=page,
             per_page=per_page,
             search=search,
-            category=category,
-            brand=brand,
+            category_id=category_id,
+            brand_id=brand_id,
             stock_status=stock_status
         )
         
