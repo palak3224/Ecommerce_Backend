@@ -124,6 +124,80 @@ def create_order():
 @jwt_required()
 @role_required([UserRole.USER.value, UserRole.ADMIN.value, UserRole.MERCHANT.value])
 def get_order(order_id):
+    """
+    Get detailed information about a specific order
+    ---
+    tags:
+      - Orders
+    security:
+      - Bearer: []
+    parameters:
+      - name: order_id
+        in: path
+        type: string
+        required: true
+        description: ID of the order to retrieve
+    responses:
+      200:
+        description: Order details retrieved successfully
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            data:
+              type: object
+              properties:
+                order_id:
+                  type: string
+                user_id:
+                  type: integer
+                order_status:
+                  type: string
+                  enum: [PENDING, PROCESSING, SHIPPED, DELIVERED, CANCELLED]
+                payment_status:
+                  type: string
+                  enum: [PENDING, PAID, FAILED, REFUNDED]
+                total_amount:
+                  type: number
+                  format: float
+                items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      product_id:
+                        type: integer
+                      product_name:
+                        type: string
+                      quantity:
+                        type: integer
+                      unit_price:
+                        type: number
+                        format: float
+                shipping_address:
+                  type: object
+                  properties:
+                    address_line1:
+                      type: string
+                    city:
+                      type: string
+                    state:
+                      type: string
+                    postal_code:
+                      type: string
+                    country:
+                      type: string
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have permission to view this order
+      404:
+        description: Order not found
+      500:
+        description: Internal server error
+    """
     try:
         user_id = get_jwt_identity()
         order = OrderController.get_order(order_id)
@@ -157,6 +231,77 @@ def get_order(order_id):
 @jwt_required()
 @role_required([UserRole.USER.value])
 def get_user_orders():
+    """
+    Get all orders for the authenticated user
+    ---
+    tags:
+      - Orders
+    security:
+      - Bearer: []
+    parameters:
+      - name: page
+        in: query
+        type: integer
+        required: false
+        default: 1
+        description: Page number for pagination
+      - name: per_page
+        in: query
+        type: integer
+        required: false
+        default: 10
+        description: Number of items per page
+      - name: status
+        in: query
+        type: string
+        required: false
+        description: Filter orders by status (PENDING, PROCESSING, SHIPPED, DELIVERED, CANCELLED)
+    responses:
+      200:
+        description: List of user's orders retrieved successfully
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            data:
+              type: object
+              properties:
+                orders:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      order_id:
+                        type: string
+                      order_date:
+                        type: string
+                        format: date-time
+                      order_status:
+                        type: string
+                        enum: [PENDING, PROCESSING, SHIPPED, DELIVERED, CANCELLED]
+                      total_amount:
+                        type: number
+                        format: float
+                      item_count:
+                        type: integer
+                pagination:
+                  type: object
+                  properties:
+                    total:
+                      type: integer
+                    pages:
+                      type: integer
+                    current_page:
+                      type: integer
+                    per_page:
+                      type: integer
+      401:
+        description: Unauthorized - Invalid or missing token
+      500:
+        description: Internal server error
+    """
     try:
         user_id = get_jwt_identity()
         page = request.args.get('page', 1, type=int)
@@ -180,6 +325,77 @@ def get_user_orders():
 @jwt_required()
 @role_required([UserRole.USER.value, UserRole.ADMIN.value, UserRole.MERCHANT.value])
 def update_order_status(order_id):
+    """
+    Update the status of an existing order
+    ---
+    tags:
+      - Orders
+    security:
+      - Bearer: []
+    parameters:
+      - name: order_id
+        in: path
+        type: string
+        required: true
+        description: ID of the order to update
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - status
+            properties:
+              status:
+                type: string
+                enum: [PENDING, PROCESSING, SHIPPED, DELIVERED, CANCELLED]
+                description: New status for the order
+              notes:
+                type: string
+                description: Optional notes about the status change
+    responses:
+      200:
+        description: Order status updated successfully
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            data:
+              type: object
+              properties:
+                order_id:
+                  type: string
+                order_status:
+                  type: string
+                  enum: [PENDING, PROCESSING, SHIPPED, DELIVERED, CANCELLED]
+                status_history:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                      changed_at:
+                        type: string
+                        format: date-time
+                      changed_by:
+                        type: integer
+                      notes:
+                        type: string
+      400:
+        description: Invalid request - Missing or invalid status
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have permission to update this order
+      404:
+        description: Order not found
+      500:
+        description: Internal server error
+    """
     try:
         data = request.get_json()
         if not data or 'status' not in data:
@@ -225,6 +441,73 @@ def update_order_status(order_id):
 @jwt_required()
 @role_required([UserRole.USER.value, UserRole.ADMIN.value])
 def update_payment_status(order_id):
+    """
+    Update the payment status of an existing order
+    ---
+    tags:
+      - Orders
+    security:
+      - Bearer: []
+    parameters:
+      - name: order_id
+        in: path
+        type: string
+        required: true
+        description: ID of the order to update payment status
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - payment_status
+            properties:
+              payment_status:
+                type: string
+                enum: [PENDING, PAID, FAILED, REFUNDED]
+                description: New payment status for the order
+              transaction_id:
+                type: string
+                description: Optional transaction ID from payment gateway
+              gateway_name:
+                type: string
+                description: Optional name of the payment gateway used
+    responses:
+      200:
+        description: Payment status updated successfully
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            data:
+              type: object
+              properties:
+                order_id:
+                  type: string
+                payment_status:
+                  type: string
+                  enum: [PENDING, PAID, FAILED, REFUNDED]
+                transaction_id:
+                  type: string
+                gateway_name:
+                  type: string
+                updated_at:
+                  type: string
+                  format: date-time
+      400:
+        description: Invalid request - Missing or invalid payment status
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have permission to update this order
+      404:
+        description: Order not found
+      500:
+        description: Internal server error
+    """
     try:
         data = request.get_json()
         if not data:
@@ -304,6 +587,64 @@ def update_payment_status(order_id):
 @jwt_required()
 @role_required([UserRole.USER.value, UserRole.ADMIN.value])
 def cancel_order(order_id):
+    """
+    Cancel an existing order
+    ---
+    tags:
+      - Orders
+    security:
+      - Bearer: []
+    parameters:
+      - name: order_id
+        in: path
+        type: string
+        required: true
+        description: ID of the order to cancel
+    requestBody:
+      required: false
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              notes:
+                type: string
+                description: Optional notes explaining the reason for cancellation
+    responses:
+      200:
+        description: Order cancelled successfully
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            data:
+              type: object
+              properties:
+                order_id:
+                  type: string
+                order_status:
+                  type: string
+                  example: CANCELLED
+                cancelled_at:
+                  type: string
+                  format: date-time
+                cancelled_by:
+                  type: integer
+                cancellation_notes:
+                  type: string
+      400:
+        description: Invalid request - Order cannot be cancelled
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have permission to cancel this order
+      404:
+        description: Order not found
+      500:
+        description: Internal server error
+    """
     try:
         data = request.get_json()
         result = OrderController.cancel_order(
@@ -341,6 +682,91 @@ def cancel_order(order_id):
 @jwt_required()
 @role_required([UserRole.ADMIN.value, UserRole.MERCHANT.value])
 def get_all_orders():
+    """
+    Get all orders in the system (admin) or orders for a specific merchant
+    ---
+    tags:
+      - Orders
+    security:
+      - Bearer: []
+    parameters:
+      - name: page
+        in: query
+        type: integer
+        required: false
+        default: 1
+        description: Page number for pagination
+      - name: per_page
+        in: query
+        type: integer
+        required: false
+        default: 10
+        description: Number of items per page
+      - name: status
+        in: query
+        type: string
+        required: false
+        description: Filter orders by status (PENDING, PROCESSING, SHIPPED, DELIVERED, CANCELLED)
+      - name: merchant_id
+        in: query
+        type: integer
+        required: false
+        description: Filter orders by merchant ID (admin only)
+    responses:
+      200:
+        description: List of orders retrieved successfully
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            data:
+              type: object
+              properties:
+                orders:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      order_id:
+                        type: string
+                      user_id:
+                        type: integer
+                      merchant_id:
+                        type: integer
+                      order_date:
+                        type: string
+                        format: date-time
+                      order_status:
+                        type: string
+                        enum: [PENDING, PROCESSING, SHIPPED, DELIVERED, CANCELLED]
+                      payment_status:
+                        type: string
+                        enum: [PENDING, PAID, FAILED, REFUNDED]
+                      total_amount:
+                        type: number
+                        format: float
+                      item_count:
+                        type: integer
+                pagination:
+                  type: object
+                  properties:
+                    total:
+                      type: integer
+                    pages:
+                      type: integer
+                    current_page:
+                      type: integer
+                    per_page:
+                      type: integer
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have required role
+      500:
+        description: Internal server error
+    """
     try:
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 10, type=int)
