@@ -1789,257 +1789,84 @@ def list_product_attributes(pid):
 @merchant_dashboard_bp.route('/products/<int:pid>/attributes/values', methods=['POST'])
 @merchant_role_required
 def set_product_attribute_values(pid):
-    """
-    Set attribute values for a product
-    ---
-    tags:
-      - Merchant - Products
-    security:
-      - Bearer: []
-    parameters:
-      - name: pid
-        in: path
-        type: integer
-        required: true
-        description: Product ID
-    requestBody:
-      required: true
-      content:
-        application/json:
-          schema:
-            type: object
-            required:
-              - attributes
-            properties:
-              attributes:
-                type: array
-                items:
-                  type: object
-                  required:
-                    - attribute_id
-                    - value_codes
-                  properties:
-                    attribute_id:
-                      type: integer
-                      description: ID of the attribute
-                    value_codes:
-                      type: array
-                      items:
-                        type: string
-                      description: List of value codes to set for this attribute
-    responses:
-      200:
-        description: Attribute values set successfully
-        schema:
-          type: array
-          items:
-            type: object
-            properties:
-              attribute_id:
-                type: integer
-              attribute_name:
-                type: string
-              attribute_code:
-                type: string
-              values:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    value_id:
-                      type: integer
-                    value_name:
-                      type: string
-                    value_code:
-                      type: string
-                    is_selected:
-                      type: boolean
-      400:
-        description: Invalid request data
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-      404:
-        description: Product not found
-      500:
-        description: Internal server error
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-    """
     try:
         data = request.get_json()
-        if not data or 'attributes' not in data:
-            return jsonify({'message': 'Missing required field: attributes'}), HTTPStatus.BAD_REQUEST
-            
-        attributes = MerchantProductAttributeController.set_values(pid, data['attributes'])
-        return jsonify(attributes), HTTPStatus.OK
+        current_app.logger.info(f"Received attribute values request for product {pid}: {data}")
+        
+        if not data or not isinstance(data, dict):
+            return jsonify({
+                'message': 'Invalid data format. Expected a dictionary of attribute values.',
+                'error': 'INVALID_FORMAT'
+            }), HTTPStatus.BAD_REQUEST
+
+        # Format: { attribute_id: value }
+        # value can be string, string[], or null
+        for attribute_id, value in data.items():
+            try:
+                attribute_id = int(attribute_id)
+                
+                # Skip if value is null or empty
+                if value is None or (isinstance(value, list) and len(value) == 0):
+                    continue
+                    
+                # Create or update the attribute value
+                MerchantProductAttributeController.upsert(pid, attribute_id, value)
+            except ValueError as e:
+                current_app.logger.error(f"Invalid attribute value for product {pid}, attribute {attribute_id}: {e}")
+                return jsonify({
+                    'message': str(e),
+                    'error': 'INVALID_VALUE',
+                    'attribute_id': attribute_id
+                }), HTTPStatus.BAD_REQUEST
+            except Exception as e:
+                current_app.logger.error(f"Error setting attribute value for product {pid}, attribute {attribute_id}: {e}")
+                return jsonify({
+                    'message': f'Failed to set attribute value: {str(e)}',
+                    'error': 'SERVER_ERROR',
+                    'attribute_id': attribute_id
+                }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+        # Return updated attributes
+        updated_attributes = MerchantProductAttributeController.list(pid)
+        return jsonify({
+            'message': 'Attribute values updated successfully',
+            'attributes': [p.serialize() for p in updated_attributes]
+        }), HTTPStatus.OK
+
     except Exception as e:
-        current_app.logger.error(f"Merchant: Error setting product attribute values for product {pid}: {e}")
-        if hasattr(e, 'code') and isinstance(e.code, int):
-            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
-        return jsonify({'message': "Failed to set product attribute values."}), HTTPStatus.INTERNAL_SERVER_ERROR
+        current_app.logger.error(f"Error setting product attribute values for product {pid}: {e}")
+        return jsonify({
+            'message': 'Failed to set product attribute values.',
+            'error': 'SERVER_ERROR'
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @merchant_dashboard_bp.route('/products/<int:pid>/attributes/<int:aid>/<value_code>', methods=['PUT'])
 @merchant_role_required
 def update_product_attribute(pid, aid, value_code):
-    """
-    Update a specific attribute value for a product
-    ---
-    tags:
-      - Merchant - Products
-    security:
-      - Bearer: []
-    parameters:
-      - name: pid
-        in: path
-        type: integer
-        required: true
-        description: Product ID
-      - name: aid
-        in: path
-        type: integer
-        required: true
-        description: Attribute ID
-      - name: value_code
-        in: path
-        type: string
-        required: true
-        description: Value code to update
-    requestBody:
-      required: true
-      content:
-        application/json:
-          schema:
-            type: object
-            required:
-              - value_code
-            properties:
-              value_code:
-                type: string
-                description: New value code to set
-    responses:
-      200:
-        description: Attribute value updated successfully
-        schema:
-          type: object
-          properties:
-            attribute_id:
-              type: integer
-            attribute_name:
-              type: string
-            attribute_code:
-              type: string
-            values:
-              type: array
-              items:
-                type: object
-                properties:
-                  value_id:
-                    type: integer
-                  value_name:
-                    type: string
-                  value_code:
-                    type: string
-                  is_selected:
-                    type: boolean
-      400:
-        description: Invalid request data
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-      404:
-        description: Product, attribute, or value not found
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-      500:
-        description: Internal server error
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-    """
     try:
         data = request.get_json()
-        if not data or 'value_code' not in data:
-            return jsonify({'message': 'Missing required field: value_code'}), HTTPStatus.BAD_REQUEST
+        if not data:
+            return jsonify({'message': 'No data provided for update.'}), HTTPStatus.BAD_REQUEST
             
-        attribute = MerchantProductAttributeController.update_value(pid, aid, value_code, data['value_code'])
-        return jsonify(attribute), HTTPStatus.OK
+        pa = MerchantProductAttributeController.update(pid, aid, value_code, data)
+        return jsonify(pa.serialize()), HTTPStatus.OK
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
     except Exception as e:
-        current_app.logger.error(f"Merchant: Error updating product attribute value for product {pid}, attribute {aid}, value {value_code}: {e}")
-        if hasattr(e, 'code') and isinstance(e.code, int):
-            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
-        return jsonify({'message': "Failed to update product attribute value."}), HTTPStatus.INTERNAL_SERVER_ERROR
+        current_app.logger.error(f"Error updating product attribute for product {pid}, attribute {aid}: {e}")
+        return jsonify({'message': 'Failed to update product attribute.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @merchant_dashboard_bp.route('/products/<int:pid>/attributes/<int:aid>/<value_code>', methods=['DELETE'])
 @merchant_role_required
 def delete_product_attribute(pid, aid, value_code):
-    """
-    Delete a specific attribute value from a product
-    ---
-    tags:
-      - Merchant - Products
-    security:
-      - Bearer: []
-    parameters:
-      - name: pid
-        in: path
-        type: integer
-        required: true
-        description: Product ID
-      - name: aid
-        in: path
-        type: integer
-        required: true
-        description: Attribute ID
-      - name: value_code
-        in: path
-        type: string
-        required: true
-        description: Value code to delete
-    responses:
-      200:
-        description: Attribute value deleted successfully
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: Attribute value deleted successfully
-      404:
-        description: Product, attribute, or value not found
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-      500:
-        description: Internal server error
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-    """
     try:
-        MerchantProductAttributeController.delete_value(pid, aid, value_code)
-        return jsonify({'message': 'Attribute value deleted successfully'}), HTTPStatus.OK
+        MerchantProductAttributeController.delete(pid, aid, value_code)
+        return '', HTTPStatus.NO_CONTENT
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
     except Exception as e:
-        current_app.logger.error(f"Merchant: Error deleting product attribute value for product {pid}, attribute {aid}, value {value_code}: {e}")
-        if hasattr(e, 'code') and isinstance(e.code, int):
-            return jsonify({'message': getattr(e, 'description', str(e))}), e.code
-        return jsonify({'message': "Failed to delete product attribute value."}), HTTPStatus.INTERNAL_SERVER_ERROR
+        current_app.logger.error(f"Error deleting product attribute for product {pid}, attribute {aid}: {e}")
+        return jsonify({'message': 'Failed to delete product attribute.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 # TAX CATEGORIES
 @merchant_dashboard_bp.route('/tax-categories', methods=['GET'])
@@ -2254,9 +2081,9 @@ def update_product_stock(pid):
           schema:
             type: object
             required:
-              - stock_quantity
+              - stock_qty
             properties:
-              stock_quantity:
+              stock_qty:
                 type: integer
                 minimum: 0
                 description: New stock quantity
@@ -2274,7 +2101,7 @@ def update_product_stock(pid):
               type: integer
             sku:
               type: string
-            stock_quantity:
+            stock_qty:
               type: integer
             low_stock_threshold:
               type: integer
@@ -2309,8 +2136,8 @@ def update_product_stock(pid):
     """
     try:
         data = request.get_json()
-        if not data or 'stock_quantity' not in data:
-            return jsonify({'message': 'Missing required field: stock_quantity'}), HTTPStatus.BAD_REQUEST
+        if not data or 'stock_qty' not in data:
+            return jsonify({'message': 'Missing required field: stock_qty'}), HTTPStatus.BAD_REQUEST
             
         stock = MerchantProductStockController.update(pid, data)
         return jsonify(stock), HTTPStatus.OK
@@ -2895,7 +2722,6 @@ def get_merchant_order_stats():
         current_app.logger.error(f"Merchant: Error getting order stats: {e}")
         return jsonify({'message': 'Failed to retrieve order statistics.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
-# ── INVENTORY MANAGEMENT ─────────────────────────────────────────────────────
 @merchant_dashboard_bp.route('/inventory/stats', methods=['GET'])
 @merchant_role_required
 def get_inventory_stats():

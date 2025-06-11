@@ -2,6 +2,11 @@ from models.brand import Brand
 from models.category import Category
 from sqlalchemy import and_
 from sqlalchemy.exc import SQLAlchemyError
+from common.database import db
+from flask import current_app
+import logging
+
+logger = logging.getLogger(__name__)
 
 class MerchantBrandController:
     @staticmethod
@@ -97,3 +102,20 @@ class MerchantBrandController:
             return query.all()
         except SQLAlchemyError as e:
             raise SQLAlchemyError(f"Database error while fetching brands: {str(e)}")
+
+    @staticmethod
+    def get_by_category(category_id):
+        """
+        Get all brands associated with a specific category
+        """
+        try:
+            # Get the category's brands using the relationship
+            brands = Brand.query.join(Brand.categories).filter(
+                Brand.categories.any(category_id=category_id),
+                Brand.deleted_at.is_(None)
+            ).all()
+            
+            return [brand.serialize() for brand in brands]
+        except Exception as e:
+            logger.error(f"Error getting brands for category {category_id}: {e}")
+            raise
