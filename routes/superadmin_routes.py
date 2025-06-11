@@ -3723,3 +3723,32 @@ def get_merchant_performance_details():
             "status": "error",
             "message": "Failed to retrieve merchant performance details"
         }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/conversion-rate', methods=['GET'])
+@super_admin_role_required
+def get_conversion_rate():
+    """Get conversion rate analytics (visits to orders)"""
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        months = request.args.get('months', default=12, type=int)
+        result = PerformanceAnalyticsController.get_conversion_rate(months)
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting conversion rate: {e}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to retrieve conversion rate data"
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/hourly', methods=['GET'])
+@super_admin_role_required
+def get_hourly_analytics():
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        return PerformanceAnalyticsController.get_hourly_analytics()
+    except Exception as e:
+        current_app.logger.error(f"Error getting hourly analytics: {e}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to retrieve hourly analytics data"
+        }), HTTPStatus.INTERNAL_SERVER_ERROR

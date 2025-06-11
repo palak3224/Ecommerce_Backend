@@ -25,6 +25,7 @@ from .wishlist_item import WishlistItem
 from .cart import Cart, CartItem
 from .order import Order, OrderItem, OrderStatusHistory
 from .shipment import Shipment, ShipmentItem
+from .visit_tracking import VisitTracking
 
 __all__ = [
     'Product',
