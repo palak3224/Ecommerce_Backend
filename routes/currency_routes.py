@@ -9,6 +9,62 @@ currency_bp = Blueprint('currency', __name__)
 @currency_bp.route('/api/exchange-rates', methods=['GET'])
 @cached(timeout=3600, key_prefix='exchange_rates')
 def get_exchange_rates():
+    """
+    Get current exchange rates for all supported currencies
+    ---
+    tags:
+      - Currency
+    parameters:
+      - in: query
+        name: base
+        type: string
+        required: false
+        default: INR
+        description: Base currency code (e.g., INR, USD, EUR)
+    responses:
+      200:
+        description: Exchange rates retrieved successfully
+        schema:
+          type: object
+          properties:
+            base_currency:
+              type: string
+              example: INR
+            conversion_rates:
+              type: object
+              additionalProperties:
+                type: number
+                format: float
+              example:
+                USD: 0.012
+                EUR: 0.011
+                GBP: 0.0095
+            last_updated:
+              type: string
+              format: date-time
+              example: "2024-03-20T10:30:00Z"
+      401:
+        description: Invalid API key
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              example: Invalid API key
+            message:
+              type: string
+              example: The provided FreeCurrencyAPI key is invalid or expired.
+      500:
+        description: Internal server error or API request failed
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              example: API request failed
+            message:
+              type: string
+    """
     try:
         base_currency = request.args.get('base', 'INR')
         api_key = 'fca_live_aFAdTe4CWvzK9T5gYKYaujiesHUctsg7caoBWZ3J'
