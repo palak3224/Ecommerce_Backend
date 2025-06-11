@@ -395,114 +395,31 @@ class PerformanceAnalyticsController:
 
     @staticmethod
     def get_user_growth_trend(months=12):
-        """Get user growth trend for the last N months"""
+        """Get total user and merchant counts"""
         try:
-            end_date = datetime.now(timezone.utc)
-            start_date = end_date - timedelta(days=30 * months)
-
-            # Query to get monthly customer growth using UserAddress table
-            customer_data = db.session.query(
-                extract('year', UserAddress.created_at).label('year'),
-                extract('month', UserAddress.created_at).label('month'),
-                func.count(func.distinct(UserAddress.user_id)).label('customers')
+            # Get total users (role = USER)
+            total_users = db.session.query(
+                func.count(User.id)
             ).filter(
-                and_(
-                    UserAddress.created_at >= start_date,
-                    UserAddress.created_at <= end_date
-                )
-            ).group_by(
-                extract('year', UserAddress.created_at),
-                extract('month', UserAddress.created_at)
-            ).order_by(
-                extract('year', UserAddress.created_at),
-                extract('month', UserAddress.created_at)
-            ).all()
+                User.role == UserRole.USER
+            ).scalar() or 0
 
-            # Query to get monthly merchant growth
-            merchant_data = db.session.query(
-                extract('year', MerchantProfile.created_at).label('year'),
-                extract('month', MerchantProfile.created_at).label('month'),
-                func.count(MerchantProfile.id).label('merchants')
+            # Get total merchants (role = MERCHANT)
+            total_merchants = db.session.query(
+                func.count(User.id)
             ).filter(
-                and_(
-                    MerchantProfile.created_at >= start_date,
-                    MerchantProfile.created_at <= end_date,
-                    MerchantProfile.is_verified == True
-                )
-            ).group_by(
-                extract('year', MerchantProfile.created_at),
-                extract('month', MerchantProfile.created_at)
-            ).order_by(
-                extract('year', MerchantProfile.created_at),
-                extract('month', MerchantProfile.created_at)
-            ).all()
-
-            # Create a dictionary to store all months
-            all_months = {}
-            for data in customer_data:
-                month_key = f"{int(data.year)}-{int(data.month):02d}"
-                all_months[month_key] = {
-                    "month": month_key,
-                    "customers": int(data.customers or 0),
-                    "merchants": 0
-                }
-
-            # Add merchant data
-            for data in merchant_data:
-                month_key = f"{int(data.year)}-{int(data.month):02d}"
-                if month_key in all_months:
-                    all_months[month_key]["merchants"] = int(data.merchants or 0)
-                else:
-                    all_months[month_key] = {
-                        "month": month_key,
-                        "customers": 0,
-                        "merchants": int(data.merchants or 0)
-                    }
-
-            # Convert to list and sort by month
-            trend_data = list(all_months.values())
-            trend_data.sort(key=lambda x: x["month"])
-
-            # Calculate total users and growth rates
-            total_customers = sum(item["customers"] for item in trend_data)
-            total_merchants = sum(item["merchants"] for item in trend_data)
-
-            # Calculate month-over-month growth rates
-            for i in range(1, len(trend_data)):
-                prev_customers = trend_data[i-1]["customers"]
-                prev_merchants = trend_data[i-1]["merchants"]
-                
-                current_customers = trend_data[i]["customers"]
-                current_merchants = trend_data[i]["merchants"]
-
-                # Calculate growth rates
-                customer_growth = ((current_customers - prev_customers) / prev_customers * 100) if prev_customers > 0 else 0
-                merchant_growth = ((current_merchants - prev_merchants) / prev_merchants * 100) if prev_merchants > 0 else 0
-
-                trend_data[i]["customer_growth"] = round(customer_growth, 1)
-                trend_data[i]["merchant_growth"] = round(merchant_growth, 1)
-
-            # Add growth rates for first month
-            if trend_data:
-                trend_data[0]["customer_growth"] = 0
-                trend_data[0]["merchant_growth"] = 0
+                User.role == UserRole.MERCHANT
+            ).scalar() or 0
 
             return {
                 "status": "success",
                 "data": {
-                    "trend": trend_data,
                     "summary": {
-                        "total_customers": total_customers,
-                        "total_merchants": total_merchants,
-                        "total_users": total_customers + total_merchants,
-                        "average_customer_growth": round(
-                            sum(item["customer_growth"] for item in trend_data) / len(trend_data) if trend_data else 0,
-                            1
-                        ),
-                        "average_merchant_growth": round(
-                            sum(item["merchant_growth"] for item in trend_data) / len(trend_data) if trend_data else 0,
-                            1
-                        )
+                        "total_users": total_users,  # Only users with role USER
+                        "total_merchants": total_merchants,  # Only users with role MERCHANT
+                        "total_users": total_users,  # Changed: Only count users, not including merchants
+                        "average_user_growth": 0,
+                        "average_merchant_growth": 0
                     }
                 }
             }
@@ -977,14 +894,14 @@ class PerformanceAnalyticsController:
             end_date = datetime.now(timezone.utc)
             start_date = end_date - timedelta(days=30 * months)
 
-            # Get hourly visit data
+            # Get hourly visit data with bounce rate based on time spent
             hourly_data = db.session.query(
                 extract('hour', VisitTracking.visit_time).label('hour'),
                 func.count(VisitTracking.visit_id).label('total_visits'),
                 func.count(func.distinct(VisitTracking.session_id)).label('unique_visitors'),
-                func.count(case(
-                    (VisitTracking.pages_viewed == 1, 1),
-                    else_=None
+                func.sum(case(
+                    (VisitTracking.time_spent <= 10, 1),  # Consider visits with less than 10 seconds as bounces
+                    else_=0
                 )).label('bounced_visits'),
                 func.count(case(
                     (VisitTracking.was_converted == True, 1),
@@ -994,7 +911,8 @@ class PerformanceAnalyticsController:
                 and_(
                     VisitTracking.visit_time >= start_date,
                     VisitTracking.visit_time <= end_date,
-                    VisitTracking.is_deleted == False
+                    VisitTracking.is_deleted == False,
+                    VisitTracking.exited_page.isnot(None)  # Only count visits that have exited
                 )
             ).group_by(
                 extract('hour', VisitTracking.visit_time)
@@ -1037,6 +955,7 @@ class PerformanceAnalyticsController:
             total_bounced_visits = sum(item["bounced_visits"] for item in hourly_analytics)
             total_conversions = sum(item["conversions"] for item in hourly_analytics)
 
+            # Calculate overall bounce rate correctly
             overall_bounce_rate = (total_bounced_visits / total_visits * 100) if total_visits > 0 else 0
             overall_conversion_rate = (total_conversions / total_unique_visitors * 100) if total_unique_visitors > 0 else 0
 

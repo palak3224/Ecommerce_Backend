@@ -3792,3 +3792,42 @@ def system_health_route():
     hours = int(request.args.get('hours', 1))
     result = SystemMonitoringController.get_system_health(hours)
     return jsonify(result), 200 if result['status'] == 'success' else 500
+
+@superadmin_bp.route('/users', methods=['GET', 'OPTIONS'])
+@cross_origin()
+@super_admin_role_required
+def list_users():
+    try:
+        from controllers.superadmin.user_management_controller import get_all_users
+        return get_all_users()
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@superadmin_bp.route('/users/<int:user_id>/status', methods=['PUT', 'OPTIONS'])
+@cross_origin()
+@super_admin_role_required
+def update_user_status_route(user_id):
+    try:
+        from controllers.superadmin.user_management_controller import update_user_status
+        return update_user_status(user_id)
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@superadmin_bp.route('/users/<int:user_id>/profile', methods=['GET', 'OPTIONS'])
+@cross_origin()
+@super_admin_role_required
+def get_user_profile_route(user_id):
+    try:
+        from controllers.superadmin.user_management_controller import get_user_profile
+        return get_user_profile(user_id)
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
