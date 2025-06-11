@@ -66,11 +66,38 @@ def get_homepage_products():
 @cross_origin()
 def get_homepage_carousels():
     """
-    Get all active carousel items for homepage (optionally filter by type).
-    Query params:
-      - type: Comma-separated list of types ('brand', 'promo', 'new', 'featured')
-    Example:
-      /api/homepage/carousels?type=promo,new,featured
+    Get all active carousel items for homepage (optionally filter by type)
+    ---
+    tags:
+      - Homepage
+    parameters:
+      - in: query
+        name: type
+        type: string
+        required: false
+        description: Comma-separated list of carousel types ('brand', 'promo', 'new', 'featured')
+    responses:
+      200:
+        description: List of carousel items retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              type:
+                type: string
+              image_url:
+                type: string
+              link:
+                type: string
+              title:
+                type: string
+              is_active:
+                type: boolean
+      500:
+        description: Internal server error
     """
     if request.method == 'OPTIONS':
         return '', 200
@@ -82,5 +109,4 @@ def get_homepage_carousels():
         return jsonify(items), 200
     except Exception as e:
         current_app.logger.error(f"Error fetching homepage carousels: {e}")
-        return jsonify({'message': 'Failed to fetch homepage carousels.'}), 500 
-    
+        return jsonify({'message': 'Failed to fetch homepage carousels.'}), 500
