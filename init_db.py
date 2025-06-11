@@ -59,6 +59,9 @@ from models.recently_viewed import RecentlyViewed
 from models.payment_card import PaymentCard
 from models.enums import CardTypeEnum, CardStatusEnum
 
+# --- Monitoring models ---
+from models.system_monitoring import SystemMonitoring
+
 # Load environment variables
 load_dotenv()
 
@@ -319,6 +322,32 @@ def init_payment_cards():
         else:
             print("Card encryption key already exists.")
 
+def init_system_monitoring():
+    """Initialize system monitoring table."""
+    print("\nInitializing System Monitoring:")
+    print("-----------------------------")
+    
+    # Check if the table exists using SQLAlchemy inspector
+    inspector = db.inspect(db.engine)
+    if 'system_monitoring' not in inspector.get_table_names():
+        print("Creating system_monitoring table...")
+        SystemMonitoring.__table__.create(db.engine)
+        print("System monitoring table created successfully.")
+    else:
+        print("System monitoring table already exists.")
+    
+    # Create initial system status record
+    initial_status = SystemMonitoring.create_service_status(
+        service_name='system_init',
+        status='up',
+        response_time=0.0,
+        memory_usage=0.0,
+        cpu_usage=0.0
+    )
+    db.session.add(initial_status)
+    db.session.commit()
+    print("Initial system status record created.")
+
 def init_database():
     """Initialize database tables and create super admin."""
     app = create_app()
@@ -350,6 +379,9 @@ def init_database():
 
         # Initialize payment cards
         init_payment_cards()
+
+        # Initialize system monitoring
+        init_system_monitoring()
 
         # Create super admin user if not exists
         admin_email = os.getenv("SUPER_ADMIN_EMAIL")
