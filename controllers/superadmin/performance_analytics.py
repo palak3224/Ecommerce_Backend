@@ -1,12 +1,13 @@
 from datetime import datetime, timezone, timedelta
-from sqlalchemy import func, and_, extract
-from models.order import Order, PaymentStatusEnum, OrderItem
+from sqlalchemy import func, and_, extract, case
+from models.order import Order,  OrderItem
 from auth.models.models import User, MerchantProfile, UserRole
 from models.user_address import UserAddress
 from models.product import Product
 from models.category import Category
 from common.database import db
 from models.review import Review
+from models.visit_tracking import VisitTracking
 
 class PerformanceAnalyticsController:
     @staticmethod
@@ -18,7 +19,7 @@ class PerformanceAnalyticsController:
 
     @staticmethod
     def get_total_revenue():
-        """Calculate total revenue from all paid orders"""
+        """Calculate total revenue from all orders"""
         try:
             current_month_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
             previous_month_start = (current_month_start - timedelta(days=1)).replace(day=1)
@@ -27,10 +28,7 @@ class PerformanceAnalyticsController:
             current_revenue = db.session.query(
                 func.sum(Order.total_amount)
             ).filter(
-                and_(
-                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
-                    Order.order_date >= current_month_start
-                )
+                Order.order_date >= current_month_start
             ).scalar() or 0
 
             # Previous month revenue
@@ -38,7 +36,6 @@ class PerformanceAnalyticsController:
                 func.sum(Order.total_amount)
             ).filter(
                 and_(
-                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
                     Order.order_date >= previous_month_start,
                     Order.order_date < current_month_start
                 )
@@ -158,33 +155,26 @@ class PerformanceAnalyticsController:
             current_month_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
             previous_month_start = (current_month_start - timedelta(days=1)).replace(day=1)
             
-            # Current month orders - only count successful orders
+            # Current month orders - count all orders
             current_orders_count = db.session.query(
                 func.count(Order.order_id)
             ).filter(
-                and_(
-                    Order.order_date >= current_month_start,
-                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL
-                )
+                Order.order_date >= current_month_start
             ).scalar() or 0
 
             current_orders_amount = db.session.query(
                 func.sum(Order.total_amount)
             ).filter(
-                and_(
-                    Order.order_date >= current_month_start,
-                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL
-                )
+                Order.order_date >= current_month_start
             ).scalar() or 0
 
-            # Previous month orders - only count successful orders
+            # Previous month orders - count all orders
             previous_orders_count = db.session.query(
                 func.count(Order.order_id)
             ).filter(
                 and_(
                     Order.order_date >= previous_month_start,
-                    Order.order_date < current_month_start,
-                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL
+                    Order.order_date < current_month_start
                 )
             ).scalar() or 0
 
@@ -193,8 +183,7 @@ class PerformanceAnalyticsController:
             ).filter(
                 and_(
                     Order.order_date >= previous_month_start,
-                    Order.order_date < current_month_start,
-                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL
+                    Order.order_date < current_month_start
                 )
             ).scalar() or 0
 
@@ -284,13 +273,15 @@ class PerformanceAnalyticsController:
             monthly_data = db.session.query(
                 extract('year', Order.order_date).label('year'),
                 extract('month', Order.order_date).label('month'),
-                func.sum(Order.total_amount).label('revenue'),
-                func.count(Order.order_id).label('orders')
+                func.sum(OrderItem.final_price_for_item).label('revenue'),
+                func.count(func.distinct(Order.order_id)).label('orders')
+            ).join(
+                OrderItem,
+                OrderItem.order_id == Order.order_id
             ).filter(
                 and_(
                     Order.order_date >= start_date,
-                    Order.order_date <= end_date,
-                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL
+                    Order.order_date <= end_date
                 )
             ).group_by(
                 extract('year', Order.order_date),
@@ -351,7 +342,7 @@ class PerformanceAnalyticsController:
                 MerchantProfile.id,
                 MerchantProfile.business_name,
                 func.sum(OrderItem.final_price_for_item).label('total_revenue'),
-                func.count(OrderItem.order_item_id).label('total_orders')
+                func.count(func.distinct(Order.order_id)).label('total_orders')
             ).join(
                 OrderItem,
                 OrderItem.merchant_id == MerchantProfile.id
@@ -361,8 +352,7 @@ class PerformanceAnalyticsController:
             ).filter(
                 and_(
                     Order.order_date >= start_date,
-                    Order.order_date <= end_date,
-                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL
+                    Order.order_date <= end_date
                 )
             ).group_by(
                 MerchantProfile.id,
@@ -405,114 +395,31 @@ class PerformanceAnalyticsController:
 
     @staticmethod
     def get_user_growth_trend(months=12):
-        """Get user growth trend for the last N months"""
+        """Get total user and merchant counts"""
         try:
-            end_date = datetime.now(timezone.utc)
-            start_date = end_date - timedelta(days=30 * months)
-
-            # Query to get monthly customer growth using UserAddress table
-            customer_data = db.session.query(
-                extract('year', UserAddress.created_at).label('year'),
-                extract('month', UserAddress.created_at).label('month'),
-                func.count(func.distinct(UserAddress.user_id)).label('customers')
+            # Get total users (role = USER)
+            total_users = db.session.query(
+                func.count(User.id)
             ).filter(
-                and_(
-                    UserAddress.created_at >= start_date,
-                    UserAddress.created_at <= end_date
-                )
-            ).group_by(
-                extract('year', UserAddress.created_at),
-                extract('month', UserAddress.created_at)
-            ).order_by(
-                extract('year', UserAddress.created_at),
-                extract('month', UserAddress.created_at)
-            ).all()
+                User.role == UserRole.USER
+            ).scalar() or 0
 
-            # Query to get monthly merchant growth
-            merchant_data = db.session.query(
-                extract('year', MerchantProfile.created_at).label('year'),
-                extract('month', MerchantProfile.created_at).label('month'),
-                func.count(MerchantProfile.id).label('merchants')
+            # Get total merchants (role = MERCHANT)
+            total_merchants = db.session.query(
+                func.count(User.id)
             ).filter(
-                and_(
-                    MerchantProfile.created_at >= start_date,
-                    MerchantProfile.created_at <= end_date,
-                    MerchantProfile.is_verified == True
-                )
-            ).group_by(
-                extract('year', MerchantProfile.created_at),
-                extract('month', MerchantProfile.created_at)
-            ).order_by(
-                extract('year', MerchantProfile.created_at),
-                extract('month', MerchantProfile.created_at)
-            ).all()
-
-            # Create a dictionary to store all months
-            all_months = {}
-            for data in customer_data:
-                month_key = f"{int(data.year)}-{int(data.month):02d}"
-                all_months[month_key] = {
-                    "month": month_key,
-                    "customers": int(data.customers or 0),
-                    "merchants": 0
-                }
-
-            # Add merchant data
-            for data in merchant_data:
-                month_key = f"{int(data.year)}-{int(data.month):02d}"
-                if month_key in all_months:
-                    all_months[month_key]["merchants"] = int(data.merchants or 0)
-                else:
-                    all_months[month_key] = {
-                        "month": month_key,
-                        "customers": 0,
-                        "merchants": int(data.merchants or 0)
-                    }
-
-            # Convert to list and sort by month
-            trend_data = list(all_months.values())
-            trend_data.sort(key=lambda x: x["month"])
-
-            # Calculate total users and growth rates
-            total_customers = sum(item["customers"] for item in trend_data)
-            total_merchants = sum(item["merchants"] for item in trend_data)
-
-            # Calculate month-over-month growth rates
-            for i in range(1, len(trend_data)):
-                prev_customers = trend_data[i-1]["customers"]
-                prev_merchants = trend_data[i-1]["merchants"]
-                
-                current_customers = trend_data[i]["customers"]
-                current_merchants = trend_data[i]["merchants"]
-
-                # Calculate growth rates
-                customer_growth = ((current_customers - prev_customers) / prev_customers * 100) if prev_customers > 0 else 0
-                merchant_growth = ((current_merchants - prev_merchants) / prev_merchants * 100) if prev_merchants > 0 else 0
-
-                trend_data[i]["customer_growth"] = round(customer_growth, 1)
-                trend_data[i]["merchant_growth"] = round(merchant_growth, 1)
-
-            # Add growth rates for first month
-            if trend_data:
-                trend_data[0]["customer_growth"] = 0
-                trend_data[0]["merchant_growth"] = 0
+                User.role == UserRole.MERCHANT
+            ).scalar() or 0
 
             return {
                 "status": "success",
                 "data": {
-                    "trend": trend_data,
                     "summary": {
-                        "total_customers": total_customers,
-                        "total_merchants": total_merchants,
-                        "total_users": total_customers + total_merchants,
-                        "average_customer_growth": round(
-                            sum(item["customer_growth"] for item in trend_data) / len(trend_data) if trend_data else 0,
-                            1
-                        ),
-                        "average_merchant_growth": round(
-                            sum(item["merchant_growth"] for item in trend_data) / len(trend_data) if trend_data else 0,
-                            1
-                        )
+                        "total_users": total_users,  # Only users with role USER
+                        "total_merchants": total_merchants,  # Only users with role MERCHANT
+                        "total_users": total_users,  # Changed: Only count users, not including merchants
+                        "average_user_growth": 0,
+                        "average_merchant_growth": 0
                     }
                 }
             }
@@ -534,10 +441,7 @@ class PerformanceAnalyticsController:
                 func.sum(Order.total_amount).label('total_revenue'),
                 func.count(Order.order_id).label('total_orders')
             ).filter(
-                and_(
-                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
-                    Order.order_date >= current_month_start
-                )
+                Order.order_date >= current_month_start
             ).first()
 
             current_revenue = float(current_month_data.total_revenue or 0)
@@ -550,7 +454,6 @@ class PerformanceAnalyticsController:
                 func.count(Order.order_id).label('total_orders')
             ).filter(
                 and_(
-                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
                     Order.order_date >= previous_month_start,
                     Order.order_date < current_month_start
                 )
@@ -708,7 +611,7 @@ class PerformanceAnalyticsController:
                 MerchantProfile.id,
                 MerchantProfile.business_name,
                 func.sum(OrderItem.final_price_for_item).label('total_revenue'),
-                func.count(OrderItem.order_item_id).label('total_orders')
+                func.count(func.distinct(Order.order_id)).label('total_orders')
             ).join(
                 OrderItem,
                 OrderItem.merchant_id == MerchantProfile.id
@@ -716,10 +619,7 @@ class PerformanceAnalyticsController:
                 Order,
                 Order.order_id == OrderItem.order_id
             ).filter(
-                and_(
-                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
-                    Order.order_date >= current_month_start
-                )
+                Order.order_date >= current_month_start
             ).group_by(
                 MerchantProfile.id,
                 MerchantProfile.business_name
@@ -739,7 +639,6 @@ class PerformanceAnalyticsController:
                 Order.order_id == OrderItem.order_id
             ).filter(
                 and_(
-                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
                     Order.order_date >= previous_month_start,
                     Order.order_date < current_month_start,
                     MerchantProfile.id.in_([m.id for m in merchant_data])
@@ -793,10 +692,10 @@ class PerformanceAnalyticsController:
                 func.sum(OrderItem.final_price_for_item).label('total_revenue'),
                 func.count(func.distinct(Order.order_id)).label('total_orders'),
                 func.avg(Review.rating).label('average_rating')
-            ).outerjoin(
+            ).join(
                 OrderItem,
                 OrderItem.merchant_id == MerchantProfile.id
-            ).outerjoin(
+            ).join(
                 Order,
                 Order.order_id == OrderItem.order_id
             ).outerjoin(
@@ -808,8 +707,7 @@ class PerformanceAnalyticsController:
             ).filter(
                 and_(
                     Order.order_date >= start_date,
-                    Order.order_date <= end_date,
-                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL
+                    Order.order_date <= end_date
                 )
             ).group_by(
                 MerchantProfile.id,
@@ -885,6 +783,207 @@ class PerformanceAnalyticsController:
                         "total_products": sum(item["product_count"] for item in merchant_performance),
                         "total_reviews": sum(item["review_count"] for item in merchant_performance),
                         "currency": "INR"
+                    }
+                }
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+
+    @staticmethod
+    def get_conversion_rate(months=12):
+        """Calculate conversion rate based on visit tracking and orders"""
+        try:
+            end_date = datetime.now(timezone.utc)
+            start_date = end_date - timedelta(days=30 * months)
+
+            # Get total unique visitors (from visit_tracking)
+            total_visitors = db.session.query(
+                func.count(func.distinct(VisitTracking.session_id))
+            ).filter(
+                and_(
+                    VisitTracking.visit_time >= start_date,
+                    VisitTracking.visit_time <= end_date,
+                    VisitTracking.is_deleted == False
+                )
+            ).scalar() or 0
+
+            # Get total purchases (from orders)
+            total_purchases = db.session.query(
+                func.count(func.distinct(Order.order_id))
+            ).filter(
+                and_(
+                    Order.order_date >= start_date,
+                    Order.order_date <= end_date,
+                    Order.user_id.isnot(None)  # Only count orders from registered users
+                )
+            ).scalar() or 0
+
+            # Calculate conversion rate
+            conversion_rate = (total_purchases / total_visitors * 100) if total_visitors > 0 else 0
+
+            # Get monthly breakdown
+            monthly_data = db.session.query(
+                extract('year', VisitTracking.visit_time).label('year'),
+                extract('month', VisitTracking.visit_time).label('month'),
+                func.count(func.distinct(VisitTracking.session_id)).label('visitors'),
+                func.count(func.distinct(Order.order_id)).label('purchases')
+            ).outerjoin(
+                Order,
+                and_(
+                    Order.order_date >= start_date,
+                    Order.order_date <= end_date,
+                    Order.user_id.isnot(None)
+                )
+            ).filter(
+                and_(
+                    VisitTracking.visit_time >= start_date,
+                    VisitTracking.visit_time <= end_date,
+                    VisitTracking.is_deleted == False
+                )
+            ).group_by(
+                extract('year', VisitTracking.visit_time),
+                extract('month', VisitTracking.visit_time)
+            ).order_by(
+                extract('year', VisitTracking.visit_time),
+                extract('month', VisitTracking.visit_time)
+            ).all()
+
+            # Format monthly data
+            monthly_breakdown = []
+            for data in monthly_data:
+                month_rate = (data.purchases / data.visitors * 100) if data.visitors > 0 else 0
+                monthly_breakdown.append({
+                    "month": f"{int(data.year)}-{int(data.month):02d}",
+                    "visitors": int(data.visitors or 0),
+                    "purchases": int(data.purchases or 0),
+                    "conversion_rate": round(month_rate, 2)
+                })
+
+            return {
+                "status": "success",
+                "data": {
+                    "overall": {
+                        "total_visitors": total_visitors,
+                        "total_purchases": total_purchases,
+                        "conversion_rate": round(conversion_rate, 2)
+                    },
+                    "monthly_breakdown": monthly_breakdown,
+                    "summary": {
+                        "average_monthly_conversion": round(
+                            sum(item["conversion_rate"] for item in monthly_breakdown) / len(monthly_breakdown) if monthly_breakdown else 0,
+                            2
+                        ),
+                        "best_month": max(monthly_breakdown, key=lambda x: x["conversion_rate"]) if monthly_breakdown else None,
+                        "worst_month": min(monthly_breakdown, key=lambda x: x["conversion_rate"]) if monthly_breakdown else None
+                    }
+                }
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+
+    @staticmethod
+    def get_hourly_analytics(months=12):
+        """Get hourly analytics including page views, unique visitors, bounce rate, and conversion rate"""
+        try:
+            end_date = datetime.now(timezone.utc)
+            start_date = end_date - timedelta(days=30 * months)
+
+            # Get hourly visit data with bounce rate based on time spent
+            hourly_data = db.session.query(
+                extract('hour', VisitTracking.visit_time).label('hour'),
+                func.count(VisitTracking.visit_id).label('total_visits'),
+                func.count(func.distinct(VisitTracking.session_id)).label('unique_visitors'),
+                func.sum(case(
+                    (VisitTracking.time_spent <= 10, 1),  # Consider visits with less than 10 seconds as bounces
+                    else_=0
+                )).label('bounced_visits'),
+                func.count(case(
+                    (VisitTracking.was_converted == True, 1),
+                    else_=None
+                )).label('conversions')
+            ).filter(
+                and_(
+                    VisitTracking.visit_time >= start_date,
+                    VisitTracking.visit_time <= end_date,
+                    VisitTracking.is_deleted == False,
+                    VisitTracking.exited_page.isnot(None)  # Only count visits that have exited
+                )
+            ).group_by(
+                extract('hour', VisitTracking.visit_time)
+            ).order_by(
+                extract('hour', VisitTracking.visit_time)
+            ).all()
+
+            # Format the data and convert UTC to IST
+            hourly_analytics = []
+            for data in hourly_data:
+                total_visits = int(data.total_visits or 0)
+                unique_visitors = int(data.unique_visitors or 0)
+                bounced_visits = int(data.bounced_visits or 0)
+                conversions = int(data.conversions or 0)
+
+                # Convert UTC hour to IST (UTC+5:30)
+                utc_hour = int(data.hour)
+                ist_hour = (utc_hour + 5) % 24  # Add 5 hours for IST
+                if utc_hour >= 18:  # If UTC hour is 18 or later, we need to add 30 minutes
+                    ist_hour = (ist_hour + 1) % 24
+
+                # Calculate rates
+                bounce_rate = (bounced_visits / total_visits * 100) if total_visits > 0 else 0
+                conversion_rate = (conversions / unique_visitors * 100) if unique_visitors > 0 else 0
+
+                hourly_analytics.append({
+                    "hour": ist_hour,
+                    "hour_display": f"{ist_hour:02d}:00 IST",
+                    "total_visits": total_visits,
+                    "unique_visitors": unique_visitors,
+                    "bounced_visits": bounced_visits,
+                    "conversions": conversions,
+                    "bounce_rate": round(bounce_rate, 2),
+                    "conversion_rate": round(conversion_rate, 2)
+                })
+
+            # Calculate overall metrics
+            total_visits = sum(item["total_visits"] for item in hourly_analytics)
+            total_unique_visitors = sum(item["unique_visitors"] for item in hourly_analytics)
+            total_bounced_visits = sum(item["bounced_visits"] for item in hourly_analytics)
+            total_conversions = sum(item["conversions"] for item in hourly_analytics)
+
+            # Calculate overall bounce rate correctly
+            overall_bounce_rate = (total_bounced_visits / total_visits * 100) if total_visits > 0 else 0
+            overall_conversion_rate = (total_conversions / total_unique_visitors * 100) if total_unique_visitors > 0 else 0
+
+            # Find peak hours
+            peak_visits_hour = max(hourly_analytics, key=lambda x: x["total_visits"]) if hourly_analytics else None
+            peak_conversion_hour = max(hourly_analytics, key=lambda x: x["conversion_rate"]) if hourly_analytics else None
+
+            return {
+                "status": "success",
+                "data": {
+                    "hourly_breakdown": hourly_analytics,
+                    "summary": {
+                        "total_visits": total_visits,
+                        "total_unique_visitors": total_unique_visitors,
+                        "total_bounced_visits": total_bounced_visits,
+                        "total_conversions": total_conversions,
+                        "overall_bounce_rate": round(overall_bounce_rate, 2),
+                        "overall_conversion_rate": round(overall_conversion_rate, 2),
+                        "peak_hours": {
+                            "most_visits": {
+                                "hour": peak_visits_hour["hour_display"] if peak_visits_hour else None,
+                                "visits": peak_visits_hour["total_visits"] if peak_visits_hour else 0
+                            },
+                            "best_conversion": {
+                                "hour": peak_conversion_hour["hour_display"] if peak_conversion_hour else None,
+                                "rate": peak_conversion_hour["conversion_rate"] if peak_conversion_hour else 0
+                            }
+                        }
                     }
                 }
             }

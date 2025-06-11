@@ -26,6 +26,8 @@ from controllers.superadmin.product_monitoring_controller import ProductMonitori
 from controllers.superadmin.product_controller import ProductController
 from controllers.superadmin.carousel_controller import CarouselController
 
+from controllers.superadmin.system_monitoring_controller import SystemMonitoringController
+
 
 superadmin_bp = Blueprint('superadmin_bp', __name__)
 
@@ -2772,7 +2774,7 @@ def get_featured_categories():
         description: Internal server error
     """
     try:
-        categories = CategoryController.get_featured_categories()
+        categories = HomepageController.get_featured_categories()
         return jsonify([c.serialize() for c in categories]), HTTPStatus.OK
     except Exception as e:
         current_app.logger.error(f"Error getting featured categories: {e}")
@@ -3723,3 +3725,109 @@ def get_merchant_performance_details():
             "status": "error",
             "message": "Failed to retrieve merchant performance details"
         }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/conversion-rate', methods=['GET'])
+@super_admin_role_required
+def get_conversion_rate():
+    """Get conversion rate analytics (visits to orders)"""
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        months = request.args.get('months', default=12, type=int)
+        result = PerformanceAnalyticsController.get_conversion_rate(months)
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting conversion rate: {e}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to retrieve conversion rate data"
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/hourly', methods=['GET'])
+@super_admin_role_required
+def get_hourly_analytics():
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        return PerformanceAnalyticsController.get_hourly_analytics()
+    except Exception as e:
+        current_app.logger.error(f"Error getting hourly analytics: {e}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to retrieve hourly analytics data"
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/monitoring/system/status', methods=['GET'])
+@super_admin_role_required
+def system_status_route():
+    """Get current system status and uptime"""
+    result = SystemMonitoringController.get_system_status()
+    return jsonify(result), 200 if result['status'] == 'success' else 500
+
+@superadmin_bp.route('/monitoring/system/response-times', methods=['GET'])
+@super_admin_role_required
+def response_times_route():
+    """Get response time trends and averages"""
+    hours = int(request.args.get('hours', 24))
+    result = SystemMonitoringController.get_response_times(hours)
+    return jsonify(result), 200 if result['status'] == 'success' else 500
+
+@superadmin_bp.route('/monitoring/system/errors', methods=['GET'])
+@super_admin_role_required
+def error_distribution_route():
+    """Get error distribution and details"""
+    hours = int(request.args.get('hours', 24))
+    result = SystemMonitoringController.get_error_distribution(hours)
+    return jsonify(result), 200 if result['status'] == 'success' else 500
+
+@superadmin_bp.route('/monitoring/system/service/<service_name>', methods=['GET'])
+@super_admin_role_required
+def service_status_route(service_name):
+    """Get detailed status for a specific service"""
+    hours = request.args.get('hours', default=24, type=int)
+    return jsonify(SystemMonitoringController.get_service_status(service_name, hours))
+
+@superadmin_bp.route('/monitoring/system/health', methods=['GET'])
+@super_admin_role_required
+def system_health_route():
+    """Get overall system health status"""
+    hours = int(request.args.get('hours', 1))
+    result = SystemMonitoringController.get_system_health(hours)
+    return jsonify(result), 200 if result['status'] == 'success' else 500
+
+@superadmin_bp.route('/users', methods=['GET', 'OPTIONS'])
+@cross_origin()
+@super_admin_role_required
+def list_users():
+    try:
+        from controllers.superadmin.user_management_controller import get_all_users
+        return get_all_users()
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@superadmin_bp.route('/users/<int:user_id>/status', methods=['PUT', 'OPTIONS'])
+@cross_origin()
+@super_admin_role_required
+def update_user_status_route(user_id):
+    try:
+        from controllers.superadmin.user_management_controller import update_user_status
+        return update_user_status(user_id)
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@superadmin_bp.route('/users/<int:user_id>/profile', methods=['GET', 'OPTIONS'])
+@cross_origin()
+@super_admin_role_required
+def get_user_profile_route(user_id):
+    try:
+        from controllers.superadmin.user_management_controller import get_user_profile
+        return get_user_profile(user_id)
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500

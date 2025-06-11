@@ -109,6 +109,44 @@ def create_user_ticket_route():
 @user_support_bp.route('/tickets', methods=['GET'])
 @jwt_required()
 def list_user_tickets_route():
+    """
+    List all support tickets for the authenticated user.
+    ---
+    tags:
+      - User Support
+    security:
+      - Bearer: []
+    parameters:
+      - name: status
+        in: query
+        type: string
+        required: false
+        description: "Filter tickets by status."
+      - name: sort_by
+        in: query
+        type: string
+        required: false
+        description: "Sort order (default: -updated_at)."
+      - name: page
+        in: query
+        type: integer
+        required: false
+        description: "Page number (default: 1)."
+      - name: per_page
+        in: query
+        type: integer
+        required: false
+        description: "Number of tickets per page."
+    responses:
+      200:
+        description: "List of user support tickets retrieved successfully."
+      400:
+        description: "Validation failed."
+      401:
+        description: "Unauthorized."
+      500:
+        description: "Internal server error."
+    """
     current_user_id = get_jwt_identity()
 
     status_filter = request.args.get('status')
@@ -144,6 +182,29 @@ def list_user_tickets_route():
 @user_support_bp.route('/tickets/<string:ticket_uid>', methods=['GET'])
 @jwt_required()
 def get_user_ticket_route(ticket_uid):
+    """
+    Get details of a specific support ticket for the authenticated user.
+    ---
+    tags:
+      - User Support
+    security:
+      - Bearer: []
+    parameters:
+      - name: ticket_uid
+        in: path
+        type: string
+        required: true
+        description: "Unique identifier of the support ticket."
+    responses:
+      200:
+        description: "Ticket details retrieved successfully."
+      401:
+        description: "Unauthorized."
+      404:
+        description: "Ticket not found."
+      500:
+        description: "Internal server error."
+    """
     current_user_id = get_jwt_identity()
     try:
         ticket = UserSupportTicketController.get_user_ticket_details(ticket_uid, current_user_id)
@@ -157,6 +218,43 @@ def get_user_ticket_route(ticket_uid):
 @user_support_bp.route('/tickets/<string:ticket_uid>/messages', methods=['POST'])
 @jwt_required()
 def add_user_message_route(ticket_uid):
+    """
+    Add a message to a specific support ticket as the authenticated user (with optional attachment).
+    ---
+    tags:
+      - User Support
+    security:
+      - Bearer: []
+    consumes:
+      - multipart/form-data
+    parameters:
+      - name: ticket_uid
+        in: path
+        type: string
+        required: true
+        description: "Unique identifier of the support ticket."
+      - name: message_text
+        in: formData
+        type: string
+        required: false
+        description: "The message text."
+      - name: attachment_file
+        in: formData
+        type: file
+        required: false
+        description: "Optional file attachment."
+    responses:
+      201:
+        description: "Message added successfully."
+      400:
+        description: "Validation failed or bad request."
+      401:
+        description: "Unauthorized."
+      404:
+        description: "Ticket not found."
+      500:
+        description: "Internal server error."
+    """
     current_user_id = get_jwt_identity()
     
     form_data = request.form.to_dict()
@@ -190,6 +288,31 @@ def add_user_message_route(ticket_uid):
 @user_support_bp.route('/tickets/<string:ticket_uid>/close', methods=['PUT'])
 @jwt_required()
 def close_user_ticket_route(ticket_uid):
+    """
+    Close a resolved support ticket as the authenticated user.
+    ---
+    tags:
+      - User Support
+    security:
+      - Bearer: []
+    parameters:
+      - name: ticket_uid
+        in: path
+        type: string
+        required: true
+        description: "Unique identifier of the support ticket."
+    responses:
+      200:
+        description: "Ticket closed successfully."
+      400:
+        description: "Validation failed or bad request."
+      401:
+        description: "Unauthorized."
+      404:
+        description: "Ticket not found."
+      500:
+        description: "Internal server error."
+    """
     current_user_id = get_jwt_identity()
     try:
         ticket = UserSupportTicketController.close_resolved_ticket_by_user(ticket_uid, current_user_id)

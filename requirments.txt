@@ -17,3 +17,4 @@ Flask-Caching
 cloudinary
 flasgger
 pymysql
+psutil

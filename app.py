@@ -13,6 +13,7 @@ from api.users.routes import users_bp
 from api.merchants.routes import merchants_bp
 from auth import email_init
 from models import *  # Import all models
+from models.system_monitoring import SystemMonitoring
 
 from routes.superadmin_routes import superadmin_bp
 from routes.merchant_routes import merchant_dashboard_bp
@@ -31,6 +32,7 @@ from routes.promo_product_routes import promo_product_bp
 from auth.admin_routes import admin_bp
 from routes.payment_card_routes import payment_card_bp
 from routes.review_routes import review_bp
+from routes.analytics_routes import analytics_bp
 
 from routes.merchant_support_routes import merchant_support_bp
 from routes.admin_support_routes import admin_support_bp
@@ -39,6 +41,11 @@ from routes.promotion_routes import superadmin_promotion_bp
 
 from flasgger import Swagger
 from cryptography.fernet import Fernet
+import time
+import psutil
+import traceback
+from datetime import datetime, timezone, timedelta
+
 
 ALLOWED_ORIGINS = [
     "http://localhost:5173",
@@ -151,14 +158,160 @@ def create_app(config_name='default'):
     app.register_blueprint(promo_product_bp, url_prefix='/api/promo-products')
     app.register_blueprint(payment_card_bp)
     app.register_blueprint(review_bp, url_prefix='/api/reviews')
+
     app.register_blueprint(merchant_support_bp)
     app.register_blueprint(admin_support_bp)
     app.register_blueprint(user_support_bp)
+
+    app.register_blueprint(analytics_bp, url_prefix='/api/analytics')
+    
+
     app.register_blueprint(superadmin_promotion_bp)
     # Add custom headers to every response
     app.after_request(add_headers)
 
-   
+    # Add monitoring middleware
+    @app.before_request
+    def before_request():
+        request.start_time = time.time()
+
+    @app.after_request
+    def after_request(response):
+        if hasattr(request, 'start_time'):
+            response_time = (time.time() - request.start_time) * 1000  # Convert to milliseconds
+            
+            # Get system metrics
+            process = psutil.Process()
+            memory_usage = process.memory_info().rss / 1024 / 1024  # Convert to MB
+            
+            # Get CPU usage with interval
+            try:
+                # Get CPU usage with a small interval to ensure accurate reading
+                cpu_usage = process.cpu_percent(interval=0.1)
+                if cpu_usage == 0:
+                    # If still 0, try getting system-wide CPU usage
+                    cpu_usage = psutil.cpu_percent(interval=0.1)
+            except Exception as e:
+                print(f"Error getting CPU usage: {str(e)}")
+                cpu_usage = 0
+            
+            # Determine status based on response status code
+            status = 'up'
+            if response.status_code >= 400:
+                status = 'error'
+                # Create error monitoring record for API errors
+                monitoring = SystemMonitoring.create_error_record(
+                    service_name=request.endpoint or 'unknown',
+                    error_type=f'HTTP_{response.status_code}',
+                    error_message=response.get_data(as_text=True),
+                    endpoint=request.path,
+                    http_method=request.method,
+                    http_status=response.status_code
+                )
+                db.session.add(monitoring)
+            else:
+                # Create normal service status record
+                monitoring = SystemMonitoring.create_service_status(
+                    service_name=request.endpoint or 'unknown',
+                    status=status,
+                    response_time=response_time,
+                    memory_usage=memory_usage,
+                    cpu_usage=cpu_usage
+                )
+                db.session.add(monitoring)
+            
+            try:
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                print(f"Error saving monitoring data: {str(e)}")
+            
+        return response
+
+    @app.errorhandler(Exception)
+    def handle_error(error):
+        # Get error details
+        error_type = type(error).__name__
+        error_message = str(error)
+        error_stack = traceback.format_exc()
+        
+        # Create error monitoring record
+        monitoring = SystemMonitoring.create_error_record(
+            service_name=request.endpoint or 'unknown',
+            error_type=error_type,
+            error_message=error_message,
+            error_stack_trace=error_stack,
+            endpoint=request.path,
+            http_method=request.method,
+            http_status=getattr(error, 'code', 500)
+        )
+        try:
+            db.session.add(monitoring)
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error saving error monitoring data: {str(e)}")
+        
+        # Return error response
+        return jsonify({
+            'error': error_message,
+            'type': error_type
+        }), getattr(error, 'code', 500)
+
+    # Add monitoring endpoints
+    @app.route('/api/monitoring/status')
+    def get_system_status():
+        """Get current system status"""
+        services = db.session.query(SystemMonitoring).order_by(
+            SystemMonitoring.timestamp.desc()
+        ).limit(10).all()
+        
+        return jsonify({
+            'services': [service.serialize() for service in services]
+        })
+
+    @app.route('/api/monitoring/metrics')
+    def get_system_metrics():
+        """Get system metrics"""
+        # Get average response time for last hour
+        one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+        avg_response = db.session.query(
+            db.func.avg(SystemMonitoring.response_time)
+        ).filter(
+            SystemMonitoring.timestamp >= one_hour_ago,
+            SystemMonitoring.response_time.isnot(None)
+        ).scalar() or 0
+
+        # Get error count for last hour
+        error_count = db.session.query(
+            db.func.count(SystemMonitoring.monitoring_id)
+        ).filter(
+            SystemMonitoring.timestamp >= one_hour_ago,
+            SystemMonitoring.status == 'error'
+        ).scalar() or 0
+
+        # Get current system metrics
+        process = psutil.Process()
+        memory_usage = process.memory_info().rss / 1024 / 1024
+        
+        # Get CPU usage with interval
+        try:
+            # Get CPU usage with a small interval to ensure accurate reading
+            cpu_usage = process.cpu_percent(interval=0.1)
+            if cpu_usage == 0:
+                # If still 0, try getting system-wide CPU usage
+                cpu_usage = psutil.cpu_percent(interval=0.1)
+        except Exception as e:
+            print(f"Error getting CPU usage: {str(e)}")
+            cpu_usage = 0
+
+        return jsonify({
+            'avg_response_time': round(avg_response, 2),
+            'error_count_last_hour': error_count,
+            'memory_usage_mb': round(memory_usage, 2),
+            'cpu_usage_percent': round(cpu_usage, 2),
+            'uptime_seconds': time.time() - psutil.boot_time()
+        })
 
     # Test Redis cache endpoint
     @app.route('/api/test-cache')

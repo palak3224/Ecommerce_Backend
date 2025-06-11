@@ -27,6 +27,7 @@ from controllers.merchant.order_controller import MerchantOrderController
 from auth.models.models import MerchantProfile
 from datetime import datetime
 from controllers.merchant.dashboard_controller import MerchantDashboardController
+from controllers.merchant.report_controller import MerchantReportController
 
 
 ALLOWED_MEDIA_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'mov', 'avi'} 
@@ -3069,8 +3070,8 @@ def list_inventory_products():
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 20, type=int)
         search = request.args.get('search', '')
-        category_id = request.args.get('category_id')
-        brand_id = request.args.get('brand_id')
+        category = request.args.get('category')
+        brand = request.args.get('brand')
         stock_status = request.args.get('stock_status')
 
         result = MerchantProductStockController.get_products(
@@ -3078,8 +3079,8 @@ def list_inventory_products():
             page=page,
             per_page=per_page,
             search=search,
-            category_id=category_id,
-            brand_id=brand_id,
+            category=category,
+            brand=brand,
             stock_status=stock_status
         )
         
@@ -4006,4 +4007,213 @@ def get_recent_orders():
         return jsonify({
             'status': 'error',
             'message': str(e)
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+# Monthly Sales Analytics
+@merchant_dashboard_bp.route('/reports/sales/monthly-sales', methods=['GET'])
+@jwt_required()
+@merchant_role_required
+def get_monthly_sales():
+    """Get monthly sales revenue and units sold for the last 5 months."""
+    try:
+        current_user_id = get_jwt_identity()
+        monthly_data = MerchantReportController.get_monthly_sales_analytics(current_user_id)
+        return jsonify({
+            "status": "success",
+            "data": monthly_data
+        }), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting monthly sales: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+
+# Detailed Monthly Sales Analytics 
+@merchant_dashboard_bp.route('/reports/sales/sales-data', methods=['GET'])
+@jwt_required()
+@merchant_role_required
+def get_detailed_monthly_sales():
+    try:
+        current_user_id = get_jwt_identity()
+        data = MerchantReportController.get_detailed_monthly_sales(current_user_id)
+        return jsonify({
+            "status": "success",
+            "data": data
+        }), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting detailed monthly sales: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+# Product Performance Analytics
+@merchant_dashboard_bp.route('/reports/sales/product-performance', methods=['GET'])
+@jwt_required()
+@merchant_role_required
+def get_product_performance():
+    try:
+        current_user_id = get_jwt_identity()
+        
+        # Get optional query parameters
+        months = request.args.get('months', default=3, type=int)
+        limit = request.args.get('limit', default=3, type=int)
+        
+        data = MerchantReportController.get_product_performance(
+            current_user_id, 
+            months=months,
+            limit=limit
+        )
+        
+        return jsonify({
+            "status": "success",
+            "data": data
+        }), HTTPStatus.OK
+        
+    except Exception as e:
+        current_app.logger.error(f"Error getting product performance: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to fetch product performance data"
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+# Revenue by Category Analytics
+@merchant_dashboard_bp.route('/reports/sales/revenue-by-category', methods=['GET'])
+@jwt_required()
+@merchant_role_required
+def get_revenue_by_category():
+    try:
+        current_user_id = get_jwt_identity()
+        
+        # Get optional query parameter
+        months = request.args.get('months', default=3, type=int)
+        
+        data = MerchantReportController.get_revenue_by_category(
+            current_user_id, 
+            months=months
+        )
+        
+        return jsonify({
+            "status": "success",
+            "data": data
+        }), HTTPStatus.OK
+        
+    except Exception as e:
+        current_app.logger.error(f"Error getting revenue by category: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to fetch revenue by category data"
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+
+
+@merchant_dashboard_bp.route('/reports/product/dashboard-summary', methods=['GET'])
+@jwt_required()
+@merchant_role_required
+def get_dashboard_summary():
+    try:
+        current_user_id = get_jwt_identity()
+        data = MerchantReportController.get_dashboard_summary(current_user_id)
+        
+        return jsonify({
+            "status": "success",
+            "data": data
+        }), HTTPStatus.OK
+        
+    except Exception as e:
+        current_app.logger.error(f"Error getting dashboard summary: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to fetch dashboard summary"
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+
+@merchant_dashboard_bp.route('/reports/product/daily-sales', methods=['GET'])
+@jwt_required()
+@merchant_role_required
+def get_daily_sales():
+    try:
+        current_user_id = get_jwt_identity()
+        data = MerchantReportController.get_daily_sales_data(current_user_id)
+        
+        return jsonify({
+            "status": "success",
+            "data": data
+        }), HTTPStatus.OK
+        
+    except Exception as e:
+        current_app.logger.error(f"Error getting daily sales data: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to fetch daily sales data"
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+
+@merchant_dashboard_bp.route('/reports/product/top-selling-products', methods=['GET'])
+@jwt_required()
+@merchant_role_required
+def get_top_selling_products():
+    try:
+        current_user_id = get_jwt_identity()
+        
+        # Get optional query parameters
+        days = request.args.get('days', default=30, type=int)
+        limit = request.args.get('limit', default=4, type=int)
+        
+        data = MerchantReportController.get_top_selling_products(
+            current_user_id, 
+            days=days,
+            limit=limit
+        )
+        
+        return jsonify({
+            "status": "success",
+            "data": data
+        }), HTTPStatus.OK
+        
+    except Exception as e:
+        current_app.logger.error(f"Error getting top selling products: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to fetch top selling products"
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+
+
+
+@merchant_dashboard_bp.route('/reports/product/most-viewed-products', methods=['GET'])
+@jwt_required()
+@merchant_role_required
+def get_most_viewed_products():
+    try:
+        current_user_id = get_jwt_identity()
+        
+        # Optional query param
+        limit = request.args.get('limit', default=4, type=int)
+
+        data = MerchantReportController.get_most_viewed_products(
+            user_id=current_user_id,
+            limit=limit
+        )
+
+        return jsonify({
+            "status": "success",
+            "data": data
+        }), HTTPStatus.OK
+
+    except Exception as e:
+        current_app.logger.error(f"Error getting most viewed products: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to fetch most viewed products"
         }), HTTPStatus.INTERNAL_SERVER_ERROR
