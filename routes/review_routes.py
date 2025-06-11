@@ -121,29 +121,24 @@ def create_review():
 def get_review(review_id):
     """
     Get a single review by ID.
-    
-    Response:
-    {
-        "status": "success",
-        "data": {
-            "review_id": 1,
-            "product_id": 1,
-            "user_id": 1,
-            "order_id": "ORD-123456",
-            "rating": 5,
-            "title": "Great product!",
-            "body": "Really happy with this purchase",
-            "created_at": "2024-03-20T10:00:00Z",
-            "updated_at": "2024-03-20T10:00:00Z",
-            "images": [...],
-            "user": {
-                "id": 1,
-                "first_name": "John",
-                "last_name": "Doe",
-                "email": "john.doe@example.com"
-            }
-        }
-    }
+    ---
+    tags:
+      - Reviews
+    parameters:
+      - name: review_id
+        in: path
+        type: integer
+        required: true
+        description: ID of the review to retrieve.
+    responses:
+      200:
+        description: Review retrieved successfully.
+      400:
+        description: Invalid review ID.
+      404:
+        description: Review not found.
+      500:
+        description: Internal server error.
     """
     try:
         if not isinstance(review_id, int) or review_id <= 0:
@@ -178,40 +173,32 @@ def get_review(review_id):
 def get_product_reviews(product_id):
     """
     Get all reviews for a specific product.
-    
-    Query Parameters:
-    - page: Page number (default: 1)
-    - per_page: Items per page (default: 10)
-    
-    Response:
-    {
-        "status": "success",
-        "data": {
-            "reviews": [
-                {
-                    "review_id": 1,
-                    "product_id": 1,
-                    "user_id": 1,
-                    "order_id": "ORD-123456",
-                    "rating": 5,
-                    "title": "Great product!",
-                    "body": "Really happy with this purchase",
-                    "created_at": "2024-03-20T10:00:00Z",
-                    "updated_at": "2024-03-20T10:00:00Z",
-                    "images": [...],
-                    "user": {
-                        "id": 1,
-                        "first_name": "John",
-                        "last_name": "Doe",
-                        "email": "john.doe@example.com"
-                    }
-                }
-            ],
-            "total": 100,
-            "pages": 10,
-            "current_page": 1
-        }
-    }
+    ---
+    tags:
+      - Reviews
+    parameters:
+      - name: product_id
+        in: path
+        type: integer
+        required: true
+        description: "ID of the product to retrieve reviews for."
+      - name: page
+        in: query
+        type: integer
+        required: false
+        description: "Page number (default: 1)."
+      - name: per_page
+        in: query
+        type: integer
+        required: false
+        description: "Items per page (default: 10)."
+    responses:
+      200:
+        description: "List of reviews retrieved successfully."
+      400:
+        description: "Invalid product ID or bad request."
+      500:
+        description: "Internal server error."
     """
     try:
         if not isinstance(product_id, int) or product_id <= 0:
@@ -250,40 +237,31 @@ def get_product_reviews(product_id):
 def get_user_reviews():
     """
     Get all reviews by the current user.
-    
-    Query Parameters:
-    - page: Page number (default: 1)
-    - per_page: Items per page (default: 10)
-    
-    Response:
-    {
-        "status": "success",
-        "data": {
-            "reviews": [
-                {
-                    "review_id": 1,
-                    "product_id": 1,
-                    "user_id": 1,
-                    "order_id": "ORD-123456",
-                    "rating": 5,
-                    "title": "Great product!",
-                    "body": "Really happy with this purchase",
-                    "created_at": "2024-03-20T10:00:00Z",
-                    "updated_at": "2024-03-20T10:00:00Z",
-                    "images": [...],
-                    "user": {
-                        "id": 1,
-                        "first_name": "John",
-                        "last_name": "Doe",
-                        "email": "john.doe@example.com"
-                    }
-                }
-            ],
-            "total": 100,
-            "pages": 10,
-            "current_page": 1
-        }
-    }
+    ---
+    tags:
+      - Reviews
+    security:
+      - Bearer: []
+    parameters:
+      - name: page
+        in: query
+        type: integer
+        required: false
+        description: "Page number (default: 1)."
+      - name: per_page
+        in: query
+        type: integer
+        required: false
+        description: "Items per page (default: 10)."
+    responses:
+      200:
+        description: "List of user reviews retrieved successfully."
+      400:
+        description: "Invalid request or bad parameters."
+      401:
+        description: "Unauthorized."
+      500:
+        description: "Internal server error."
     """
     try:
         user_id = get_jwt_identity()
@@ -319,13 +297,29 @@ def get_user_reviews():
 @role_required([UserRole.USER.value])
 def delete_review(review_id):
     """
-    Delete a review.
-    
-    Response:
-    {
-        "status": "success",
-        "message": "Review deleted successfully"
-    }
+    Delete a review by its ID.
+    ---
+    tags:
+      - Reviews
+    security:
+      - Bearer: []
+    parameters:
+      - name: review_id
+        in: path
+        type: integer
+        required: true
+        description: "ID of the review to delete."
+    responses:
+      200:
+        description: "Review deleted successfully."
+      400:
+        description: "Invalid review ID."
+      401:
+        description: "Unauthorized."
+      404:
+        description: "Review not found."
+      500:
+        description: "Internal server error."
     """
     try:
         if not isinstance(review_id, int) or review_id <= 0:
@@ -362,4 +356,4 @@ def delete_review(review_id):
         return jsonify({
             'status': 'error',
             'message': 'An unexpected error occurred while deleting the review'
-        }), 500 
+        }), 500

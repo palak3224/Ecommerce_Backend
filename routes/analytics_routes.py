@@ -7,6 +7,48 @@ analytics_bp = Blueprint('analytics', __name__)
 
 @analytics_bp.route('/track-visit', methods=['POST'])
 def track_visit():
+    """
+    Track a new website visit.
+    ---
+    tags:
+      - Analytics
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            session_id:
+              type: string
+              description: Unique session identifier.
+            ip_address:
+              type: string
+              description: Visitor's IP address.
+            landing_page:
+              type: string
+              description: Landing page URL.
+            user_agent:
+              type: string
+              description: User agent string.
+            referrer_url:
+              type: string
+              description: Referrer URL.
+            device_type:
+              type: string
+              description: Device type.
+            browser:
+              type: string
+              description: Browser name.
+            os:
+              type: string
+              description: Operating system.
+    responses:
+      201:
+        description: Visit tracked successfully.
+      500:
+        description: Internal server error.
+    """
     try:
         data = request.get_json()
         
@@ -42,6 +84,35 @@ def track_visit():
 
 @analytics_bp.route('/update-visit', methods=['POST'])
 def update_visit():
+    """
+    Update an existing website visit with exit page and time spent.
+    ---
+    tags:
+      - Analytics
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            session_id:
+              type: string
+              description: Unique session identifier.
+            exited_page:
+              type: string
+              description: Last page visited before exit.
+            time_spent:
+              type: number
+              description: Time spent on the site (in seconds).
+    responses:
+      200:
+        description: Visit updated successfully.
+      404:
+        description: Visit not found.
+      500:
+        description: Internal server error.
+    """
     try:
         data = request.get_json()
         session_id = data['session_id']
@@ -76,6 +147,32 @@ def update_visit():
 
 @analytics_bp.route('/mark-converted', methods=['POST'])
 def mark_converted():
+    """
+    Mark a website visit as converted and link it to a user.
+    ---
+    tags:
+      - Analytics
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            session_id:
+              type: string
+              description: Unique session identifier.
+            user_id:
+              type: integer
+              description: ID of the user who converted.
+    responses:
+      200:
+        description: Visit marked as converted successfully.
+      404:
+        description: Visit not found.
+      500:
+        description: Internal server error.
+    """
     try:
         data = request.get_json()
         session_id = data['session_id']
@@ -105,4 +202,4 @@ def mark_converted():
         return jsonify({
             'status': 'error',
             'message': str(e)
-        }), 500 
+        }), 500
