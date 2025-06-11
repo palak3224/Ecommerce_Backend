@@ -50,6 +50,13 @@ class User(BaseModel):
         cascade='all, delete-orphan'
     )
 
+    # Visit tracking relationship
+    visits = db.relationship(
+        'VisitTracking',
+        back_populates='user',
+        lazy='dynamic',
+        cascade='all, delete-orphan'
+    )
     
     addresses = db.relationship(
         'UserAddress', 
