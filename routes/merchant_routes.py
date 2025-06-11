@@ -3069,8 +3069,8 @@ def list_inventory_products():
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 20, type=int)
         search = request.args.get('search', '')
-        category_id = request.args.get('category_id')
-        brand_id = request.args.get('brand_id')
+        category = request.args.get('category')
+        brand = request.args.get('brand')
         stock_status = request.args.get('stock_status')
 
         result = MerchantProductStockController.get_products(
@@ -3078,8 +3078,8 @@ def list_inventory_products():
             page=page,
             per_page=per_page,
             search=search,
-            category_id=category_id,
-            brand_id=brand_id,
+            category=category,
+            brand=brand,
             stock_status=stock_status
         )
         
