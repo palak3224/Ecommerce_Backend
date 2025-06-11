@@ -131,6 +131,29 @@ def list_all_tickets_route():
 @admin_support_bp.route('/tickets/<string:ticket_uid>', methods=['GET'])
 @admin_role_required
 def get_admin_ticket_route(ticket_uid):
+    """
+    Get details of a specific support ticket by UID for admins.
+    ---
+    tags:
+      - Admin Support
+    security:
+      - Bearer: []
+    parameters:
+      - name: ticket_uid
+        in: path
+        type: string
+        required: true
+        description: Unique identifier of the support ticket.
+    responses:
+      200:
+        description: Ticket details retrieved successfully.
+      401:
+        description: Unauthorized.
+      404:
+        description: Ticket not found.
+      500:
+        description: Internal server error.
+    """
     try:
         ticket = AdminSupportTicketController.get_ticket_details_for_admin(ticket_uid)
         return jsonify(ticket.serialize(include_messages=True, user_role='ADMIN')), 200
@@ -143,6 +166,40 @@ def get_admin_ticket_route(ticket_uid):
 @admin_support_bp.route('/tickets/<string:ticket_uid>/assign', methods=['PUT'])
 @admin_role_required
 def assign_ticket_route(ticket_uid):
+    """
+    Assign a support ticket to an admin.
+    ---
+    tags:
+      - Admin Support
+    security:
+      - Bearer: []
+    parameters:
+      - name: ticket_uid
+        in: path
+        type: string
+        required: true
+        description: Unique identifier of the support ticket.
+      - name: admin_id
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            admin_id:
+              type: integer
+              description: ID of the admin to assign the ticket to.
+    responses:
+      200:
+        description: Ticket assigned successfully.
+      400:
+        description: Validation failed or bad request.
+      401:
+        description: Unauthorized.
+      404:
+        description: Ticket not found.
+      500:
+        description: Internal server error.
+    """
     admin_acting_id = get_jwt_identity() # The admin performing the action
     try:
         schema = AssignTicketSchema()
@@ -164,6 +221,43 @@ def assign_ticket_route(ticket_uid):
 @admin_support_bp.route('/tickets/<string:ticket_uid>/messages', methods=['POST'])
 @admin_role_required
 def admin_reply_route(ticket_uid):
+    """
+    Add a reply to a support ticket as an admin (with optional attachment).
+    ---
+    tags:
+      - Admin Support
+    security:
+      - Bearer: []
+    consumes:
+      - multipart/form-data
+    parameters:
+      - name: ticket_uid
+        in: path
+        type: string
+        required: true
+        description: Unique identifier of the support ticket.
+      - name: message_text
+        in: formData
+        type: string
+        required: false
+        description: The reply message text.
+      - name: attachment_file
+        in: formData
+        type: file
+        required: false
+        description: Optional file attachment.
+    responses:
+      201:
+        description: Reply added successfully.
+      400:
+        description: Validation failed or bad request.
+      401:
+        description: Unauthorized.
+      404:
+        description: Ticket not found.
+      500:
+        description: Internal server error.
+    """
     admin_user_id = get_jwt_identity()
     
     form_data = request.form.to_dict()
@@ -196,6 +290,43 @@ def admin_reply_route(ticket_uid):
 @admin_support_bp.route('/tickets/<string:ticket_uid>/status', methods=['PUT'])
 @admin_role_required
 def update_ticket_status_route(ticket_uid):
+    """
+    Update the status of a support ticket as an admin.
+    ---
+    tags:
+      - Admin Support
+    security:
+      - Bearer: []
+    parameters:
+      - name: ticket_uid
+        in: path
+        type: string
+        required: true
+        description: Unique identifier of the support ticket.
+      - name: status
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              description: New status for the ticket.
+            notes:
+              type: string
+              description: Optional notes for the status update.
+    responses:
+      200:
+        description: Ticket status updated successfully.
+      400:
+        description: Validation failed or bad request.
+      401:
+        description: Unauthorized.
+      404:
+        description: Ticket not found.
+      500:
+        description: Internal server error.
+    """
     admin_user_id = get_jwt_identity()
     try:
         schema = UpdateStatusSchema()
@@ -217,6 +348,40 @@ def update_ticket_status_route(ticket_uid):
 @admin_support_bp.route('/tickets/<string:ticket_uid>/priority', methods=['PUT'])
 @admin_role_required
 def update_ticket_priority_route(ticket_uid):
+    """
+    Update the priority of a support ticket as an admin.
+    ---
+    tags:
+      - Admin Support
+    security:
+      - Bearer: []
+    parameters:
+      - name: ticket_uid
+        in: path
+        type: string
+        required: true
+        description: Unique identifier of the support ticket.
+      - name: priority
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            priority:
+              type: string
+              description: New priority for the ticket.
+    responses:
+      200:
+        description: Ticket priority updated successfully.
+      400:
+        description: Validation failed or bad request.
+      401:
+        description: Unauthorized.
+      404:
+        description: Ticket not found.
+      500:
+        description: Internal server error.
+    """
     admin_user_id = get_jwt_identity()
     try:
         schema = UpdatePrioritySchema()
