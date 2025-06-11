@@ -11,6 +11,7 @@ from models.recently_viewed import RecentlyViewed
 from auth.models.models import MerchantProfile, User
 from models.enums import OrderStatusEnum, PaymentStatusEnum
 import calendar
+from models.wishlist_item import WishlistItem
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +44,8 @@ class MerchantReportController:
                 .join(OrderItem, Order.order_id == OrderItem.order_id)
                 .filter(
                     OrderItem.merchant_id == merchant.id,
-                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
-                    Order.order_status == OrderStatusEnum.DELIVERED,
+                    # Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
+                    # Order.order_status == OrderStatusEnum.DELIVERED,
                     tuple_(
                         extract('month', Order.created_at),
                         extract('year', Order.created_at)
@@ -114,8 +115,8 @@ class MerchantReportController:
                 .join(Category, Category.category_id == Product.category_id)
                 .filter(
                     OrderItem.merchant_id == merchant.id,
-                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
-                    Order.order_status == OrderStatusEnum.DELIVERED,
+                    # Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
+                    # Order.order_status == OrderStatusEnum.DELIVERED,
                     tuple_(
                         extract('month', Order.created_at),
                         extract('year', Order.created_at)
@@ -182,8 +183,8 @@ class MerchantReportController:
                 .join(Order, Order.order_id == OrderItem.order_id)
                 .filter(
                     OrderItem.merchant_id == merchant.id,
-                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
-                    Order.order_status == OrderStatusEnum.DELIVERED,
+                    # Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
+                    # Order.order_status == OrderStatusEnum.DELIVERED,
                     Order.created_at >= start_date
                 )
                 .group_by(Product.product_name)
@@ -234,8 +235,8 @@ class MerchantReportController:
                 .join(Order, Order.order_id == OrderItem.order_id)
                 .filter(
                     OrderItem.merchant_id == merchant.id,
-                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
-                    Order.order_status == OrderStatusEnum.DELIVERED,
+                    # Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
+                    # Order.order_status == OrderStatusEnum.DELIVERED,
                     Order.created_at >= start_date
                 )
                 .group_by(Category.name)
@@ -281,11 +282,6 @@ class MerchantReportController:
     # For getting dashboard summary for the merchant
     @staticmethod
     def get_dashboard_summary(user_id):
-        """
-        Get dashboard summary statistics with change percentages
-        :param user_id: Merchant's user ID
-        :return: List of summary statistics with formatted values and changes
-        """
         try:
             merchant = MerchantProfile.get_by_user_id(user_id)
             if not merchant:
@@ -333,8 +329,8 @@ class MerchantReportController:
                 .join(Order, Order.order_id == OrderItem.order_id) \
                 .filter(
                     OrderItem.merchant_id == merchant.id,
-                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
-                    Order.order_status == OrderStatusEnum.DELIVERED,
+                    # Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
+                    # Order.order_status == OrderStatusEnum.DELIVERED,
                     extract('year', Order.created_at) == current_year,
                     extract('month', Order.created_at) == current_month
                 ) \
@@ -345,16 +341,30 @@ class MerchantReportController:
                 .join(Order, Order.order_id == OrderItem.order_id) \
                 .filter(
                     OrderItem.merchant_id == merchant.id,
-                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
-                    Order.order_status == OrderStatusEnum.DELIVERED,
+                    # Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
+                    # Order.order_status == OrderStatusEnum.DELIVERED,
                     extract('year', Order.created_at) == prev_year,
                     extract('month', Order.created_at) == prev_month
                 ) \
                 .scalar() or 0
             
-            # 3. Wishlisted Products (placeholder)
-            wishlisted_products = 0
-            wishlisted_products_prev = 0
+            # 3. Wishlisted Products (current month, not deleted)
+            wishlisted_products = db.session.query(func.count(db.distinct(WishlistItem.product_id))) \
+                .join(Product, WishlistItem.product_id == Product.product_id) \
+                .filter(
+                    Product.merchant_id == merchant.id,
+                    WishlistItem.is_deleted == False
+                ).scalar() or 0
+
+            # Wishlisted Products (previous month, not deleted, added before this month)
+            first_day_of_current_month = date(current_year, current_month, 1)
+            wishlisted_products_prev = db.session.query(func.count(db.distinct(WishlistItem.product_id))) \
+                .join(Product, WishlistItem.product_id == Product.product_id) \
+                .filter(
+                    Product.merchant_id == merchant.id,
+                    WishlistItem.is_deleted == False,
+                    WishlistItem.added_at < first_day_of_current_month
+                ).scalar() or 0
             
             # 4. Out of Stock Products
             out_of_stock = db.session.query(func.count(Product.product_id)) \
@@ -444,8 +454,8 @@ class MerchantReportController:
                 .join(OrderItem, Order.order_id == OrderItem.order_id)
                 .filter(
                     OrderItem.merchant_id == merchant.id,
-                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
-                    Order.order_status == OrderStatusEnum.DELIVERED,
+                    # Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
+                    # Order.order_status == OrderStatusEnum.DELIVERED,
                     func.date(Order.created_at).in_(date_range)
                 )
                 .group_by(func.date(Order.created_at))
@@ -523,8 +533,8 @@ class MerchantReportController:
                 .join(Order, Order.order_id == OrderItem.order_id)
                 .filter(
                     OrderItem.merchant_id == merchant.id,
-                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
-                    Order.order_status == OrderStatusEnum.DELIVERED,
+                    # Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
+                    # Order.order_status == OrderStatusEnum.DELIVERED,
                     Order.created_at >= start_date
                 )
                 .group_by(Product.product_name)
@@ -580,8 +590,8 @@ class MerchantReportController:
                 .join(Order, Order.order_id == OrderItem.order_id)
                 .filter(
                     OrderItem.merchant_id == merchant.id,
-                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
-                    Order.order_status == OrderStatusEnum.DELIVERED
+                    # Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
+                    # Order.order_status == OrderStatusEnum.DELIVERED
                 )
                 .group_by(OrderItem.product_id)
                 .subquery()
