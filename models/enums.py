@@ -108,3 +108,47 @@ class CardStatusEnum(Enum):
     EXPIRED = 'expired'
     SUSPENDED = 'suspended'
     DELETED = 'deleted'
+
+
+
+
+
+class TicketPriority(Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+    @classmethod
+    def choices(cls):
+        return [(choice.name, choice.value) for choice in cls]
+
+    @classmethod
+    def coerce(cls, item):
+        return cls(item) if not isinstance(item, cls) else item
+
+    def __str__(self):
+        return self.value
+
+class TicketStatus(Enum):
+    OPEN = "open"
+    IN_PROGRESS = "in_progress"
+    AWAITING_CUSTOMER = "awaiting_customer_reply" 
+    AWAITING_MERCHANT = "awaiting_merchant_reply" 
+    RESOLVED = "resolved"
+    CLOSED = "closed"
+
+    @classmethod
+    def choices(cls):
+        return [(choice.name, choice.value) for choice in cls]
+
+    @classmethod
+    def coerce(cls, item):
+        return cls(item) if not isinstance(item, cls) else item
+
+    def __str__(self):
+        return self.value
+    
+
+class TicketCreatorRole(Enum): 
+    CUSTOMER = "customer"
+    MERCHANT = "merchant"
