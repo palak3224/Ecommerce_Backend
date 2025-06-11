@@ -5,6 +5,7 @@ import logging
 from common.database import db
 from models.order import Order, OrderItem
 from models.product import Product
+from models.category import Category
 from auth.models.models import MerchantProfile, User
 from models.enums import OrderStatusEnum, PaymentStatusEnum
 import calendar
@@ -193,7 +194,7 @@ class MerchantDashboardController:
             raise e
         
     
-
+    # For getting top 5 products sold by a merchant
     @staticmethod
     def get_top_products(user_id, limit=5):
         try:
@@ -231,6 +232,3 @@ class MerchantDashboardController:
         except Exception as e:
             logger.error(f"Error fetching top products: {str(e)}")
             raise e
-
-
-    
