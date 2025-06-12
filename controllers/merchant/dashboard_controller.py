@@ -81,8 +81,8 @@ class MerchantDashboardController:
                         OrderItem.merchant_id == merchant.id,
                         extract('month', Order.order_date) == month,
                         extract('year', Order.order_date) == year,
-                        Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
-                        Order.order_status == OrderStatusEnum.DELIVERED
+                        # Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
+                        # Order.order_status == OrderStatusEnum.DELIVERED
                     )
                     .first()
                 )
@@ -134,7 +134,7 @@ class MerchantDashboardController:
             if not merchant:
                 raise Exception("Merchant profile not found")
 
-            today = date.today()  # ✅ Correct usage
+            today = date.today()
             last_7_months = []
 
             for i in range(6, -1, -1):  # Last 6 months + current
@@ -152,8 +152,8 @@ class MerchantDashboardController:
                 .join(OrderItem, Order.order_id == OrderItem.order_id)
                 .filter(
                     OrderItem.merchant_id == merchant.id,
-                    Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
-                    Order.order_status == OrderStatusEnum.DELIVERED,
+                    # Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
+                    # Order.order_status == OrderStatusEnum.DELIVERED,
                     tuple_(
                         extract('month', Order.created_at),
                         extract('year', Order.created_at)
