@@ -461,7 +461,9 @@ def get_cart_items():
             'quantity': item.quantity,
             'product': {
                 'name': item.product.product_name,
-                'price': float(item.product.selling_price),
+                'price': float(item.product_price),
+                'original_price': float(item.product.selling_price),
+                'special_price': float(item.product_special_price) if item.product_special_price else None,
                 'image_url': item.product_image_url,
                 'stock': item.product_stock_qty,
                 'is_deleted': item.product.is_deleted if hasattr(item.product, 'is_deleted') else False

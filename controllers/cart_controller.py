@@ -76,6 +76,18 @@ class CartController:
                 product_id=product_id,
                 type='image'
             ).first()
+
+            # Check if product has a valid special price
+            current_date = datetime.utcnow().date()
+            has_valid_special_price = (
+                product.special_price is not None and
+                product.special_start is not None and
+                product.special_end is not None and
+                product.special_start <= current_date <= product.special_end
+            )
+            
+            # Use special price if valid, otherwise use selling price
+            effective_price = product.special_price if has_valid_special_price else product.selling_price
             
             # Check if product already exists in cart
             cart_item = CartItem.query.filter_by(
@@ -94,9 +106,9 @@ class CartController:
                     quantity=quantity,
                     product_name=product.product_name,
                     product_sku=product.sku,
-                    product_price=product.selling_price,
+                    product_price=effective_price,
                     product_discount_pct=product.discount_pct,
-                    product_special_price=product.special_price,
+                    product_special_price=product.special_price if has_valid_special_price else None,
                     product_image_url=product_image.url if product_image else None,
                     product_stock_qty=product_stock.stock_qty if product_stock else 0
                 )
