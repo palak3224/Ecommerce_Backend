@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
-from flask import current_app, jsonify
+import cloudinary
+import cloudinary.uploader
+from flask import current_app, jsonify, request
 from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt_identity
 from sqlalchemy.exc import IntegrityError
 from authlib.integrations.flask_client import OAuth
@@ -316,6 +318,7 @@ def get_current_user(user_id):
             "first_name": user.first_name,
             "last_name": user.last_name,
             "phone": user.phone,
+            "profile_img": user.profile_img,
             "role": user.role.value,
             "is_email_verified": user.is_email_verified,
             "last_login": user.last_login.isoformat() if user.last_login else None,
@@ -464,3 +467,101 @@ def resend_verification_email_controller(email_address):
         db.session.rollback()
         current_app.logger.error(f"Resend verification email controller error for {email_address}: {str(e)}")
         return {"error_code": "INTERNAL_ERROR", "message": "An unexpected error occurred."}, 500
+
+
+
+def upload_profile_image(user_id):
+    """Handles profile image upload for a user directly."""
+    try:
+        if 'profile_image' not in request.files:
+            return {"error": "No file part in the request"}, 400
+        file = request.files['profile_image']
+        if file.filename == '':
+            return {"error": "No file selected for uploading"}, 400
+        user = User.get_by_id(user_id)
+        if not user:
+            return {"error": "User not found"}, 404
+        cloudinary.config(
+            cloud_name=current_app.config.get('CLOUDINARY_CLOUD_NAME'),
+            api_key=current_app.config.get('CLOUDINARY_API_KEY'),
+            api_secret=current_app.config.get('CLOUDINARY_API_SECRET'),
+            secure=True
+        )
+        upload_result = cloudinary.uploader.upload(
+            file, folder="profile_images", public_id=str(user.id),
+            overwrite=True, resource_type='image'
+        )
+        secure_url = upload_result.get('secure_url')
+        if not secure_url:
+            return {"error": "Failed to get secure URL from upload result"}, 500
+        user.profile_img = secure_url
+        db.session.commit()
+        redis_client = get_redis_client(current_app)
+        if redis_client:
+            redis_client.delete(f"user:{user_id}")
+            redis_client.delete(f"user_profile:{user_id}")
+        return {
+            "message": "Profile image uploaded successfully",
+            "profile_img_url": user.profile_img
+        }, 200
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Profile image upload error for user {user_id}: {str(e)}")
+        return {"error": "An internal error occurred during file upload"}, 500
+    """Handles profile image upload for a user directly."""
+    try:
+        # 1. Check if the file is present in the request
+        if 'profile_image' not in request.files:
+            return {"error": "No file part in the request"}, 400
+
+        file = request.files['profile_image']
+        if file.filename == '':
+            return {"error": "No file selected for uploading"}, 400
+
+        # 2. Get the user from the database
+        user = User.get_by_id(user_id)
+        if not user:
+            return {"error": "User not found"}, 404
+
+        # 3. Configure Cloudinary using credentials from your config.py
+        cloudinary.config(
+            cloud_name=current_app.config.get('CLOUDINARY_CLOUD_NAME'),
+            api_key=current_app.config.get('CLOUDINARY_API_KEY'),
+            api_secret=current_app.config.get('CLOUDINARY_API_SECRET'),
+            secure=True
+        )
+
+        # 4. Upload to Cloudinary
+        # We use the user's ID as the public_id to ensure a unique, stable URL
+        # and to allow easy overwriting of the old image.
+        upload_result = cloudinary.uploader.upload(
+            file,
+            folder="profile_images",
+            public_id=str(user.id),
+            overwrite=True,
+            resource_type='image'
+        )
+        
+        secure_url = upload_result.get('secure_url')
+        if not secure_url:
+            return {"error": "Failed to get secure URL from upload result"}, 500
+
+        # 5. Update user's profile_img field and save to DB
+        user.profile_img = secure_url
+        db.session.commit()
+
+        # 6. Invalidate cache for this user's profile to reflect changes immediately
+        redis_client = get_redis_client(current_app)
+        if redis_client:
+            redis_client.delete(f"user:{user_id}")
+            redis_client.delete(f"user_profile:{user_id}")
+
+        return {
+            "message": "Profile image uploaded successfully",
+            "profile_img_url": user.profile_img
+        }, 200
+
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Profile image upload error for user {user_id}: {str(e)}")
+        return {"error": "An internal error occurred during file upload"}, 500
