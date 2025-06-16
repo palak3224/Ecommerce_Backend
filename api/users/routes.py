@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from marshmallow import Schema, fields, validate, ValidationError
 from datetime import datetime
@@ -8,7 +8,7 @@ from common.decorators import rate_limit, cache_response
 from auth.models import User
 from common.database import db
 from common.cache import get_redis_client
-from auth.controllers import upload_profile_image, get_current_user
+from auth.controllers import get_user_profile, update_user_profile, upload_profile_image
 
 
 # Schema definitions
@@ -22,74 +22,33 @@ users_bp = Blueprint('users', __name__)
 
 @users_bp.route('/profile', methods=['GET'])
 @jwt_required()
-# @user_role_required
-@cache_response(timeout=60, key_prefix='user_profile')
 def get_profile():
-    """Get user profile."""
-    user_id = get_jwt_identity()
-    user = User.get_by_id(user_id)
-    
-    if not user:
-        return jsonify({"error": "User not found"}), 404
-    
-    return jsonify({
-        "profile": {
-            "email": user.email,
-            "first_name": user.first_name,
-            "last_name": user.last_name,
-            "phone": user.phone,
-            "profile_img": user.profile_img,
-            "is_email_verified": user.is_email_verified,
-            "is_phone_verified": user.is_phone_verified,
-            "role": user.role.value,
-            "last_login": user.last_login.isoformat() if user.last_login else None
-        }
-    }), 200
+    """Get the logged-in user's profile."""
+    try:
+        # FIX: Convert the string identity from JWT to an integer
+        user_id = int(get_jwt_identity())
+        # Call the controller function
+        response, status_code = get_user_profile(user_id)
+        return jsonify(response), status_code
+    except Exception as e:
+        current_app.logger.error(f"Error in get_profile route: {e}", exc_info=True)
+        return jsonify({"error": "An internal server error occurred"}), 500
 
 @users_bp.route('/profile', methods=['PUT'])
 @jwt_required()
-@user_role_required
 def update_profile():
-    """Update user profile."""
+    """Update the logged-in user's profile."""
     try:
-        # Validate request data
         schema = UpdateUserProfileSchema()
         data = schema.load(request.json)
-        
-        user_id = get_jwt_identity()
-        user = User.get_by_id(user_id)
-        
-        if not user:
-            return jsonify({"error": "User not found"}), 404
-        
-        # Update profile fields
-        for field, value in data.items():
-            if hasattr(user, field):
-                setattr(user, field, value)
-        
-        db.session.commit()
-
-        # --- ADD CACHE INVALIDATION ---
-        redis = get_redis_client()
-        if redis:
-            redis.delete(f"user_profile:{user_id}")
-            redis.delete(f"user:{user_id}")
-        
-        return jsonify({
-            "message": "Profile updated successfully",
-            "profile": {
-                "first_name": user.first_name,
-                "last_name": user.last_name,
-                "phone": user.phone,
-                "profile_img": user.profile_img
-            }
-        }), 200
-        
+        user_id = int(get_jwt_identity())
+        response, status_code = update_user_profile(user_id, data)
+        return jsonify(response), status_code
     except ValidationError as e:
         return jsonify({"error": "Validation error", "details": e.messages}), 400
     except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        current_app.logger.error(f"Error in update_profile route: {e}", exc_info=True)
+        return jsonify({"error": "An internal server error occurred"}), 500
 
 @users_bp.route('/orders', methods=['GET'])
 @jwt_required()
@@ -116,13 +75,12 @@ def get_cart():
 
 @users_bp.route('/profile/image', methods=['POST'])
 @jwt_required()
-@user_role_required
 def upload_profile_image_route():
-    """
-    Upload or update user profile image.
-    Expects a multipart/form-data request with a file part named 'profile_image'.
-    """
-    user_id = get_jwt_identity()
-    # Call the controller function that now contains all the logic
-    response, status_code = upload_profile_image(user_id)
-    return jsonify(response), status_code
+    """Upload or update user profile image."""
+    try:
+        user_id = int(get_jwt_identity())
+        response, status_code = upload_profile_image(user_id)
+        return jsonify(response), status_code
+    except Exception as e:
+        current_app.logger.error(f"Error in upload_profile_image_route: {e}", exc_info=True)
+        return jsonify({"error": "An internal server error occurred"}), 500
