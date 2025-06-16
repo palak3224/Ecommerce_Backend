@@ -4,19 +4,19 @@ from models.product import Product
 from models.product_media import ProductMedia, MediaType
 from common.database import db
 from datetime import datetime, timezone
-from sqlalchemy import desc
+from sqlalchemy import desc, and_, or_
 
 class PromoProductController:
     @staticmethod
-    def get_promo_products(page=1, per_page=12):
+    def get_promo_products(page=1, per_page=12, category_id=None, brand_id=None, min_price=None, max_price=None, search=None):
         """
-        Get all promo products with pagination.
+        Get all promo products with pagination and filters.
         Returns products that are currently active in promo placements and have valid special prices.
         """
         try:
             now_utc = datetime.now(timezone.utc)
             
-            # Query to get promo products with their placements and valid special prices
+            # Base query to get promo products with their placements and valid special prices
             query = Product.query.join(
                 ProductPlacement,
                 Product.product_id == ProductPlacement.product_id
@@ -30,7 +30,34 @@ class PromoProductController:
                 Product.special_price != None,
                 (Product.special_start <= now_utc.date()) | (Product.special_start == None),
                 (Product.special_end >= now_utc.date()) | (Product.special_end == None)
-            ).order_by(
+            )
+
+            # Apply category filter
+            if category_id:
+                query = query.filter(Product.category_id == category_id)
+
+            # Apply brand filter
+            if brand_id:
+                query = query.filter(Product.brand_id == brand_id)
+
+            # Apply price range filter
+            if min_price is not None:
+                query = query.filter(Product.special_price >= min_price)
+            if max_price is not None:
+                query = query.filter(Product.special_price <= max_price)
+
+            # Apply search filter
+            if search:
+                search_term = f"%{search}%"
+                query = query.filter(
+                    or_(
+                        Product.product_name.ilike(search_term),
+                        Product.product_description.ilike(search_term)
+                    )
+                )
+
+            # Order by placement sort order and added date
+            query = query.order_by(
                 ProductPlacement.sort_order.asc(),
                 ProductPlacement.added_at.desc()
             )
