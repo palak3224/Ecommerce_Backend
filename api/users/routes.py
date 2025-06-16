@@ -7,6 +7,9 @@ from auth.utils import user_role_required
 from common.decorators import rate_limit, cache_response
 from auth.models import User
 from common.database import db
+from common.cache import get_redis_client
+from auth.controllers import upload_profile_image, get_current_user
+
 
 # Schema definitions
 class UpdateUserProfileSchema(Schema):
@@ -19,7 +22,7 @@ users_bp = Blueprint('users', __name__)
 
 @users_bp.route('/profile', methods=['GET'])
 @jwt_required()
-@user_role_required
+# @user_role_required
 @cache_response(timeout=60, key_prefix='user_profile')
 def get_profile():
     """Get user profile."""
@@ -35,6 +38,7 @@ def get_profile():
             "first_name": user.first_name,
             "last_name": user.last_name,
             "phone": user.phone,
+            "profile_img": user.profile_img,
             "is_email_verified": user.is_email_verified,
             "is_phone_verified": user.is_phone_verified,
             "role": user.role.value,
@@ -64,13 +68,20 @@ def update_profile():
                 setattr(user, field, value)
         
         db.session.commit()
+
+        # --- ADD CACHE INVALIDATION ---
+        redis = get_redis_client()
+        if redis:
+            redis.delete(f"user_profile:{user_id}")
+            redis.delete(f"user:{user_id}")
         
         return jsonify({
             "message": "Profile updated successfully",
             "profile": {
                 "first_name": user.first_name,
                 "last_name": user.last_name,
-                "phone": user.phone
+                "phone": user.phone,
+                "profile_img": user.profile_img
             }
         }), 200
         
@@ -100,3 +111,18 @@ def get_cart():
     # In a real implementation, fetch user cart from database
     # This is a placeholder
     return {"message": f"Cart for user ID: {user_id}"}, 200
+
+
+
+@users_bp.route('/profile/image', methods=['POST'])
+@jwt_required()
+@user_role_required
+def upload_profile_image_route():
+    """
+    Upload or update user profile image.
+    Expects a multipart/form-data request with a file part named 'profile_image'.
+    """
+    user_id = get_jwt_identity()
+    # Call the controller function that now contains all the logic
+    response, status_code = upload_profile_image(user_id)
+    return jsonify(response), status_code
