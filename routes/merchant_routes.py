@@ -1,5 +1,6 @@
 # routes/merchant_routes.py
 from flask import Blueprint, request, jsonify, current_app
+from controllers.merchant.merchant_settings_controller import MerchantSettingsController
 from http import HTTPStatus
 from auth.utils import merchant_role_required, super_admin_role_required
 from common.database import db
@@ -4043,3 +4044,19 @@ def get_most_viewed_products():
             "status": "error",
             "message": "Failed to fetch most viewed products"
         }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+#Merchant-Settings Change Password
+@merchant_dashboard_bp.route('/merchant/change-password', methods=['POST'])
+@merchant_role_required
+@jwt_required
+def change_password():
+    data = request.get_json()
+    current_password = data.get('currentPassword')
+    new_password = data.get('newPassword')
+
+    if not current_password or not new_password:
+        return jsonify({"message": "Both current and new passwords are required"}), 400
+
+    result, status_code = MerchantSettingsController.change_password(current_password, new_password)
+    return jsonify(result), status_code
