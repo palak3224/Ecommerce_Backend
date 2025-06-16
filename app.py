@@ -15,7 +15,7 @@ from auth import email_init
 from models import *  # Import all models
 from models.system_monitoring import SystemMonitoring
 
-from routes.newsletter_controller import newsletter_bp
+from controllers.newsletter_controller import newsletter_bp
 from routes.superadmin_routes import superadmin_bp
 from routes.merchant_routes import merchant_dashboard_bp
 from routes.product_routes import product_bp
