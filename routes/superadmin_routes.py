@@ -91,7 +91,76 @@ def list_categories():
 @superadmin_bp.route('/categories', methods=['POST'])
 @super_admin_role_required
 def create_category():
-    
+    """
+    Create a new category.
+    ---
+    tags:
+      - Categories
+    security:
+      - Bearer: []
+    consumes:
+      - multipart/form-data
+    parameters:
+      - name: name
+        in: formData
+        type: string
+        required: true
+        description: "Name of the category."
+      - name: slug
+        in: formData
+        type: string
+        required: true
+        description: "URL-friendly slug for the category."
+      - name: parent_id
+        in: formData
+        type: integer
+        required: false
+        description: "ID of the parent category (optional)."
+      - name: icon_url
+        in: formData
+        type: string
+        required: false
+        description: "URL of the category icon (optional)."
+      - name: icon_file
+        in: formData
+        type: file
+        required: false
+        description: "Icon file to upload for the category (optional)."
+    responses:
+      201:
+        description: "Category created successfully."
+        schema:
+          type: object
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+            slug:
+              type: string
+            parent_id:
+              type: integer
+              nullable: true
+            icon_url:
+              type: string
+              nullable: true
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+      400:
+        description: "Bad request (missing or invalid fields)."
+      401:
+        description: "Unauthorized - Invalid or missing token."
+      403:
+        description: "Forbidden - User does not have super admin role."
+      409:
+        description: "Conflict - Category with this slug already exists."
+      500:
+        description: "Internal server error."
+    """    
     name = request.form.get('name')
     slug = request.form.get('slug')
 
@@ -179,6 +248,98 @@ def create_category():
 @superadmin_bp.route('/categories/<int:cid>', methods=['PUT'])
 @super_admin_role_required
 def update_category(cid):
+    """
+    Update an existing category.
+    Supports both JSON and multipart/form-data for updating fields and icon.
+    ---
+    tags:
+      - Categories
+    security:
+      - Bearer: []
+    consumes:
+      - application/json
+      - multipart/form-data
+    parameters:
+      - name: cid
+        in: path
+        type: integer
+        required: true
+        description: "ID of the category to update."
+      - name: name
+        in: formData
+        type: string
+        required: false
+        description: "New name for the category."
+      - name: slug
+        in: formData
+        type: string
+        required: false
+        description: "New slug for the category."
+      - name: parent_id
+        in: formData
+        type: integer
+        required: false
+        description: "ID of the new parent category (optional)."
+      - name: icon_file
+        in: formData
+        type: file
+        required: false
+        description: "New icon file for the category (optional)."
+    requestBody:
+      required: false
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              name:
+                type: string
+                description: "New name for the category."
+              slug:
+                type: string
+                description: "New slug for the category."
+              parent_id:
+                type: integer
+                description: "ID of the new parent category (optional)."
+    responses:
+      200:
+        description: "Category updated successfully."
+        schema:
+          type: object
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+            slug:
+              type: string
+            parent_id:
+              type: integer
+              nullable: true
+            icon_url:
+              type: string
+              nullable: true
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+      400:
+        description: "Bad request (missing or invalid fields)."
+      401:
+        description: "Unauthorized - Invalid or missing token."
+      403:
+        description: "Forbidden - User does not have super admin role."
+      404:
+        description: "Category not found."
+      409:
+        description: "Conflict - Category with this slug already exists."
+      415:
+        description: "Unsupported Media Type."
+      500:
+        description: "Internal server error."
+    """
     # Determine content type
     content_type = request.content_type or ''
     update_data = {}
@@ -322,7 +483,47 @@ def delete_category(cid):
 @superadmin_bp.route('/categories/<int:cid>/upload_icon', methods=['POST'])
 @super_admin_role_required
 def upload_category_icon(cid):
-    
+    """
+    Upload or update the icon for a specific category.
+    ---
+    tags:
+      - Categories
+    security:
+      - Bearer: []
+    consumes:
+      - multipart/form-data
+    parameters:
+      - name: cid
+        in: path
+        type: integer
+        required: true
+        description: "ID of the category to upload the icon for."
+      - name: file
+        in: formData
+        type: file
+        required: true
+        description: "Icon image file to upload (png, jpg, jpeg, webp)."
+    responses:
+      200:
+        description: "Icon uploaded and category updated successfully."
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            category:
+              type: object
+      400:
+        description: "Bad request (missing file or invalid type)."
+      401:
+        description: "Unauthorized - Invalid or missing token."
+      403:
+        description: "Forbidden - User does not have super admin role."
+      404:
+        description: "Category not found."
+      500:
+        description: "Internal server error."
+    """    
     try:
         
         category = Category.query.filter_by(id=cid).first()
@@ -439,7 +640,68 @@ def list_brand_requests():
 @superadmin_bp.route('/brand-requests/<int:rid>/approve', methods=['POST'])
 @super_admin_role_required
 def approve_brand_request(rid):
-    
+    """
+    Approve a pending brand request.
+    Optionally upload and set a brand icon.
+    ---
+    tags:
+      - Brand Requests
+    security:
+      - Bearer: []
+    consumes:
+      - multipart/form-data
+    parameters:
+      - name: rid
+        in: path
+        type: integer
+        required: true
+        description: "ID of the brand request to approve."
+      - name: brand_icon_file
+        in: formData
+        type: file
+        required: false
+        description: "Optional icon file for the brand."
+    responses:
+      201:
+        description: "Brand request approved and brand created successfully."
+        schema:
+          type: object
+          properties:
+            id:
+              type: integer
+            brand_name:
+              type: string
+            slug:
+              type: string
+            description:
+              type: string
+            website_url:
+              type: string
+              nullable: true
+            status:
+              type: string
+              enum: [approved]
+            approved_by:
+              type: integer
+            approved_at:
+              type: string
+              format: date-time
+            icon_url:
+              type: string
+              nullable: true
+      400:
+        description: "Bad request (invalid data or missing required fields)."
+      401:
+        description: "Unauthorized - Invalid or missing token."
+      403:
+        description: "Forbidden - User does not have super admin role."
+      404:
+        description: "Brand request not found."
+      409:
+        description: "Conflict - Brand with this name or slug already exists."
+      500:
+        description: "Internal server error."
+    """    
     user_id = get_jwt_identity()
     icon_url_from_cloudinary = None
 
@@ -642,7 +904,67 @@ def list_brands():
 @superadmin_bp.route('/brands', methods=['POST'])
 @super_admin_role_required
 def create_brand_directly():
-     
+    """
+    Create a new brand directly (without a brand request).
+    ---
+    tags:
+      - Brands
+    security:
+      - Bearer: []
+    consumes:
+      - multipart/form-data
+    parameters:
+      - name: name
+        in: formData
+        type: string
+        required: true
+        description: "Name of the brand."
+      - name: slug
+        in: formData
+        type: string
+        required: false
+        description: "URL-friendly slug for the brand (optional, auto-generated if not provided)."
+      - name: icon_url
+        in: formData
+        type: string
+        required: false
+        description: "URL of the brand icon (optional)."
+      - name: icon_file
+        in: formData
+        type: file
+        required: false
+        description: "Icon file to upload for the brand (optional)."
+    responses:
+      201:
+        description: "Brand created successfully."
+        schema:
+          type: object
+          properties:
+            brand_id:
+              type: integer
+            name:
+              type: string
+            slug:
+              type: string
+            icon_url:
+              type: string
+              nullable: true
+            approved_by:
+              type: integer
+            approved_at:
+              type: string
+              format: date-time
+      400:
+        description: "Bad request (missing or invalid fields)."
+      401:
+        description: "Unauthorized - Invalid or missing token."
+      403:
+        description: "Forbidden - User does not have super admin role."
+      409:
+        description: "Conflict - Brand with this name or slug already exists."
+      500:
+        description: "Internal server error."
+    """
     name = request.form.get('name', '').strip()
     slug_provided = request.form.get('slug', '').strip()
 
@@ -722,7 +1044,47 @@ def create_brand_directly():
 @superadmin_bp.route('/brands/<int:bid>/upload_icon', methods=['POST'])
 @super_admin_role_required
 def upload_brand_icon(bid):
-    
+    """
+    Upload or update the icon for a specific brand.
+    ---
+    tags:
+      - Brands
+    security:
+      - Bearer: []
+    consumes:
+      - multipart/form-data
+    parameters:
+      - name: bid
+        in: path
+        type: integer
+        required: true
+        description: "ID of the brand to upload the icon for."
+      - name: file
+        in: formData
+        type: file
+        required: true
+        description: "Icon image file to upload (png, jpg, jpeg, webp)."
+    responses:
+      200:
+        description: "Brand icon uploaded and updated successfully."
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            brand:
+              type: object
+      400:
+        description: "Bad request (missing file or invalid type)."
+      401:
+        description: "Unauthorized - Invalid or missing token."
+      403:
+        description: "Forbidden - User does not have super admin role."
+      404:
+        description: "Brand not found."
+      500:
+        description: "Internal server error."
+    """    
     try:
         
         brand = Brand.query.filter_by(brand_id=bid).first()
@@ -776,9 +1138,83 @@ def upload_brand_icon(bid):
 def update_brand(bid):
     """
     Update an existing brand.
-    Now supports both:
-      - application/json  (just name/slug)
-      - multipart/form-data (name/slug + icon_file)
+    Supports both JSON and multipart/form-data for updating fields and icon.
+    ---
+    tags:
+      - Brands
+    security:
+      - Bearer: []
+    consumes:
+      - application/json
+      - multipart/form-data
+    parameters:
+      - name: bid
+        in: path
+        type: integer
+        required: true
+        description: "ID of the brand to update."
+      - name: name
+        in: formData
+        type: string
+        required: false
+        description: "New name for the brand."
+      - name: slug
+        in: formData
+        type: string
+        required: false
+        description: "New slug for the brand."
+      - name: icon_file
+        in: formData
+        type: file
+        required: false
+        description: "New icon file for the brand (optional)."
+    requestBody:
+      required: false
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              name:
+                type: string
+                description: "New name for the brand."
+              slug:
+                type: string
+                description: "New slug for the brand."
+    responses:
+      200:
+        description: "Brand updated successfully."
+        schema:
+          type: object
+          properties:
+            brand_id:
+              type: integer
+            name:
+              type: string
+            slug:
+              type: string
+            icon_url:
+              type: string
+              nullable: true
+            approved_by:
+              type: integer
+            approved_at:
+              type: string
+              format: date-time
+      400:
+        description: "Bad request (missing or invalid fields)."
+      401:
+        description: "Unauthorized - Invalid or missing token."
+      403:
+        description: "Forbidden - User does not have super admin role."
+      404:
+        description: "Brand not found."
+      409:
+        description: "Conflict - Brand with this name or slug already exists."
+      415:
+        description: "Unsupported Media Type."
+      500:
+        description: "Internal server error."
     """
     # Determine content type
     content_type = request.content_type or ''
