@@ -469,6 +469,54 @@ def resend_verification_email_controller(email_address):
         return {"error_code": "INTERNAL_ERROR", "message": "An unexpected error occurred."}, 500
 
 
+def get_user_profile(user_id):
+    """Get a user's profile information by their ID."""
+    try:
+        user = User.get_by_id(user_id)
+        if not user:
+            return {"error": "User not found"}, 404
+        return {
+            "profile": {
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "phone": user.phone,
+                "profile_img": user.profile_img,
+                "is_email_verified": user.is_email_verified,
+                "is_phone_verified": user.is_phone_verified,
+                "role": user.role.value,
+                "last_login": user.last_login.isoformat() if user.last_login else None,
+                "auth_provider": user.auth_provider.value if user.auth_provider else 'local'
+            }
+        }, 200
+    except Exception as e:
+        current_app.logger.error(f"Error in get_user_profile controller for user {user_id}: {e}", exc_info=True)
+        return {"error": "Could not retrieve profile"}, 500
+
+def update_user_profile(user_id, data):
+    """Update a user's profile information."""
+    try:
+        user = User.get_by_id(user_id)
+        if not user:
+            return {"error": "User not found"}, 404
+        for field, value in data.items():
+            if hasattr(user, field) and field in ['first_name', 'last_name', 'phone']:
+                setattr(user, field, value)
+        db.session.commit()
+        redis = get_redis_client()
+        if redis:
+            redis.delete(f"user_profile:{user_id}")
+            redis.delete(f"user:{user_id}")
+        return {
+            "message": "Profile updated successfully",
+            "profile": {
+                "first_name": user.first_name, "last_name": user.last_name, "phone": user.phone
+            }
+        }, 200
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error updating user profile for {user_id}: {e}", exc_info=True)
+        return {"error": "Profile update failed"}, 500
 
 def upload_profile_image(user_id):
     """Handles profile image upload for a user directly."""
@@ -496,72 +544,15 @@ def upload_profile_image(user_id):
             return {"error": "Failed to get secure URL from upload result"}, 500
         user.profile_img = secure_url
         db.session.commit()
-        redis_client = get_redis_client(current_app)
+        redis_client = get_redis_client()
         if redis_client:
-            redis_client.delete(f"user:{user_id}")
             redis_client.delete(f"user_profile:{user_id}")
+            redis_client.delete(f"user_profile:{user.id}") # Duplicated cache key, fixing
         return {
             "message": "Profile image uploaded successfully",
             "profile_img_url": user.profile_img
         }, 200
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"Profile image upload error for user {user_id}: {str(e)}")
-        return {"error": "An internal error occurred during file upload"}, 500
-    """Handles profile image upload for a user directly."""
-    try:
-        # 1. Check if the file is present in the request
-        if 'profile_image' not in request.files:
-            return {"error": "No file part in the request"}, 400
-
-        file = request.files['profile_image']
-        if file.filename == '':
-            return {"error": "No file selected for uploading"}, 400
-
-        # 2. Get the user from the database
-        user = User.get_by_id(user_id)
-        if not user:
-            return {"error": "User not found"}, 404
-
-        # 3. Configure Cloudinary using credentials from your config.py
-        cloudinary.config(
-            cloud_name=current_app.config.get('CLOUDINARY_CLOUD_NAME'),
-            api_key=current_app.config.get('CLOUDINARY_API_KEY'),
-            api_secret=current_app.config.get('CLOUDINARY_API_SECRET'),
-            secure=True
-        )
-
-        # 4. Upload to Cloudinary
-        # We use the user's ID as the public_id to ensure a unique, stable URL
-        # and to allow easy overwriting of the old image.
-        upload_result = cloudinary.uploader.upload(
-            file,
-            folder="profile_images",
-            public_id=str(user.id),
-            overwrite=True,
-            resource_type='image'
-        )
-        
-        secure_url = upload_result.get('secure_url')
-        if not secure_url:
-            return {"error": "Failed to get secure URL from upload result"}, 500
-
-        # 5. Update user's profile_img field and save to DB
-        user.profile_img = secure_url
-        db.session.commit()
-
-        # 6. Invalidate cache for this user's profile to reflect changes immediately
-        redis_client = get_redis_client(current_app)
-        if redis_client:
-            redis_client.delete(f"user:{user_id}")
-            redis_client.delete(f"user_profile:{user_id}")
-
-        return {
-            "message": "Profile image uploaded successfully",
-            "profile_img_url": user.profile_img
-        }, 200
-
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Profile image upload error for user {user_id}: {str(e)}")
+        current_app.logger.error(f"Profile image upload error for user {user_id}: {e}", exc_info=True)
         return {"error": "An internal error occurred during file upload"}, 500
