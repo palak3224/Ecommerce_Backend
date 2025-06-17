@@ -166,8 +166,6 @@ def create_app(config_name='default'):
 
     app.register_blueprint(analytics_bp, url_prefix='/api/analytics')
     
-    app.register_blueprint(newsletter_bp)
-
     app.register_blueprint(superadmin_promotion_bp)
     app.register_blueprint(promo_code_bp)
     # Add custom headers to every response
