@@ -15,7 +15,6 @@ from auth import email_init
 from models import *  # Import all models
 from models.system_monitoring import SystemMonitoring
 
-from controllers.newsletter_controller import newsletter_bp
 from routes.superadmin_routes import superadmin_bp
 from routes.merchant_routes import merchant_dashboard_bp
 from routes.product_routes import product_bp
@@ -167,8 +166,6 @@ def create_app(config_name='default'):
 
     app.register_blueprint(analytics_bp, url_prefix='/api/analytics')
     
-    app.register_blueprint(newsletter_bp)
-
     app.register_blueprint(superadmin_promotion_bp)
     app.register_blueprint(promo_code_bp)
     # Add custom headers to every response

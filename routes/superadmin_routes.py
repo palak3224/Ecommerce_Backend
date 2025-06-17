@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 import re
 from flask_cors import cross_origin
 
+from controllers.superadmin import newsletter_controller
 from controllers.superadmin.category_controller import CategoryController
 from controllers.superadmin.attribute_controller import AttributeController
 from controllers.superadmin.brand_controller import BrandController
@@ -4267,3 +4268,13 @@ def get_user_profile_route(user_id):
             'status': 'error',
             'message': str(e)
         }), 500
+    
+@superadmin_bp.route('/newsletter/subscribe', methods=['POST', 'OPTIONS'])
+@cross_origin()
+def subscribe_newsletter():
+    return newsletter_controller.subscribe_email()
+
+@superadmin_bp.route('/newsletter/subscribers', methods=['GET'])
+@super_admin_role_required
+def get_all_subscribers():
+    return newsletter_controller.list_subscribers()
