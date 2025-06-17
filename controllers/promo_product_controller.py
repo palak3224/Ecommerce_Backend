@@ -1,38 +1,20 @@
-from flask import current_app, request
+from flask import current_app
 from models.product_placement import ProductPlacement, PlacementTypeEnum
 from models.product import Product
 from models.product_media import ProductMedia, MediaType
-from models.category import Category
-from models.brand import Brand
 from common.database import db
 from datetime import datetime, timezone
-from sqlalchemy import desc, and_, or_, func
+from sqlalchemy import desc, and_, or_
 
 class PromoProductController:
     @staticmethod
-    def get_promo_products():
+    def get_promo_products(page=1, per_page=12, category_id=None, brand_id=None, min_price=None, max_price=None, search=None):
         """
         Get all promo products with pagination and filters.
         Returns products that are currently active in promo placements and have valid special prices.
         """
         try:
             now_utc = datetime.now(timezone.utc)
-            
-            # Get pagination parameters
-            page = request.args.get('page', 1, type=int)
-            per_page = min(request.args.get('per_page', 12, type=int), 50)
-            
-            # Get sorting parameters
-            sort_by = request.args.get('sort_by', 'created_at')
-            order = request.args.get('order', 'desc')
-            
-            # Get filter parameters
-            category_id = request.args.get('category_id')
-            brand_id = request.args.get('brand_id', type=int)
-            min_price = request.args.get('min_price', type=float)
-            max_price = request.args.get('max_price', type=float)
-            search = request.args.get('search', '')
-            include_children = request.args.get('include_children', 'true').lower() == 'true'
             
             # Base query to get promo products with their placements and valid special prices
             query = Product.query.join(
@@ -47,35 +29,12 @@ class PromoProductController:
                 Product.approval_status == 'approved',
                 Product.special_price != None,
                 (Product.special_start <= now_utc.date()) | (Product.special_start == None),
-                (Product.special_end >= now_utc.date()) | (Product.special_end == None),
-                Product.parent_product_id.is_(None)  # Only show parent products
+                (Product.special_end >= now_utc.date()) | (Product.special_end == None)
             )
 
-            # Apply category filter with child categories
+            # Apply category filter
             if category_id:
-                try:
-                    category_id = int(category_id)
-                    if include_children:
-                        # Get the category and all its child categories
-                        category = Category.query.get(category_id)
-                        if category:
-                            # Get all child category IDs recursively
-                            def get_child_category_ids(parent_id):
-                                child_ids = []
-                                children = Category.query.filter_by(parent_id=parent_id).all()
-                                for child in children:
-                                    child_ids.append(child.category_id)
-                                    child_ids.extend(get_child_category_ids(child.category_id))
-                                return child_ids
-                            
-                            child_category_ids = get_child_category_ids(category_id)
-                            category_ids = [category_id] + child_category_ids
-                            query = query.filter(Product.category_id.in_(category_ids))
-                    else:
-                        # Only include products from the selected category
-                        query = query.filter(Product.category_id == category_id)
-                except ValueError:
-                    print(f"Invalid category_id: {category_id}")
+                query = query.filter(Product.category_id == category_id)
 
             # Apply brand filter
             if brand_id:
@@ -97,19 +56,17 @@ class PromoProductController:
                     )
                 )
 
-            # Apply sorting
-            if order == 'asc':
-                query = query.order_by(getattr(Product, sort_by))
-            else:
-                query = query.order_by(desc(getattr(Product, sort_by)))
+            # Order by placement sort order and added date
+            query = query.order_by(
+                ProductPlacement.sort_order.asc(),
+                ProductPlacement.added_at.desc()
+            )
 
-            # Execute paginated query
-            pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-            
-            # Prepare response
-            products = pagination.items
-            total = pagination.total
-            pages = pagination.pages
+            # Get total count for pagination
+            total = query.count()
+
+            # Apply pagination
+            products = query.offset((page - 1) * per_page).limit(per_page).all()
 
             # Serialize products with their placement details and media
             serialized_products = []
@@ -145,29 +102,15 @@ class PromoProductController:
                     if m.type == MediaType.IMAGE
                 ]
                 
-                # Add frontend-specific fields
-                product_data.update({
-                    'id': str(product.product_id),
-                    'name': product.product_name,
-                    'description': product.product_description,
-                    'price': float(product.special_price),
-                    'originalPrice': float(product.selling_price),
-                    'stock': 100,  # TODO: Add stock tracking
-                    'isNew': True,  # TODO: Add logic for new products
-                    'isBuiltIn': False,
-                })
-                
                 serialized_products.append(product_data)
 
             return {
                 'products': serialized_products,
                 'pagination': {
                     'total': total,
-                    'pages': pages,
+                    'pages': (total + per_page - 1) // per_page,
                     'current_page': page,
-                    'per_page': per_page,
-                    'has_next': pagination.has_next,
-                    'has_prev': pagination.has_prev
+                    'per_page': per_page
                 }
             }
 
@@ -232,18 +175,6 @@ class PromoProductController:
                 m.url for m in media 
                 if m.type == MediaType.IMAGE
             ]
-
-            # Add frontend-specific fields
-            product_data.update({
-                'id': str(product.product_id),
-                'name': product.product_name,
-                'description': product.product_description,
-                'price': float(product.special_price),
-                'originalPrice': float(product.selling_price),
-                'stock': 100,  # TODO: Add stock tracking
-                'isNew': True,  # TODO: Add logic for new products
-                'isBuiltIn': False,
-            })
 
             return product_data
 
