@@ -72,7 +72,7 @@ def create_app(config_name='default'):
     """Application factory."""
     app = Flask(__name__)
     app.config.from_object(get_config())
-    app.config['CARD_ENCRYPTION_KEY'] = Fernet.generate_key()  # Generate a new key
+    app.config['CARD_ENCRYPTION_KEY'] = Fernet.generate_key()  
 
     # Configure Swagger
     swagger_config = {

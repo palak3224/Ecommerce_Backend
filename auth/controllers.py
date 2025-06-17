@@ -556,3 +556,41 @@ def upload_profile_image(user_id):
         db.session.rollback()
         current_app.logger.error(f"Profile image upload error for user {user_id}: {e}", exc_info=True)
         return {"error": "An internal error occurred during file upload"}, 500
+    
+
+
+def change_password(user_id, old_password, new_password):
+    """
+    Change a logged-in user's password.
+    Requires the old password for verification.
+    """
+    try:
+        user = User.get_by_id(user_id)
+        if not user:
+            return {"error": "User not found"}, 404
+
+        if user.auth_provider != AuthProvider.LOCAL:
+            return {"error": "Password change is not available for social login accounts."}, 400
+
+        if not user.check_password(old_password):
+            return {"error": "Incorrect current password"}, 401
+        
+        # Password validation (you might want to add more robust validation here)
+        if len(new_password) < 8:
+            return {"error": "New password must be at least 8 characters long"}, 400
+        if old_password == new_password:
+            return {"error": "New password cannot be the same as the old password"}, 400
+
+        user.set_password(new_password)
+        
+        # For enhanced security, revoke all existing refresh tokens for the user
+        RefreshToken.revoke_all_for_user(user.id)
+        
+        db.session.commit()
+        
+        return {"message": "Password changed successfully"}, 200
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error changing password for user {user_id}: {e}", exc_info=True)
+        return {"error": "An internal error occurred while changing the password"}, 500
