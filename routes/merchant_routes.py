@@ -4047,16 +4047,11 @@ def get_most_viewed_products():
 
 
 #Merchant-Settings Change Password
-@merchant_dashboard_bp.route('/merchant/change-password', methods=['POST'])
+@merchant_dashboard_bp.route('/api/auth/merchant/change-password', methods=['POST'])
 @merchant_role_required
 @jwt_required
 def change_password():
     data = request.get_json()
-    current_password = data.get('currentPassword')
-    new_password = data.get('newPassword')
-
-    if not current_password or not new_password:
-        return jsonify({"message": "Both current and new passwords are required"}), 400
-
-    result, status_code = MerchantSettingsController.change_password(current_password, new_password)
-    return jsonify(result), status_code
+    current_password = data.get("current_password")
+    new_password = data.get("new_password")
+    return MerchantSettingsController.change_password(current_password, new_password)

@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime
 from enum import Enum
 import re
+from datetime import datetime, timezone
 
 from common.database import db, BaseModel
 from auth.models.merchant_document import VerificationStatus, DocumentType
@@ -30,7 +31,7 @@ class User(BaseModel):
     first_name = db.Column(db.String(100), nullable=False)
     last_name = db.Column(db.String(100), nullable=False)
     phone = db.Column(db.String(20), nullable=True)
-    profile_img = db.Column(db.String(512), nullable=True)  # URL for Cloudinary profile image
+    # profile_img = db.Column(db.String(512), nullable=True)  # URL for Cloudinary profile image
     role = db.Column(db.Enum(UserRole), default=UserRole.USER, nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     is_email_verified = db.Column(db.Boolean, default=False, nullable=False)
@@ -119,7 +120,7 @@ class User(BaseModel):
     
     def update_last_login(self):
         """Update last login timestamp."""
-        self.last_login = datetime.utcnow()
+        self.last_login = datetime.now(timezone.utc)
         db.session.commit()
     
     @classmethod

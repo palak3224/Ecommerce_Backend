@@ -62,6 +62,10 @@ from models.enums import CardTypeEnum, CardStatusEnum
 # --- Monitoring models ---
 from models.system_monitoring import SystemMonitoring
 
+# --- Newsletter models ---
+from models.newsletter_subscription import NewsletterSubscription
+
+
 # Load environment variables
 load_dotenv()
 

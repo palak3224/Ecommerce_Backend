@@ -1,6 +1,6 @@
 from auth.models.models import User
 from sqlalchemy.exc import SQLAlchemyError
-from flask_login import current_user
+from flask_jwt_extended import get_jwt_identity
 from werkzeug.security import check_password_hash, generate_password_hash
 from common.database import db
 import logging
@@ -14,10 +14,11 @@ class MerchantSettingsController:
         Change the password for the currently logged-in user.
         """
         try:
-            user = User.query.get(current_user.id)
+            user_id = get_jwt_identity()  # Get user ID from JWT token
+            user = User.query.get(user_id)
 
             if not user:
-                raise FileNotFoundError("User not found")
+                return {"message": "User not found"}, 404
 
             if not check_password_hash(user.password, current_password):
                 return {"message": "Current password is incorrect"}, 401
