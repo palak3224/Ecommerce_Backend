@@ -43,11 +43,13 @@ class Config:
     MAIL_USE_SSL = False
     MAIL_USERNAME = os.getenv('MAIL_USERNAME')
     MAIL_PASSWORD = os.getenv('MAIL_PASSWORD')
-    MAIL_DEFAULT_SENDER = (os.getenv('MAIL_SENDER_NAME', 'shopeasy'), os.getenv('MAIL_USERNAME'))
+    MAIL_DEFAULT_SENDER = (os.getenv('MAIL_SENDER_NAME', 'AOIN'), os.getenv('MAIL_USERNAME'))
 
     FRONTEND_URL = 'http://localhost:5173'
 
     EXCHANGE_RATE_API_KEY = os.getenv('EXCHANGE_RATE_API_KEY', 'f60545f362ec1fdd1e5e7338')
+    CARD_ENCRYPTION_KEY = os.getenv('CARD_ENCRYPTION_KEY')
+    
 
 class DevelopmentConfig(Config):
     """Configuration for development environment."""

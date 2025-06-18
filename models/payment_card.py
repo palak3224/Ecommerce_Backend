@@ -225,7 +225,9 @@ class PaymentCard(BaseModel):
             "billing_address": self.billing_address.serialize() if self.billing_address else None,
             "last_used_at": self.last_used_at.isoformat() if self.last_used_at else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "expiry_month": self.get_expiry_month(), 
+            "expiry_year": self.get_expiry_year()
         }
 
     def __repr__(self):
