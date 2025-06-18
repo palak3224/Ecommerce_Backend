@@ -29,6 +29,7 @@ from auth.models.models import MerchantProfile
 from datetime import datetime
 from controllers.merchant.dashboard_controller import MerchantDashboardController
 from controllers.merchant.report_controller import MerchantReportController
+from controllers.merchant.merchant_settings_controller import MerchantSettingsController
 
 
 ALLOWED_MEDIA_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'mov', 'avi'} 
@@ -4055,3 +4056,20 @@ def change_password():
     current_password = data.get("current_password")
     new_password = data.get("new_password")
     return MerchantSettingsController.change_password(current_password, new_password)
+
+#Load Merchant Details
+@merchant_dashboard_bp.route('/account', methods=['GET', 'OPTIONS'])
+@merchant_role_required
+def get_merchant_account():
+    """
+    Get merchant account and bank details
+    ---
+    tags:
+      - Merchant - Settings
+    responses:
+      200:
+        description: Merchant account data returned successfully
+      404:
+        description: Merchant not found
+    """
+    return MerchantSettingsController.get_account_settings()

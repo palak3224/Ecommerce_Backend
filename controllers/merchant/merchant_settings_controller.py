@@ -1,4 +1,4 @@
-from auth.models.models import User
+from auth.models.models import User, MerchantProfile
 from sqlalchemy.exc import SQLAlchemyError
 from flask_jwt_extended import get_jwt_identity
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -31,3 +31,29 @@ class MerchantSettingsController:
         except SQLAlchemyError as e:
             logger.error(f"Database error while changing password: {str(e)}")
             return {"message": "Database error"}, 500
+        
+
+    @staticmethod
+    def get_account_settings():
+        """
+        Fetch account and bank details for the currently logged-in merchant.
+        """
+        try:
+            user_id = get_jwt_identity()
+            merchant = MerchantProfile.get_by_user_id(user_id)
+
+            if not merchant:
+                return {"message": "Merchant not found"}, 404
+
+            return {
+                "email": merchant.business_email,
+                "phone": merchant.business_phone,
+                "account_number": merchant.bank_account_number,
+                "account_name": merchant.business_name,
+                "branch_name": merchant.bank_branch,
+                "bank_name": merchant.bank_name,
+                "ifsc_code": merchant.bank_ifsc_code
+            }, 200
+
+        except SQLAlchemyError as e:
+            return {"message": "Error fetching merchant data"}, 500
