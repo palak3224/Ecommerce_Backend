@@ -146,7 +146,7 @@ class MerchantDashboardController:
                 db.session.query(
                     extract('month', Order.created_at).label('month'),
                     extract('year', Order.created_at).label('year'),
-                    func.count(Order.order_id).label('orders'),
+                    func.count(func.distinct(Order.order_id)).label('orders'),
                     func.sum(Order.total_amount).label('sales')
                 )
                 .join(OrderItem, Order.order_id == OrderItem.order_id)
