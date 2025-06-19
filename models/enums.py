@@ -152,3 +152,9 @@ class TicketStatus(Enum):
 class TicketCreatorRole(Enum): 
     CUSTOMER = "customer"
     MERCHANT = "merchant"
+
+class StreamStatus(Enum):
+    SCHEDULED = 'scheduled'
+    LIVE = 'live'
+    ENDED = 'ended'
+    CANCELLED = 'cancelled'

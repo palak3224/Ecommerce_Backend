@@ -55,6 +55,9 @@ from models.review import Review
 from models.product_attribute import ProductAttribute
 from models.recently_viewed import RecentlyViewed
 
+# --- Live Streaming models ---
+from models.live_stream import LiveStream, LiveStreamComment, LiveStreamViewer, StreamStatus
+
 # --- Payment models ---
 from models.payment_card import PaymentCard
 from models.enums import CardTypeEnum, CardStatusEnum
@@ -352,6 +355,48 @@ def init_system_monitoring():
     db.session.commit()
     print("Initial system status record created.")
 
+def init_live_streaming():
+    """Initialize live streaming tables."""
+    print("\nInitializing Live Streaming Tables:")
+    print("---------------------------------")
+    
+    # Check if the tables exist using SQLAlchemy inspector
+    inspector = db.inspect(db.engine)
+    tables = ['live_streams', 'live_stream_comments', 'live_stream_viewers']
+    
+    for table in tables:
+        if table not in inspector.get_table_names():
+            print(f"Creating {table} table...")
+            if table == 'live_streams':
+                LiveStream.__table__.create(db.engine)
+            elif table == 'live_stream_comments':
+                LiveStreamComment.__table__.create(db.engine)
+            elif table == 'live_stream_viewers':
+                LiveStreamViewer.__table__.create(db.engine)
+            print(f"{table} table created successfully.")
+        else:
+            print(f"{table} table already exists.")
+    
+    # Add stream_status enum if it doesn't exist
+    try:
+        with db.engine.connect() as conn:
+            conn.execute(text("""
+                SELECT stream_status 
+                FROM live_streams 
+                LIMIT 1
+            """))
+    except Exception:
+        print("Adding stream_status enum to live_streams table...")
+        with db.engine.connect() as conn:
+            conn.execute(text("""
+                ALTER TABLE live_streams 
+                MODIFY COLUMN status ENUM('scheduled', 'live', 'ended', 'cancelled') 
+                NOT NULL DEFAULT 'scheduled'
+            """))
+            conn.commit()
+    
+    print("Live streaming tables initialized successfully.")
+
 def init_database():
     """Initialize database tables and create super admin."""
     app = create_app()
@@ -386,6 +431,9 @@ def init_database():
 
         # Initialize system monitoring
         init_system_monitoring()
+
+        # Initialize live streaming tables
+        init_live_streaming()
 
         # Create super admin user if not exists
         admin_email = os.getenv("SUPER_ADMIN_EMAIL")

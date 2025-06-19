@@ -26,6 +26,7 @@ from .cart import Cart, CartItem
 from .order import Order, OrderItem, OrderStatusHistory
 from .shipment import Shipment, ShipmentItem
 from .visit_tracking import VisitTracking
+from .payment_card import PaymentCard
 
 __all__ = [
     'Product',
