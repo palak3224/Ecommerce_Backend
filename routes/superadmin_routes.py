@@ -28,7 +28,9 @@ from controllers.superadmin.product_controller import ProductController
 from controllers.superadmin.carousel_controller import CarouselController
 
 from controllers.superadmin.system_monitoring_controller import SystemMonitoringController
-
+from controllers.superadmin.merchant_transaction_controller import (
+    list_all_transactions, get_transaction_by_id, mark_as_paid
+)
 
 superadmin_bp = Blueprint('superadmin_bp', __name__)
 
@@ -4268,7 +4270,8 @@ def get_user_profile_route(user_id):
             'status': 'error',
             'message': str(e)
         }), 500
-    
+
+#---Newletter------    
 @superadmin_bp.route('/newsletter/subscribe', methods=['POST', 'OPTIONS'])
 @cross_origin()
 def subscribe_newsletter():
@@ -4278,3 +4281,30 @@ def subscribe_newsletter():
 @super_admin_role_required
 def get_all_subscribers():
     return newsletter_controller.list_subscribers()
+
+#--- Merchant Transaction Related ----
+@superadmin_bp.route('/merchant-transactions', methods=['GET'])
+@super_admin_role_required
+def get_all_merchant_transactions():
+    filters = {
+        "status": request.args.get("status"),
+        "merchant_id": request.args.get("merchant_id"),
+        "from_date": request.args.get("from"),
+        "to_date": request.args.get("to")
+    }
+    txns = list_all_transactions(filters)
+    return jsonify([txn.serialize() for txn in txns]), 200
+
+@superadmin_bp.route('/merchant-transactions/<int:txn_id>', methods=['GET'])
+@super_admin_role_required
+def get_merchant_transaction(txn_id):
+    txn = get_transaction_by_id(txn_id)
+    return jsonify(txn.serialize()), 200
+
+@superadmin_bp.route('/merchant-transactions/<int:txn_id>', methods=['PUT'])
+@super_admin_role_required
+def mark_merchant_transaction_paid(txn_id):
+    txn = mark_as_paid(txn_id)
+    if txn is None:
+        return jsonify({"message": "Already paid."}), 400
+    return jsonify({"message": "Marked as paid", "transaction": txn.serialize()}), 200

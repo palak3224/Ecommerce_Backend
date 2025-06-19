@@ -43,6 +43,8 @@ from models.product_promotion import ProductPromotion
 from models.tax_category import TaxCategory
 from models.homepage import HomepageCategory
 from models.subscription import SubscriptionPlan
+from models.merchant_transaction import MerchantTransaction
+
 
 # --- Merchant models ---
 from models.product import Product
