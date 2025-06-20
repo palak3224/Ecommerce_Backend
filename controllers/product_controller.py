@@ -11,6 +11,7 @@ from models.product_meta import ProductMeta
 from models.product_attribute import ProductAttribute
 from datetime import datetime, timedelta
 from models.order import OrderItem, Order
+from models.review import Review
 
 class ProductController:
     @staticmethod
@@ -41,12 +42,14 @@ class ProductController:
             
             # Get filter parameters
             category_id = request.args.get('category_id')
-            brand_id = request.args.get('brand_id', type=int)
+            brand_id = request.args.get('brand_id')
             min_price = request.args.get('min_price', type=float)
             max_price = request.args.get('max_price', type=float)
             search = request.args.get('search', '')
             include_children = request.args.get('include_children', 'true').lower() == 'true'
             show_variants = request.args.get('show_variants', 'false').lower() == 'true'
+            min_rating = request.args.get('min_rating', type=float)
+            min_discount = request.args.get('min_discount', type=float)
             
             # Base query - only show approved products and filter by parent_product_id
             query = Product.query.filter(
@@ -64,7 +67,7 @@ class ProductController:
                 query = query.filter(Product.parent_product_id.is_(None))
             
             # Apply category filter with child categories
-            if category_id:
+            if category_id and category_id != 'all-products':
                 try:
                     category_id = int(category_id)
                     if include_children:
@@ -89,60 +92,183 @@ class ProductController:
                 except ValueError:
                     print(f"Invalid category_id: {category_id}")
             
-            # Apply other filters
+            # Apply brand filter
             if brand_id:
-                query = query.filter(Product.brand_id == brand_id)
+                try:
+                    # Handle multiple brand IDs
+                    if ',' in brand_id:
+                        brand_ids = [int(bid) for bid in brand_id.split(',')]
+                        query = query.filter(Product.brand_id.in_(brand_ids))
+                    else:
+                        brand_id = int(brand_id)
+                        query = query.filter(Product.brand_id == brand_id)
+                except ValueError:
+                    print(f"Invalid brand_id: {brand_id}")
+                    
+
+            # Apply price range filter
             if min_price is not None:
                 query = query.filter(Product.selling_price >= min_price)
             if max_price is not None:
                 query = query.filter(Product.selling_price <= max_price)
+
+            # Apply search filter
             if search:
-                search_term = f"%{search}%"
-                query = query.filter(
-                    or_(
-                        Product.product_name.ilike(search_term),
-                        Product.product_description.ilike(search_term)
-                    )
-                )
+                search_terms = search.lower().split()
+                search_conditions = []
                 
-            # Apply sorting
-            if order == 'asc':
-                query = query.order_by(getattr(Product, sort_by))
+                for term in search_terms:
+                    term = f"%{term}%"
+                    search_conditions.extend([
+                        Product.product_name.ilike(term),
+                        Product.product_description.ilike(term),
+                        Product.sku.ilike(term),
+                        Category.name.ilike(term),
+                        Brand.name.ilike(term)
+                    ])
+                
+                # Join with category and brand tables for searching
+                query = query.outerjoin(Category).outerjoin(Brand)
+                
+                # Apply the search conditions
+                query = query.filter(or_(*search_conditions))
+                
+                # Add relevance scoring
+                from sqlalchemy import case, literal_column
+                
+                relevance = case(
+                    (Product.product_name.ilike(f"%{search}%"), 3),  # Exact match in name
+                    (Product.product_name.ilike(f"%{search}%"), 2),  # Partial match in name
+                    (Product.sku.ilike(f"%{search}%"), 2),          # Match in SKU
+                    (Category.name.ilike(f"%{search}%"), 1),        # Match in category
+                    (Brand.name.ilike(f"%{search}%"), 1),           # Match in brand
+                    else_=0
+                ).label('relevance')
+                
+                # Execute paginated query with relevance
+                pagination = query.add_columns(relevance).paginate(page=page, per_page=per_page, error_out=False)
+                
+                # Prepare response
+                products = pagination.items
+                total = pagination.total
+                pages = pagination.pages
+                
+                # Get product data with media and reviews
+                product_data = []
+                for product, relevance_score in products:  # Unpack the tuple containing product and relevance score
+                    product_dict = product.serialize()
+                    
+                    # Calculate average rating
+                    avg_rating = db.session.query(func.avg(Review.rating))\
+                        .filter(Review.product_id == product.product_id)\
+                        .scalar() or 0
+                    
+                    # Get product reviews
+                    reviews = Review.query.filter_by(
+                        product_id=product.product_id,
+                        deleted_at=None
+                    ).order_by(Review.created_at.desc()).all()
+                    
+                    # Add frontend-specific fields
+                    product_dict.update({
+                        'id': str(product.product_id),  # Convert to string for frontend
+                        'name': product.product_name,
+                        'description': product.product_description,
+                        'price': float(product.selling_price),
+                        'originalPrice': float(product.cost_price),
+                        'stock': 100,  # TODO: Add stock tracking
+                        'isNew': True,  # TODO: Add logic for new products
+                        'isBuiltIn': False,  # TODO: Add logic for built-in products
+                        'rating': round(float(avg_rating), 1),  # Add average rating
+                        'discount_pct': float(product.discount_pct),  # Add discount percentage
+                        'relevance_score': relevance_score,  # Add relevance score
+                        'reviews': [{
+                            "id": review.review_id,
+                            "user": {
+                                "id": review.user.id,
+                                "first_name": review.user.first_name if hasattr(review.user, 'first_name') else 'Anonymous',
+                                "last_name": review.user.last_name if hasattr(review.user, 'last_name') else '',
+                                "email": review.user.email if hasattr(review.user, 'email') else None,
+                                "avatar": review.user.avatar_url if hasattr(review.user, 'avatar_url') else None
+                            },
+                            "rating": review.rating,
+                            "title": review.title,
+                            "body": review.body,
+                            "created_at": review.created_at.isoformat(),
+                            "images": [img.serialize() for img in review.images] if review.images else []
+                        } for review in reviews]
+                    })
+                    
+                    # Get primary media
+                    media = ProductController.get_product_media(product.product_id)
+                    if media:
+                        product_dict['primary_image'] = media['url']
+                        product_dict['image'] = media['url']  # For backward compatibility
+                    
+                    product_data.append(product_dict)
+
             else:
-                query = query.order_by(desc(getattr(Product, sort_by)))
+                # Execute paginated query without relevance
+                pagination = query.paginate(page=page, per_page=per_page, error_out=False)
                 
-            # Execute paginated query
-            pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-            
-            # Prepare response
-            products = pagination.items
-            total = pagination.total
-            pages = pagination.pages
-            
-            # Get product data with media
-            product_data = []
-            for product in products:
-                product_dict = product.serialize()
-                # Add frontend-specific fields
-                product_dict.update({
-                    'id': str(product.product_id),  # Convert to string for frontend
-                    'name': product.product_name,
-                    'description': product.product_description,
-                    'price': float(product.selling_price),
-                    'originalPrice': float(product.cost_price),
-                    'stock': 100,  # TODO: Add stock tracking
-                    'isNew': True,  # TODO: Add logic for new products
-                    'isBuiltIn': False,  # TODO: Add logic for built-in products
-                })
+                # Prepare response
+                products = pagination.items
+                total = pagination.total
+                pages = pagination.pages
                 
-                # Get primary media
-                media = ProductController.get_product_media(product.product_id)
-                if media:
-                    product_dict['primary_image'] = media['url']
-                    product_dict['image'] = media['url']  # For backward compatibility
-                
-                product_data.append(product_dict)
-            
+                # Get product data with media and reviews
+                product_data = []
+                for product in products:
+                    product_dict = product.serialize()
+                    
+                    # Calculate average rating
+                    avg_rating = db.session.query(func.avg(Review.rating))\
+                        .filter(Review.product_id == product.product_id)\
+                        .scalar() or 0
+                    
+                    # Get product reviews
+                    reviews = Review.query.filter_by(
+                        product_id=product.product_id,
+                        deleted_at=None
+                    ).order_by(Review.created_at.desc()).all()
+                    
+                    # Add frontend-specific fields
+                    product_dict.update({
+                        'id': str(product.product_id),  # Convert to string for frontend
+                        'name': product.product_name,
+                        'description': product.product_description,
+                        'price': float(product.selling_price),
+                        'originalPrice': float(product.cost_price),
+                        'stock': 100,  # TODO: Add stock tracking
+                        'isNew': True,  # TODO: Add logic for new products
+                        'isBuiltIn': False,  # TODO: Add logic for built-in products
+                        'rating': round(float(avg_rating), 1),  # Add average rating
+                        'discount_pct': float(product.discount_pct),  # Add discount percentage
+                        'reviews': [{
+                            "id": review.review_id,
+                            "user": {
+                                "id": review.user.id,
+                                "first_name": review.user.first_name if hasattr(review.user, 'first_name') else 'Anonymous',
+                                "last_name": review.user.last_name if hasattr(review.user, 'last_name') else '',
+                                "email": review.user.email if hasattr(review.user, 'email') else None,
+                                "avatar": review.user.avatar_url if hasattr(review.user, 'avatar_url') else None
+                            },
+                            "rating": review.rating,
+                            "title": review.title,
+                            "body": review.body,
+                            "created_at": review.created_at.isoformat(),
+                            "images": [img.serialize() for img in review.images] if review.images else []
+                        } for review in reviews]
+                    })
+                    
+                    # Get primary media
+                    media = ProductController.get_product_media(product.product_id)
+                    if media:
+                        product_dict['primary_image'] = media['url']
+                        product_dict['image'] = media['url']  # For backward compatibility
+                    
+                    product_data.append(product_dict)
+
             return jsonify({
                 'products': product_data,
                 'pagination': {
@@ -339,6 +465,17 @@ class ProductController:
                 # Add sibling variants (excluding current product)
                 variants.extend([v for v in all_variants if v.product_id != product_id])
 
+            # Get product reviews
+            reviews = Review.query.filter_by(
+                product_id=product_id,
+                deleted_at=None
+            ).order_by(Review.created_at.desc()).all()
+            
+            # Calculate average rating
+            avg_rating = db.session.query(func.avg(Review.rating))\
+                .filter(Review.product_id == product_id)\
+                .scalar() or 0
+
             # Prepare response data
             response_data = {
                 "product_id": product.product_id,
@@ -370,12 +507,26 @@ class ProductController:
                 "name": product.product_name,
                 "price": float(product.selling_price),
                 "originalPrice": float(product.cost_price),
-                "currency": "USD",
+                "currency": "INR",
                 "stock": 100,
                 "isNew": True,
                 "isBuiltIn": False,
-                "rating": 0,
-                "reviews": [],
+                "rating": round(float(avg_rating), 1),
+                "reviews": [{
+                    "id": review.review_id,
+                    "user": {
+                        "id": review.user.id,
+                        "first_name": review.user.first_name if hasattr(review.user, 'first_name') else 'Anonymous',
+                        "last_name": review.user.last_name if hasattr(review.user, 'last_name') else '',
+                        "email": review.user.email if hasattr(review.user, 'email') else None,
+                        "avatar": review.user.avatar_url if hasattr(review.user, 'avatar_url') else None
+                    },
+                    "rating": review.rating,
+                    "title": review.title,
+                    "body": review.body,
+                    "created_at": review.created_at.isoformat(),
+                    "images": [img.serialize() for img in review.images] if review.images else []
+                } for review in reviews],
                 "sku": product.sku if hasattr(product, 'sku') else None,
                 "parent_product_id": product.parent_product_id,
                 "is_variant": product.parent_product_id is not None,
@@ -424,6 +575,8 @@ class ProductController:
             min_price = request.args.get('min_price', type=float)
             max_price = request.args.get('max_price', type=float)
             search = request.args.get('search', '')
+            min_rating = request.args.get('min_rating', type=float)
+            min_discount = request.args.get('min_discount', type=float)
             
             # Get brand by slug
             brand = Brand.query.filter_by(
@@ -461,6 +614,16 @@ class ProductController:
                         Product.product_description.ilike(search_term)
                     )
                 )
+
+            # Apply rating filter
+            if min_rating is not None:
+                query = query.join(Review, Product.product_id == Review.product_id)\
+                    .group_by(Product.product_id)\
+                    .having(func.avg(Review.rating) >= min_rating)
+
+            # Apply discount filter
+            if min_discount is not None:
+                query = query.filter(Product.discount_pct >= min_discount)
                 
             # Apply sorting
             if order == 'asc':
@@ -480,6 +643,12 @@ class ProductController:
             product_data = []
             for product in products:
                 product_dict = product.serialize()
+                
+                # Calculate average rating
+                avg_rating = db.session.query(func.avg(Review.rating))\
+                    .filter(Review.product_id == product.product_id)\
+                    .scalar() or 0
+                
                 # Add frontend-specific fields
                 product_dict.update({
                     'id': str(product.product_id),
@@ -490,6 +659,8 @@ class ProductController:
                     'stock': 100,
                     'isNew': True,
                     'isBuiltIn': False,
+                    'rating': round(float(avg_rating), 1),
+                    'discount_pct': float(product.discount_pct),
                 })
                 
                 # Get primary media
@@ -545,6 +716,8 @@ class ProductController:
             max_price = request.args.get('max_price', type=float)
             search = request.args.get('search', '')
             include_children = request.args.get('include_children', 'true').lower() == 'true'
+            min_rating = request.args.get('min_rating', type=float)
+            min_discount = request.args.get('min_discount', type=float)
             
             # Get category
             category = Category.query.get_or_404(category_id)
@@ -588,6 +761,16 @@ class ProductController:
                         Product.product_description.ilike(search_term)
                     )
                 )
+
+            # Apply rating filter
+            if min_rating is not None:
+                query = query.join(Review, Product.product_id == Review.product_id)\
+                    .group_by(Product.product_id)\
+                    .having(func.avg(Review.rating) >= min_rating)
+
+            # Apply discount filter
+            if min_discount is not None:
+                query = query.filter(Product.discount_pct >= min_discount)
                 
             # Apply sorting
             if order == 'asc':
@@ -607,6 +790,12 @@ class ProductController:
             product_data = []
             for product in products:
                 product_dict = product.serialize()
+                
+                # Calculate average rating
+                avg_rating = db.session.query(func.avg(Review.rating))\
+                    .filter(Review.product_id == product.product_id)\
+                    .scalar() or 0
+                
                 # Add frontend-specific fields
                 product_dict.update({
                     'id': str(product.product_id),
@@ -617,6 +806,8 @@ class ProductController:
                     'stock': 100,
                     'isNew': True,
                     'isBuiltIn': False,
+                    'rating': round(float(avg_rating), 1),
+                    'discount_pct': float(product.discount_pct),
                 })
                 
                 # Get primary media

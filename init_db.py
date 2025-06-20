@@ -43,7 +43,10 @@ from models.product_promotion import ProductPromotion
 from models.tax_category import TaxCategory
 from models.homepage import HomepageCategory
 from models.subscription import SubscriptionPlan
+
 from models.gst_rule import GSTRule
+
+from models.merchant_transaction import MerchantTransacti
 
 # --- Merchant models ---
 from models.product import Product
@@ -56,12 +59,19 @@ from models.review import Review
 from models.product_attribute import ProductAttribute
 from models.recently_viewed import RecentlyViewed
 
+# --- Live Streaming models ---
+from models.live_stream import LiveStream, LiveStreamComment, LiveStreamViewer, StreamStatus
+
 # --- Payment models ---
 from models.payment_card import PaymentCard
 from models.enums import CardTypeEnum, CardStatusEnum
 
 # --- Monitoring models ---
 from models.system_monitoring import SystemMonitoring
+
+# --- Newsletter models ---
+from models.newsletter_subscription import NewsletterSubscription
+
 
 # Load environment variables
 load_dotenv()
@@ -349,41 +359,102 @@ def init_system_monitoring():
     db.session.commit()
     print("Initial system status record created.")
 
+def init_live_streaming():
+    """Initialize live streaming tables."""
+    print("\nInitializing Live Streaming Tables:")
+    print("---------------------------------")
+    
+    # Check if the tables exist using SQLAlchemy inspector
+    inspector = db.inspect(db.engine)
+    tables = ['live_streams', 'live_stream_comments', 'live_stream_viewers']
+    
+    for table in tables:
+        if table not in inspector.get_table_names():
+            print(f"Creating {table} table...")
+            if table == 'live_streams':
+                LiveStream.__table__.create(db.engine)
+            elif table == 'live_stream_comments':
+                LiveStreamComment.__table__.create(db.engine)
+            elif table == 'live_stream_viewers':
+                LiveStreamViewer.__table__.create(db.engine)
+            print(f"{table} table created successfully.")
+        else:
+            print(f"{table} table already exists.")
+    
+    # Add stream_status enum if it doesn't exist
+    try:
+        with db.engine.connect() as conn:
+            conn.execute(text("""
+                SELECT stream_status 
+                FROM live_streams 
+                LIMIT 1
+            """))
+    except Exception:
+        print("Adding stream_status enum to live_streams table...")
+        with db.engine.connect() as conn:
+            conn.execute(text("""
+                ALTER TABLE live_streams 
+                MODIFY COLUMN status ENUM('scheduled', 'live', 'ended', 'cancelled') 
+                NOT NULL DEFAULT 'scheduled'
+            """))
+            conn.commit()
+    
+    print("Live streaming tables initialized successfully.")
+
+def migrate_profile_img_column():
+    """Add profile_img column to users table if it doesn't exist."""
+    print("\nMigrating profile_img column:")
+    print("----------------------------")
+    
+    inspector = db.inspect(db.engine)
+    
+    if 'users' in inspector.get_table_names():
+        existing_columns = [col['name'] for col in inspector.get_columns('users')]
+        
+        if 'profile_img' not in existing_columns:
+            print("Adding profile_img column to users table...")
+            try:
+                with db.engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN profile_img VARCHAR(512) NULL"))
+                    conn.commit()
+                print("✓ profile_img column added successfully")
+            except Exception as e:
+                print(f"✗ Failed to add profile_img column: {str(e)}")
+        else:
+            print("✓ profile_img column already exists")
+    else:
+        print("✗ users table does not exist")
+
 def init_database():
-    """Initialize database tables and create super admin."""
+    """Initialize the database with all tables and initial data."""
     app = create_app()
     with app.app_context():
-        # Create tables if they don't exist
-        db.create_all()
-        print("Database tables created or already exist.")
-
-        # Initialize country configurations
-        init_country_configs()
+        print("Initializing Database:")
+        print("=====================")
         
-        # Initialize tax categories
+        # Create database if it doesn't exist
+        create_database()
+        
+        # Create all tables
+        print("\nCreating tables...")
+        db.create_all()
+        print("✓ All tables created successfully.")
+        
+        # Run migrations
+        migrate_profile_img_column()
+        
+        # Initialize data
+        init_country_configs()
         init_tax_categories()
-
-        # Initialize brand-category relationships
         init_brand_categories()
-
-        # Initialize product stocks
         init_product_stocks()
-
-        # Initialize recently viewed table
         init_recently_viewed()
-
-        # Initialize homepage categories table
         init_homepage_categories()
-
-        # Initialize subscription plans
         init_subscription_plans()
-
-        # Initialize payment cards
         init_payment_cards()
-
-        # Initialize system monitoring
         init_system_monitoring()
-
+        init_live_streaming()
+        
         # Create super admin user if not exists
         admin_email = os.getenv("SUPER_ADMIN_EMAIL")
         admin_first_name = os.getenv("SUPER_ADMIN_FIRST_NAME")
@@ -402,6 +473,9 @@ def init_database():
             admin.set_password(admin_password)
             admin.save()
             print("Super admin user created.")
+        
+        print("\nDatabase initialization completed successfully!")
+
 
 if __name__ == "__main__":
     create_database()

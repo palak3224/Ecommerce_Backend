@@ -2,6 +2,8 @@ import time
 import functools
 from flask import request, jsonify, current_app
 from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
+from functools import wraps
+from auth.models.models import User, UserRole
 
 from common.cache import get_redis_client
 
@@ -120,3 +122,13 @@ def cache_response(timeout=300, key_prefix='cache'):
             return jsonify(response), status_code
         return wrapped
     return decorator
+
+def merchant_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        user_id = get_jwt_identity()
+        user = User.query.get(user_id)
+        if not user or user.role != UserRole.MERCHANT:
+            return jsonify({"error": "Merchant access required"}), 403
+        return fn(*args, **kwargs)
+    return wrapper

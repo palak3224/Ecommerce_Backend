@@ -6,6 +6,10 @@ from models.recently_viewed import RecentlyViewed
 from common.database import db
 from datetime import datetime
 from sqlalchemy import desc
+from sqlalchemy import or_
+from models.product import Product
+from models.category import Category
+from models.brand import Brand
 
 product_bp = Blueprint('product', __name__)
 
@@ -929,4 +933,224 @@ def get_trendy_deals():
                 "has_next": False,
                 "has_prev": False
             }
+        }), 500 
+
+# Add new route for getting product reviews
+@product_bp.route('/api/products/<int:product_id>/reviews', methods=['GET'])
+@cross_origin()
+def get_product_reviews(product_id):
+    """Get all reviews for a product"""
+    try:
+        from models.review import Review
+        from sqlalchemy import func
+        from common.database import db
+
+        # Get pagination parameters
+        page = request.args.get('page', 1, type=int)
+        per_page = min(request.args.get('per_page', 10, type=int), 50)
+
+        # Get filter parameters
+        min_rating = request.args.get('min_rating', type=int)
+        sort_by = request.args.get('sort_by', 'created_at')
+        order = request.args.get('order', 'desc')
+
+        # Base query
+        query = Review.query.filter_by(
+            product_id=product_id,
+            deleted_at=None
+        )
+
+        # Apply rating filter
+        if min_rating is not None:
+            query = query.filter(Review.rating >= min_rating)
+
+        # Apply sorting
+        if order == 'asc':
+            query = query.order_by(getattr(Review, sort_by))
+        else:
+            query = query.order_by(getattr(Review, sort_by).desc())
+
+        # Execute paginated query
+        pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+
+        # Calculate average rating
+        avg_rating = db.session.query(func.avg(Review.rating))\
+            .filter(Review.product_id == product_id)\
+            .scalar() or 0
+
+        # Prepare response
+        reviews = pagination.items
+        review_data = [{
+            'id': review.review_id,
+            'user': {
+                'id': review.user.id,
+                'name': review.user.name,
+                'avatar': review.user.avatar_url
+            },
+            'rating': review.rating,
+            'title': review.title,
+            'body': review.body,
+            'created_at': review.created_at.isoformat(),
+            'images': [img.serialize() for img in review.images] if review.images else []
+        } for review in reviews]
+
+        return jsonify({
+            'reviews': review_data,
+            'average_rating': round(float(avg_rating), 1),
+            'total_reviews': pagination.total,
+            'pagination': {
+                'total': pagination.total,
+                'pages': pagination.pages,
+                'current_page': page,
+                'per_page': per_page,
+                'has_next': pagination.has_next,
+                'has_prev': pagination.has_prev
+            }
+        })
+
+    except Exception as e:
+        print(f"Error in get_product_reviews: {str(e)}")
+        return jsonify({
+            'error': 'Failed to fetch product reviews',
+            'message': str(e)
+        }), 500
+
+# Add new route for getting product discounts
+@product_bp.route('/api/products/discounts', methods=['GET'])
+@cross_origin()
+def get_product_discounts():
+    """Get all products with discounts"""
+    try:
+        from models.product import Product
+        from sqlalchemy import func
+        from common.database import db
+
+        # Get pagination parameters
+        page = request.args.get('page', 1, type=int)
+        per_page = min(request.args.get('per_page', 10, type=int), 50)
+
+        # Get filter parameters
+        min_discount = request.args.get('min_discount', type=float)
+        max_discount = request.args.get('max_discount', type=float)
+        sort_by = request.args.get('sort_by', 'discount_pct')
+        order = request.args.get('order', 'desc')
+
+        # Base query
+        query = Product.query.filter(
+            Product.deleted_at.is_(None),
+            Product.active_flag.is_(True),
+            Product.approval_status == 'approved',
+            Product.discount_pct > 0
+        )
+
+        # Apply discount filters
+        if min_discount is not None:
+            query = query.filter(Product.discount_pct >= min_discount)
+        if max_discount is not None:
+            query = query.filter(Product.discount_pct <= max_discount)
+
+        # Apply sorting
+        if order == 'asc':
+            query = query.order_by(getattr(Product, sort_by))
+        else:
+            query = query.order_by(getattr(Product, sort_by).desc())
+
+        # Execute paginated query
+        pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+
+        # Prepare response
+        products = pagination.items
+        product_data = []
+        for product in products:
+            product_dict = product.serialize()
+            # Add frontend-specific fields
+            product_dict.update({
+                'id': str(product.product_id),
+                'name': product.product_name,
+                'description': product.product_description,
+                'price': float(product.selling_price),
+                'originalPrice': float(product.cost_price),
+                'discount_pct': float(product.discount_pct),
+                'discount_amount': float(product.cost_price - product.selling_price)
+            })
+            
+            # Get primary media
+            media = ProductController.get_product_media(product.product_id)
+            if media:
+                product_dict['primary_image'] = media['url']
+                product_dict['image'] = media['url']
+            
+            product_data.append(product_dict)
+
+        return jsonify({
+            'products': product_data,
+            'pagination': {
+                'total': pagination.total,
+                'pages': pagination.pages,
+                'current_page': page,
+                'per_page': per_page,
+                'has_next': pagination.has_next,
+                'has_prev': pagination.has_prev
+            }
+        })
+
+    except Exception as e:
+        print(f"Error in get_product_discounts: {str(e)}")
+        return jsonify({
+            'error': 'Failed to fetch discounted products',
+            'message': str(e)
+        }), 500 
+
+@product_bp.route('/api/products/search-suggestions', methods=['GET'])
+@cross_origin()
+def get_search_suggestions():
+    try:
+        query = request.args.get('q', '').strip()
+        if not query:
+            return jsonify({
+                'products': [],
+                'categories': [],
+                'brands': []
+            })
+
+        # Get products suggestions
+        products = Product.query.filter(
+            Product.deleted_at.is_(None),
+            Product.active_flag.is_(True),
+            Product.approval_status == 'approved',
+            or_(
+                Product.product_name.ilike(f'%{query}%'),
+                Product.sku.ilike(f'%{query}%')
+            )
+        ).limit(5).all()
+
+        # Get category suggestions
+        categories = Category.query.filter(
+            Category.name.ilike(f'%{query}%')
+        ).limit(5).all()
+
+        # Get brand suggestions
+        brands = Brand.query.filter(
+            Brand.name.ilike(f'%{query}%'),
+            Brand.deleted_at.is_(None)
+        ).limit(5).all()
+
+        return jsonify({
+            'products': [{
+                'id': str(p.product_id),
+                'name': p.product_name,
+                'price': float(p.selling_price),
+                'primary_image': ProductController.get_product_media(p.product_id)['url'] if ProductController.get_product_media(p.product_id) else None
+            } for p in products],
+            'categories': [c.serialize() for c in categories],
+            'brands': [b.serialize() for b in brands]
+        })
+
+    except Exception as e:
+        print(f"Error in get_search_suggestions: {str(e)}")
+        return jsonify({
+            'error': str(e),
+            'products': [],
+            'categories': [],
+            'brands': []
         }), 500 

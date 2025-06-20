@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime
 from enum import Enum
 import re
+from datetime import datetime, timezone
 
 from common.database import db, BaseModel
 from auth.models.merchant_document import VerificationStatus, DocumentType
@@ -119,7 +120,7 @@ class User(BaseModel):
     
     def update_last_login(self):
         """Update last login timestamp."""
-        self.last_login = datetime.utcnow()
+        self.last_login = datetime.now(timezone.utc)
         db.session.commit()
     
     @classmethod
