@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, request,make_response, send_from_directory
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
+from flask_migrate import Migrate
 from common.cache import cached
 import os
 from config import get_config
@@ -136,6 +137,7 @@ def create_app(config_name='default'):
     cache.init_app(app)
     jwt = JWTManager(app)
     email_init.init_app(app)
+    migrate = Migrate(app, db)
 
     # Register blueprints
     app.register_blueprint(auth_bp, url_prefix='/api/auth')

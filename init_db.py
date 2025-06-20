@@ -397,44 +397,60 @@ def init_live_streaming():
     
     print("Live streaming tables initialized successfully.")
 
+def migrate_profile_img_column():
+    """Add profile_img column to users table if it doesn't exist."""
+    print("\nMigrating profile_img column:")
+    print("----------------------------")
+    
+    inspector = db.inspect(db.engine)
+    
+    if 'users' in inspector.get_table_names():
+        existing_columns = [col['name'] for col in inspector.get_columns('users')]
+        
+        if 'profile_img' not in existing_columns:
+            print("Adding profile_img column to users table...")
+            try:
+                with db.engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN profile_img VARCHAR(512) NULL"))
+                    conn.commit()
+                print("✓ profile_img column added successfully")
+            except Exception as e:
+                print(f"✗ Failed to add profile_img column: {str(e)}")
+        else:
+            print("✓ profile_img column already exists")
+    else:
+        print("✗ users table does not exist")
+
 def init_database():
-    """Initialize database tables and create super admin."""
+    """Initialize the database with all tables and initial data."""
     app = create_app()
     with app.app_context():
-        # Create tables if they don't exist
-        db.create_all()
-        print("Database tables created or already exist.")
-
-        # Initialize country configurations
-        init_country_configs()
+        print("Initializing Database:")
+        print("=====================")
         
-        # Initialize tax categories
+        # Create database if it doesn't exist
+        create_database()
+        
+        # Create all tables
+        print("\nCreating tables...")
+        db.create_all()
+        print("✓ All tables created successfully.")
+        
+        # Run migrations
+        migrate_profile_img_column()
+        
+        # Initialize data
+        init_country_configs()
         init_tax_categories()
-
-        # Initialize brand-category relationships
         init_brand_categories()
-
-        # Initialize product stocks
         init_product_stocks()
-
-        # Initialize recently viewed table
         init_recently_viewed()
-
-        # Initialize homepage categories table
         init_homepage_categories()
-
-        # Initialize subscription plans
         init_subscription_plans()
-
-        # Initialize payment cards
         init_payment_cards()
-
-        # Initialize system monitoring
         init_system_monitoring()
-
-        # Initialize live streaming tables
         init_live_streaming()
-
+        
         # Create super admin user if not exists
         admin_email = os.getenv("SUPER_ADMIN_EMAIL")
         admin_first_name = os.getenv("SUPER_ADMIN_FIRST_NAME")
@@ -453,6 +469,9 @@ def init_database():
             admin.set_password(admin_password)
             admin.save()
             print("Super admin user created.")
+        
+        print("\nDatabase initialization completed successfully!")
+
 
 if __name__ == "__main__":
     create_database()

@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request, make_response
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from flask_socketio import SocketIO
+from flask_migrate import Migrate
 
 # Import from main backend
 from config import get_config
@@ -92,6 +93,9 @@ def create_live_streaming_app(config_name='default'):
     @app.errorhandler(500)
     def server_error(error):
         return jsonify({'error': 'Internal server error'}), 500
+
+    # After db.init_app(app)
+    migrate = Migrate(app, db)
 
     return app
 
