@@ -152,3 +152,12 @@ class TicketStatus(Enum):
 class TicketCreatorRole(Enum): 
     CUSTOMER = "customer"
     MERCHANT = "merchant"
+
+# Enum for GST Price Conditions
+class ProductPriceConditionType(Enum):
+    LESS_THAN = "less_than"
+    LESS_THAN_OR_EQUAL_TO = "less_than_or_equal_to"
+    GREATER_THAN = "greater_than"
+    GREATER_THAN_OR_EQUAL_TO = "greater_than_or_equal_to"
+    EQUAL_TO = "equal_to"
+    ANY = "any" # Represents no price condition
