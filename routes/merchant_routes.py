@@ -61,6 +61,17 @@ def calculate_discount_percentage(cost_price, selling_price):
 
 merchant_dashboard_bp = Blueprint('merchant_dashboard_bp', __name__)
 
+# General OPTIONS handler for CORS preflight requests
+@merchant_dashboard_bp.route('/', defaults={'path': ''}, methods=['OPTIONS'])
+@merchant_dashboard_bp.route('/<path:path>', methods=['OPTIONS'])
+def handle_options(path):
+    """Handle OPTIONS request for CORS preflight"""
+    response = jsonify({})
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    return response, 200
+
 # ── BRAND REQUESTS ───────────────────────────────────────────────────────────────
 @merchant_dashboard_bp.route('/brand-requests', methods=['GET'])
 @merchant_role_required
@@ -4048,17 +4059,47 @@ def get_most_viewed_products():
 
 
 #Merchant-Settings Change Password
-@merchant_dashboard_bp.route('/api/auth/merchant/change-password', methods=['POST'])
+@merchant_dashboard_bp.route('/change-password', methods=['POST'])
 @merchant_role_required
 @jwt_required
 def change_password():
-    data = request.get_json()
-    current_password = data.get("current_password")
-    new_password = data.get("new_password")
-    return MerchantSettingsController.change_password(current_password, new_password)
+    try:
+        current_app.logger.debug("Change password request received")
+        data = request.get_json()
+        current_app.logger.debug(f"Request data: {data}")
+        
+        if not data:
+            current_app.logger.error("No JSON data received")
+            return jsonify({"message": "No data provided"}), 400
+            
+        current_password = data.get("current_password")
+        new_password = data.get("new_password")
+        
+        if not current_password or not new_password:
+            current_app.logger.error("Missing password fields")
+            return jsonify({"message": "Both current_password and new_password are required"}), 400
+            
+        current_app.logger.debug("Calling MerchantSettingsController.change_password")
+        result = MerchantSettingsController.change_password(current_password, new_password)
+        current_app.logger.debug(f"Change password result: {result}")
+        
+        return result
+        
+    except Exception as e:
+        current_app.logger.error(f"Error in change_password route: {str(e)}")
+        return jsonify({"message": f"Internal server error: {str(e)}"}), 500
 
 #Load Merchant Details
-@merchant_dashboard_bp.route('/account', methods=['GET', 'OPTIONS'])
+@merchant_dashboard_bp.route('/account', methods=['OPTIONS'])
+def handle_account_options():
+    """Handle OPTIONS request for CORS preflight"""
+    response = jsonify({})
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, PUT, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    return response, 200
+
+@merchant_dashboard_bp.route('/account', methods=['GET'])
 @merchant_role_required
 def get_merchant_account():
     """
@@ -4073,3 +4114,113 @@ def get_merchant_account():
         description: Merchant not found
     """
     return MerchantSettingsController.get_account_settings()
+
+# Update Account Settings
+@merchant_dashboard_bp.route('/account', methods=['PUT'])
+@merchant_role_required
+@jwt_required()
+def update_merchant_account():
+    """
+    Update merchant account and bank details
+    ---
+    tags:
+      - Merchant - Settings
+    security:
+      - Bearer: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              email:
+                type: string
+                format: email
+                description: New email address
+              phone:
+                type: string
+                description: New phone number
+              account_name:
+                type: string
+                description: Business name
+              account_number:
+                type: string
+                description: Bank account number
+              ifsc_code:
+                type: string
+                description: IFSC code
+              bank_name:
+                type: string
+                description: Bank name
+              branch_name:
+                type: string
+                description: Bank branch name
+    responses:
+      200:
+        description: Account settings updated successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+      400:
+        description: Invalid request data or email already exists
+      404:
+        description: User or merchant profile not found
+      500:
+        description: Internal server error
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"message": "No data provided"}), 400
+        
+        return MerchantSettingsController.update_account_settings(data)
+        
+    except Exception as e:
+        current_app.logger.error(f"Error updating account settings: {str(e)}")
+        return jsonify({"message": "Internal server error"}), 500
+
+# Get User Info
+@merchant_dashboard_bp.route('/user-info', methods=['GET'])
+@merchant_role_required
+@jwt_required()
+def get_user_info():
+    """
+    Get basic user information for the currently logged-in user
+    ---
+    tags:
+      - Merchant - Settings
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: User information returned successfully
+        schema:
+          type: object
+          properties:
+            user_id:
+              type: integer
+            first_name:
+              type: string
+            last_name:
+              type: string
+            email:
+              type: string
+            phone:
+              type: string
+            role:
+              type: string
+            is_email_verified:
+              type: boolean
+            is_phone_verified:
+              type: boolean
+            is_active:
+              type: boolean
+      404:
+        description: User not found
+      500:
+        description: Internal server error
+    """
+    return MerchantSettingsController.get_user_info()

@@ -29,7 +29,10 @@ from controllers.superadmin.carousel_controller import CarouselController
 
 from controllers.superadmin.system_monitoring_controller import SystemMonitoringController
 from controllers.superadmin.merchant_transaction_controller import (
-    list_all_transactions, get_transaction_by_id, mark_as_paid
+    list_all_transactions, get_transaction_by_id, mark_as_paid,
+    calculate_fee_preview, create_merchant_transaction_from_order,
+    bulk_create_transactions_for_orders, get_merchant_transaction_summary,
+    get_merchant_pending_payments, bulk_mark_as_paid, get_transaction_statistics
 )
 
 superadmin_bp = Blueprint('superadmin_bp', __name__)
@@ -4286,6 +4289,72 @@ def get_all_subscribers():
 @superadmin_bp.route('/merchant-transactions', methods=['GET'])
 @super_admin_role_required
 def get_all_merchant_transactions():
+    """
+    Get all merchant transactions with optional filters
+    ---
+    tags:
+      - Merchant Transactions
+    security:
+      - Bearer: []
+    parameters:
+      - name: status
+        in: query
+        type: string
+        enum: [pending, paid]
+        description: Filter by payment status
+      - name: merchant_id
+        in: query
+        type: integer
+        description: Filter by merchant ID
+      - name: from
+        in: query
+        type: string
+        format: date
+        description: Filter from date (YYYY-MM-DD)
+      - name: to
+        in: query
+        type: string
+        format: date
+        description: Filter to date (YYYY-MM-DD)
+    responses:
+      200:
+        description: List of merchant transactions retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              order_id:
+                type: string
+              merchant_id:
+                type: integer
+              order_amount:
+                type: number
+              platform_fee_percent:
+                type: number
+              platform_fee_amount:
+                type: number
+              gst_on_fee_amount:
+                type: number
+              payment_gateway_fee:
+                type: number
+              final_payable_amount:
+                type: number
+              payment_status:
+                type: string
+                enum: [pending, paid]
+              settlement_date:
+                type: string
+                format: date
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      500:
+        description: Internal server error
+    """
     filters = {
         "status": request.args.get("status"),
         "merchant_id": request.args.get("merchant_id"),
@@ -4298,13 +4367,566 @@ def get_all_merchant_transactions():
 @superadmin_bp.route('/merchant-transactions/<int:txn_id>', methods=['GET'])
 @super_admin_role_required
 def get_merchant_transaction(txn_id):
+    """
+    Get a specific merchant transaction by ID
+    ---
+    tags:
+      - Merchant Transactions
+    security:
+      - Bearer: []
+    parameters:
+      - name: txn_id
+        in: path
+        type: integer
+        required: true
+        description: ID of the transaction to retrieve
+    responses:
+      200:
+        description: Merchant transaction retrieved successfully
+        schema:
+          type: object
+          properties:
+            id:
+              type: integer
+            order_id:
+              type: string
+            merchant_id:
+              type: integer
+            order_amount:
+              type: number
+            platform_fee_percent:
+              type: number
+            platform_fee_amount:
+              type: number
+            gst_on_fee_amount:
+              type: number
+            payment_gateway_fee:
+              type: number
+            final_payable_amount:
+              type: number
+            payment_status:
+              type: string
+              enum: [pending, paid]
+            settlement_date:
+              type: string
+              format: date
+      404:
+        description: Transaction not found
+      500:
+        description: Internal server error
+    """
     txn = get_transaction_by_id(txn_id)
     return jsonify(txn.serialize()), 200
 
 @superadmin_bp.route('/merchant-transactions/<int:txn_id>', methods=['PUT'])
 @super_admin_role_required
 def mark_merchant_transaction_paid(txn_id):
+    """
+    Mark a merchant transaction as paid
+    ---
+    tags:
+      - Merchant Transactions
+    security:
+      - Bearer: []
+    parameters:
+      - name: txn_id
+        in: path
+        type: integer
+        required: true
+        description: ID of the transaction to mark as paid
+    responses:
+      200:
+        description: Transaction marked as paid successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            transaction:
+              type: object
+      400:
+        description: Transaction already paid
+      404:
+        description: Transaction not found
+      500:
+        description: Internal server error
+    """
     txn = mark_as_paid(txn_id)
     if txn is None:
         return jsonify({"message": "Already paid."}), 400
     return jsonify({"message": "Marked as paid", "transaction": txn.serialize()}), 200
+
+@superadmin_bp.route('/merchant-transactions/fee-preview', methods=['POST'])
+@super_admin_role_required
+def calculate_transaction_fee_preview():
+    """
+    Calculate fee preview for a given order amount
+    ---
+    tags:
+      - Merchant Transactions
+    security:
+      - Bearer: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - order_amount
+            properties:
+              order_amount:
+                type: number
+                description: Order amount to calculate fees for
+    responses:
+      200:
+        description: Fee calculation preview retrieved successfully
+        schema:
+          type: object
+          properties:
+            order_amount:
+              type: number
+            platform_fee_percentage:
+              type: number
+            platform_fee_amount:
+              type: number
+            payment_gateway_fee_percentage:
+              type: number
+            payment_gateway_fee_amount:
+              type: number
+            gst_percentage:
+              type: number
+            gst_amount:
+              type: number
+            total_deductions:
+              type: number
+            final_payable_amount:
+              type: number
+            fee_breakdown:
+              type: object
+      400:
+        description: Bad request - Invalid order amount
+      500:
+        description: Internal server error
+    """
+    data = request.get_json()
+    if not data or 'order_amount' not in data:
+        return jsonify({'message': 'Order amount is required'}), 400
+    
+    try:
+        from decimal import Decimal
+        order_amount = Decimal(str(data['order_amount']))
+        fee_preview = calculate_fee_preview(order_amount)
+        return jsonify(fee_preview), 200
+    except Exception as e:
+        current_app.logger.error(f"Error calculating fee preview: {e}")
+        return jsonify({'message': 'Failed to calculate fee preview'}), 500
+
+@superadmin_bp.route('/merchant-transactions/create-from-order', methods=['POST'])
+@super_admin_role_required
+def create_transaction_from_order():
+    """
+    Create merchant transaction records from an order
+    ---
+    tags:
+      - Merchant Transactions
+    security:
+      - Bearer: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - order_id
+            properties:
+              order_id:
+                type: string
+                description: Order ID to create transactions for
+              settlement_date:
+                type: string
+                format: date
+                description: Settlement date (optional, defaults to today)
+    responses:
+      201:
+        description: Merchant transactions created successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              order_id:
+                type: string
+              merchant_id:
+                type: integer
+              order_amount:
+                type: number
+              final_payable_amount:
+                type: number
+              payment_status:
+                type: string
+                enum: [pending, paid]
+              settlement_date:
+                type: string
+                format: date
+      400:
+        description: Bad request - Invalid order ID
+      404:
+        description: Order not found
+      500:
+        description: Internal server error
+    """
+    data = request.get_json()
+    if not data or 'order_id' not in data:
+        return jsonify({'message': 'Order ID is required'}), 400
+    
+    try:
+        from datetime import date
+        settlement_date = None
+        if 'settlement_date' in data:
+            settlement_date = date.fromisoformat(data['settlement_date'])
+        
+        transactions = create_merchant_transaction_from_order(data['order_id'], settlement_date)
+        return jsonify([txn.serialize() for txn in transactions]), 201
+    except Exception as e:
+        current_app.logger.error(f"Error creating transactions from order: {e}")
+        return jsonify({'message': f'Failed to create transactions: {str(e)}'}), 500
+
+@superadmin_bp.route('/merchant-transactions/bulk-create', methods=['POST'])
+@super_admin_role_required
+def bulk_create_transactions():
+    """
+    Create merchant transactions for multiple orders
+    ---
+    tags:
+      - Merchant Transactions
+    security:
+      - Bearer: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - order_ids
+            properties:
+              order_ids:
+                type: array
+                items:
+                  type: string
+                description: List of order IDs to create transactions for
+              settlement_date:
+                type: string
+                format: date
+                description: Settlement date (optional, defaults to today)
+    responses:
+      201:
+        description: Merchant transactions created successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              order_id:
+                type: string
+              merchant_id:
+                type: integer
+              order_amount:
+                type: number
+              final_payable_amount:
+                type: number
+              payment_status:
+                type: string
+                enum: [pending, paid]
+              settlement_date:
+                type: string
+                format: date
+      400:
+        description: Bad request - Invalid order IDs
+      500:
+        description: Internal server error
+    """
+    data = request.get_json()
+    if not data or 'order_ids' not in data:
+        return jsonify({'message': 'Order IDs are required'}), 400
+    
+    try:
+        from datetime import date
+        settlement_date = None
+        if 'settlement_date' in data:
+            settlement_date = date.fromisoformat(data['settlement_date'])
+        
+        transactions = bulk_create_transactions_for_orders(data['order_ids'], settlement_date)
+        return jsonify([txn.serialize() for txn in transactions]), 201
+    except Exception as e:
+        current_app.logger.error(f"Error bulk creating transactions: {e}")
+        return jsonify({'message': f'Failed to create transactions: {str(e)}'}), 500
+
+@superadmin_bp.route('/merchant-transactions/summary', methods=['GET'])
+@super_admin_role_required
+def get_transaction_summary():
+    """
+    Get summary of merchant transactions
+    ---
+    tags:
+      - Merchant Transactions
+    security:
+      - Bearer: []
+    parameters:
+      - name: merchant_id
+        in: query
+        type: integer
+        description: Filter by merchant ID
+      - name: from_date
+        in: query
+        type: string
+        format: date
+        description: Filter from date (YYYY-MM-DD)
+      - name: to_date
+        in: query
+        type: string
+        format: date
+        description: Filter to date (YYYY-MM-DD)
+    responses:
+      200:
+        description: Transaction summary retrieved successfully
+        schema:
+          type: object
+          properties:
+            total_transactions:
+              type: integer
+            pending_transactions:
+              type: integer
+            paid_transactions:
+              type: integer
+            total_order_amount:
+              type: number
+            total_platform_fees:
+              type: number
+            total_payment_gateway_fees:
+              type: number
+            total_gst:
+              type: number
+            total_payable_to_merchants:
+              type: number
+            pending_amount:
+              type: number
+            paid_amount:
+              type: number
+      500:
+        description: Internal server error
+    """
+    try:
+        from datetime import date
+        merchant_id = request.args.get('merchant_id', type=int)
+        from_date = None
+        to_date = None
+        
+        if request.args.get('from_date'):
+            from_date = date.fromisoformat(request.args.get('from_date'))
+        if request.args.get('to_date'):
+            to_date = date.fromisoformat(request.args.get('to_date'))
+        
+        summary = get_merchant_transaction_summary(merchant_id, from_date, to_date)
+        return jsonify(summary), 200
+    except Exception as e:
+        current_app.logger.error(f"Error getting transaction summary: {e}")
+        return jsonify({'message': 'Failed to get transaction summary'}), 500
+
+@superadmin_bp.route('/merchant-transactions/merchant/<int:merchant_id>/pending', methods=['GET'])
+@super_admin_role_required
+def get_merchant_pending_transactions(merchant_id):
+    """
+    Get all pending payments for a specific merchant
+    ---
+    tags:
+      - Merchant Transactions
+    security:
+      - Bearer: []
+    parameters:
+      - name: merchant_id
+        in: path
+        type: integer
+        required: true
+        description: ID of the merchant
+    responses:
+      200:
+        description: Pending transactions retrieved successfully
+        schema:
+          type: object
+          properties:
+            transactions:
+              type: array
+              items:
+                type: object
+            total_pending_amount:
+              type: number
+            transaction_count:
+              type: integer
+      500:
+        description: Internal server error
+    """
+    try:
+        pending_data = get_merchant_pending_payments(merchant_id)
+        return jsonify(pending_data), 200
+    except Exception as e:
+        current_app.logger.error(f"Error getting pending transactions for merchant {merchant_id}: {e}")
+        return jsonify({'message': 'Failed to get pending transactions'}), 500
+
+@superadmin_bp.route('/merchant-transactions/bulk-mark-paid', methods=['POST'])
+@super_admin_role_required
+def bulk_mark_transactions_paid():
+    """
+    Mark multiple transactions as paid
+    ---
+    tags:
+      - Merchant Transactions
+    security:
+      - Bearer: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - transaction_ids
+            properties:
+              transaction_ids:
+                type: array
+                items:
+                  type: integer
+                description: List of transaction IDs to mark as paid
+    responses:
+      200:
+        description: Transactions marked as paid successfully
+        schema:
+          type: object
+          properties:
+            total_transactions:
+              type: integer
+            updated_count:
+              type: integer
+            already_paid_count:
+              type: integer
+      400:
+        description: Bad request - Invalid transaction IDs
+      500:
+        description: Internal server error
+    """
+    data = request.get_json()
+    if not data or 'transaction_ids' not in data:
+        return jsonify({'message': 'Transaction IDs are required'}), 400
+    
+    try:
+        result = bulk_mark_as_paid(data['transaction_ids'])
+        return jsonify(result), 200
+    except Exception as e:
+        current_app.logger.error(f"Error bulk marking transactions as paid: {e}")
+        return jsonify({'message': f'Failed to mark transactions as paid: {str(e)}'}), 500
+
+@superadmin_bp.route('/merchant-transactions/statistics', methods=['GET'])
+@super_admin_role_required
+def get_transaction_statistics_route():
+    """
+    Get comprehensive transaction statistics
+    ---
+    tags:
+      - Merchant Transactions
+    security:
+      - Bearer: []
+    parameters:
+      - name: from_date
+        in: query
+        type: string
+        format: date
+        description: Filter from date (YYYY-MM-DD)
+      - name: to_date
+        in: query
+        type: string
+        format: date
+        description: Filter to date (YYYY-MM-DD)
+    responses:
+      200:
+        description: Transaction statistics retrieved successfully
+        schema:
+          type: object
+          properties:
+            total_transactions:
+              type: integer
+            total_order_amount:
+              type: number
+            total_platform_fees:
+              type: number
+            total_payment_gateway_fees:
+              type: number
+            total_gst:
+              type: number
+            total_payable:
+              type: number
+            pending_amount:
+              type: number
+            paid_amount:
+              type: number
+            fee_distribution:
+              type: object
+              properties:
+                5%:
+                  type: object
+                  properties:
+                    count:
+                      type: integer
+                    amount:
+                      type: number
+                4%:
+                  type: object
+                  properties:
+                    count:
+                      type: integer
+                    amount:
+                      type: number
+                3%:
+                  type: object
+                  properties:
+                    count:
+                      type: integer
+                    amount:
+                      type: number
+                2%:
+                  type: object
+                  properties:
+                    count:
+                      type: integer
+                    amount:
+                      type: number
+            status_distribution:
+              type: object
+              properties:
+                pending:
+                  type: integer
+                paid:
+                  type: integer
+      500:
+        description: Internal server error
+    """
+    try:
+        from datetime import date
+        from_date = None
+        to_date = None
+        
+        if request.args.get('from_date'):
+            from_date = date.fromisoformat(request.args.get('from_date'))
+        if request.args.get('to_date'):
+            to_date = date.fromisoformat(request.args.get('to_date'))
+        
+        statistics = get_transaction_statistics(from_date, to_date)
+        return jsonify(statistics), 200
+    except Exception as e:
+        current_app.logger.error(f"Error getting transaction statistics: {e}")
+        return jsonify({'message': 'Failed to get transaction statistics'}), 500
