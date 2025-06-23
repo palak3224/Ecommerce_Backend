@@ -4,6 +4,7 @@ from flask import request, jsonify, current_app
 from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
 from functools import wraps
 from auth.models.models import User, UserRole
+import jwt
 
 from common.cache import get_redis_client
 
@@ -132,3 +133,49 @@ def merchant_required(fn):
             return jsonify({"error": "Merchant access required"}), 403
         return fn(*args, **kwargs)
     return wrapper
+
+def super_admin_role_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        token = None
+        if 'Authorization' in request.headers:
+            auth_header = request.headers['Authorization']
+            try:
+                token = auth_header.split(" ")[1]
+            except IndexError:
+                return jsonify({'message': 'Invalid token format'}), 401
+
+        if not token:
+            return jsonify({'message': 'Token is missing'}), 401
+
+        try:
+            data = jwt.decode(token, current_app.config['JWT_SECRET_KEY'], algorithms=["HS256"])
+            # The identity is stored in the 'sub' claim by default in JWT
+            user_id = data.get('sub')
+            if not user_id:
+                return jsonify({'message': 'Invalid token: missing user ID'}), 401
+
+            current_user = User.query.filter_by(id=int(user_id)).first()
+
+            if not current_user:
+                return jsonify({'message': 'User not found'}), 404
+
+            if current_user.role != UserRole.SUPER_ADMIN:
+                return jsonify({'message': 'Unauthorized access'}), 403
+
+            # Add the current user to the request context
+            request.current_user = current_user
+
+        except jwt.ExpiredSignatureError:
+            return jsonify({'message': 'Token has expired'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'message': 'Invalid token'}), 401
+        except ValueError:
+            return jsonify({'message': 'Invalid user ID format'}), 401
+
+        return f(*args, **kwargs)
+
+    return decorated_function
+
+# Alias for consistency with the controller naming
+superadmin_required = super_admin_role_required

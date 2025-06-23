@@ -35,6 +35,13 @@ from controllers.superadmin.merchant_transaction_controller import (
     get_merchant_pending_payments, bulk_mark_as_paid, get_transaction_statistics
 )
 
+from controllers.superadmin.profile_controller import (
+    get_superadmin_profile,
+    update_superadmin_profile,
+    create_superadmin,
+    get_all_superadmins
+)
+
 superadmin_bp = Blueprint('superadmin_bp', __name__)
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}  # removed extension type .svg and .gif 
@@ -1231,10 +1238,7 @@ def update_brand(bid):
         data = request.get_json(silent=True)
         if not data:
             return jsonify({'message': 'No JSON body provided'}), HTTPStatus.BAD_REQUEST
-        if 'name' in data and data['name'].strip():
-            update_data['name'] = data['name'].strip()
-        if 'slug' in data and data['slug'].strip():
-            update_data['slug'] = data['slug'].strip()
+        update_data = data
 
     # --- 2) multipart/form-data path ---
     elif content_type.startswith('multipart/form-data'):
@@ -4930,3 +4934,96 @@ def get_transaction_statistics_route():
     except Exception as e:
         current_app.logger.error(f"Error getting transaction statistics: {e}")
         return jsonify({'message': 'Failed to get transaction statistics'}), 500
+
+# Superadmin Profile Management Routes
+@superadmin_bp.route('/profile/<int:user_id>', methods=['GET'])
+@cross_origin()
+@super_admin_role_required
+def get_profile_route(user_id):
+    """Get superadmin profile details."""
+    return get_superadmin_profile(user_id)
+
+@superadmin_bp.route('/profile/<int:user_id>', methods=['PUT'])
+@cross_origin()
+@super_admin_role_required
+def update_profile_route(user_id):
+    """Update superadmin profile route."""
+    try:
+        from controllers.superadmin.profile_controller import update_superadmin_profile
+        current_app.logger.info(f"Updating profile for user ID: {user_id}")
+        data = request.get_json()
+        current_app.logger.info(f"Request data: {data}")
+        
+        result = update_superadmin_profile(user_id)  # The data is already available in request.get_json()
+        current_app.logger.info(f"Update result: {result}")
+        return result
+        
+    except ImportError as e:
+        current_app.logger.error(f"Import error in update_profile_route: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": "Server configuration error"
+        }), 500
+    except Exception as e:
+        current_app.logger.error(f"Error in update_profile_route: {str(e)}")
+        current_app.logger.error(f"Error type: {type(e).__name__}")
+        return jsonify({
+            "status": "error",
+            "message": f"Failed to update profile: {str(e)}"
+        }), 500
+
+@superadmin_bp.route('/superadmins', methods=['POST'])
+@cross_origin()
+@super_admin_role_required
+def create_superadmin_route():
+    """Create a new superadmin user."""
+    return create_superadmin()
+
+@superadmin_bp.route('/superadmins', methods=['GET'])
+@cross_origin()
+@super_admin_role_required
+def list_superadmins_route():
+    """Get list of all superadmin users."""
+    return get_all_superadmins()
+
+@superadmin_bp.route('/superadmins/<int:user_id>', methods=['DELETE'])
+@cross_origin()
+@super_admin_role_required
+def delete_superadmin_route(user_id):
+    """Delete a superadmin user."""
+    try:
+        from controllers.superadmin.profile_controller import delete_superadmin
+        return delete_superadmin(user_id)
+    except ImportError as e:
+        current_app.logger.error(f"Import error in delete_superadmin_route: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": "Server configuration error"
+        }), 500
+    except Exception as e:
+        current_app.logger.error(f"Error in delete_superadmin_route: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": f"Failed to delete superadmin: {str(e)}"
+        }), 500
+
+@superadmin_bp.route('/superadmins/<int:user_id>/reactivate', methods=['POST'])
+@cross_origin()
+@super_admin_role_required
+def reactivate_superadmin_route(user_id):
+    """Reactivate a disabled superadmin user."""
+    try:
+        from controllers.superadmin.profile_controller import reactivate_superadmin
+        return reactivate_superadmin(user_id)
+    except ImportError as e:
+        current_app.logger.error(f"Import error in reactivate_superadmin_route: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": "Server configuration error"
+        }), 500
+    except Exception as e:
+        current_app.logger.error(f"Error in reactivate_superadmin_route: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": f"Failed to reactivate superadmin: {str(e)}"
+        }), 500
