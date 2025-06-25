@@ -3,6 +3,7 @@ from common.database import db, BaseModel
 from auth.models.models import MerchantProfile
 from models.category import Category
 from models.brand import Brand
+import json
 
 class Product(BaseModel):
     __tablename__ = 'products'
@@ -45,6 +46,40 @@ class Product(BaseModel):
     parent = db.relationship('Product', remote_side=[product_id], backref='variants')
     
     def serialize(self):
+        # Process attributes to handle array format from variants
+        def process_attributes(attributes):
+            processed_attributes = []
+            
+            for attr in attributes:
+                # Check if the value is in array format (from variants)
+                if attr.value_text and attr.value_text.startswith('[') and attr.value_text.endswith(']'):
+                    try:
+                        # Parse the array string
+                        values = json.loads(attr.value_text)
+                        if isinstance(values, list):
+                            # Create individual attributes for each value
+                            for index, value in enumerate(values):
+                                processed_attributes.append({
+                                    "attribute_id": attr.attribute_id + index,  # Create unique IDs
+                                    "attribute_name": attr.attribute.name,
+                                    "value_code": attr.value_code,
+                                    "value_text": str(value),
+                                    "value_label": str(value),
+                                    "is_text_based": attr.value_code is None or attr.value_code.startswith('text_'),
+                                    "input_type": attr.attribute.input_type.value if attr.attribute.input_type else 'text'
+                                })
+                        else:
+                            # If not a list, treat as regular attribute
+                            processed_attributes.append(attr.serialize())
+                    except (json.JSONDecodeError, ValueError):
+                        # If parsing fails, treat as regular attribute
+                        processed_attributes.append(attr.serialize())
+                else:
+                    # Regular attribute, no processing needed
+                    processed_attributes.append(attr.serialize())
+            
+            return processed_attributes
+
         return {
             "product_id":      self.product_id,
             "merchant_id":     self.merchant_id,
@@ -68,7 +103,7 @@ class Product(BaseModel):
             "created_at":      self.created_at.isoformat() if self.created_at else None,
             "updated_at":      self.updated_at.isoformat() if self.updated_at else None,
             "deleted_at":      self.deleted_at.isoformat() if self.deleted_at else None,
-            "attributes":      [attr.serialize() for attr in self.product_attributes] if self.product_attributes else [],
+            "attributes":      process_attributes(self.product_attributes) if self.product_attributes else [],
             "variants":        [variant.serialize() for variant in self.variants] if self.variants else [],
             "stock":           self.stock.serialize() if self.stock else None
         }

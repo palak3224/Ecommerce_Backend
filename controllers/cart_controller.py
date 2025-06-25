@@ -54,9 +54,9 @@ class CartController:
             raise e
 
     @staticmethod
-    def add_to_cart(user_id: int, product_id: int, quantity: int):
+    def add_to_cart(user_id: int, product_id: int, quantity: int, selected_attributes=None):
         """
-        Add a product to the user's cart
+        Add a product to the user's cart with optional selected attributes
         """
         try:
             cart = CartController.get_cart(user_id)
@@ -89,28 +89,37 @@ class CartController:
             # Use special price if valid, otherwise use selling price
             effective_price = product.special_price if has_valid_special_price else product.selling_price
             
-            # Check if product already exists in cart
-            cart_item = CartItem.query.filter_by(
-                cart_id=cart.cart_id,
-                product_id=product_id
-            ).first()
-            
-            if cart_item:
-                # Update quantity if product exists
-                cart_item.quantity += quantity
-            else:
-                # Create new cart item if product doesn't exist
-                cart_item = CartItem(
+            # Check if product already exists in cart with the same attributes
+            existing_cart_item = None
+            if selected_attributes:
+                # For products with attributes, we need to check if the same product with same attributes exists
+                cart_items = CartItem.query.filter_by(
                     cart_id=cart.cart_id,
-                    product_id=product_id,
+                    product_id=product_id
+                ).all()
+                
+                for item in cart_items:
+                    if item.get_selected_attributes() == selected_attributes:
+                        existing_cart_item = item
+                        break
+            else:
+                # For products without attributes, check normally
+                existing_cart_item = CartItem.query.filter_by(
+                    cart_id=cart.cart_id,
+                    product_id=product_id
+                ).first()
+            
+            if existing_cart_item:
+                # Update quantity if product exists with same attributes
+                existing_cart_item.quantity += quantity
+                cart_item = existing_cart_item
+            else:
+                # Create new cart item if product doesn't exist or has different attributes
+                cart_item = CartItem.create_from_product(
+                    cart_id=cart.cart_id,
+                    product=product,
                     quantity=quantity,
-                    product_name=product.product_name,
-                    product_sku=product.sku,
-                    product_price=effective_price,
-                    product_discount_pct=product.discount_pct,
-                    product_special_price=product.special_price if has_valid_special_price else None,
-                    product_image_url=product_image.url if product_image else None,
-                    product_stock_qty=product_stock.stock_qty if product_stock else 0
+                    selected_attributes=selected_attributes
                 )
                 db.session.add(cart_item)
             

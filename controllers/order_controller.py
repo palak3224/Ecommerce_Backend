@@ -9,6 +9,7 @@ from decimal import Decimal
 from sqlalchemy import desc
 from models.product import Product
 from models.product_media import ProductMedia
+import json
 
 class OrderController:
     @staticmethod
@@ -82,7 +83,8 @@ class OrderController:
                     quantity=item_data.get('quantity'),
                     unit_price_at_purchase=Decimal(str(item_data.get('unit_price_at_purchase'))),
                     item_subtotal_amount=Decimal(str(item_data.get('item_subtotal_amount'))),
-                    final_price_for_item=Decimal(str(item_data.get('final_price_for_item')))
+                    final_price_for_item=Decimal(str(item_data.get('final_price_for_item'))),
+                    selected_attributes=json.dumps(item_data.get('selected_attributes', {}))
                 )
                 new_order.items.append(order_item)
 

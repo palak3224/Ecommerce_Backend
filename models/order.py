@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from common.database import db, BaseModel
 from models.enums import OrderStatusEnum, PaymentMethodEnum, PaymentStatusEnum, OrderItemStatusEnum # Your enums
 from decimal import Decimal
+import json
 
 def generate_order_id_string():
     now = datetime.now(timezone.utc)
@@ -96,6 +97,9 @@ class OrderItem(BaseModel):
     item_subtotal_amount = db.Column(db.Numeric(12, 2), nullable=False) 
     final_price_for_item = db.Column(db.Numeric(12, 2), nullable=False) 
 
+    # NEW: Store selected attributes as JSON
+    selected_attributes = db.Column(db.Text, nullable=True)  # JSON string of selected attributes
+
     item_status = db.Column(db.Enum(OrderItemStatusEnum), nullable=False, default=OrderItemStatusEnum.PENDING_FULFILLMENT)
     # created_at, updated_at from BaseModel
 
@@ -105,6 +109,15 @@ class OrderItem(BaseModel):
 
     def __repr__(self):
         return f"<OrderItem id={self.order_item_id} order_id={self.order_id} sku='{self.sku_at_purchase}'>"
+
+    def get_selected_attributes(self):
+        """Get selected attributes as a dictionary"""
+        if self.selected_attributes:
+            try:
+                return json.loads(self.selected_attributes)
+            except json.JSONDecodeError:
+                return {}
+        return {}
 
     def serialize(self):
         return {
@@ -118,6 +131,7 @@ class OrderItem(BaseModel):
             "unit_price_at_purchase": str(self.unit_price_at_purchase),
             "item_subtotal_amount": str(self.item_subtotal_amount),
             "final_price_for_item": str(self.final_price_for_item),
+            "selected_attributes": self.get_selected_attributes(),
             "item_status": self.item_status.value,
             "created_at": self.created_at.isoformat() if hasattr(self, 'created_at') and self.created_at else None,
             "updated_at": self.updated_at.isoformat() if hasattr(self, 'updated_at') and self.updated_at else None,
