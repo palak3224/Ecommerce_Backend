@@ -120,9 +120,8 @@ class PromotionController:
 
     @staticmethod
     def soft_delete(promo_id):
-        """Soft deletes a promotion and deactivates it."""
+        """Soft deletes a promotion and deactivates it.""" 
         p = Promotion.query.get_or_404(promo_id)
-        p.deleted_at = db.func.current_timestamp()
-        p.active_flag = False
+        db.session.delete(p)    #update hard delete 
         db.session.commit()
         return p

@@ -208,7 +208,7 @@ class MerchantDashboardController:
                     OrderItem.product_id,
                     Product.product_name,
                     func.sum(OrderItem.quantity).label("sold"),
-                    func.sum(OrderItem.final_price_for_item).label("revenue")
+                    func.sum(OrderItem.unit_price_inclusive_gst).label("revenue")
                 )
                 .join(Product, Product.product_id == OrderItem.product_id)
                 .filter(OrderItem.merchant_id == merchant.id)

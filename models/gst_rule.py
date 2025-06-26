@@ -79,77 +79,66 @@ class GSTRule(BaseModel):
         return lineage_ids
 
     @staticmethod
-    def find_applicable_rule(db_session, product_category_id, base_price: Decimal):
+    def find_applicable_rule(db_session, product_category_id, product_inclusive_price: Decimal): # price is now inclusive
         today = DDate.today()
         
         try:
-            base_price_decimal = Decimal(base_price)
+            inclusive_price_decimal = Decimal(product_inclusive_price)
         except (TypeError, InvalidOperation):
-            # Log an error or handle as appropriate
-            return None
+            return None # Cannot determine rule without a valid price for comparison
 
-        # 1. Compute the product’s category lineage
         category_lineage_ids = GSTRule._get_category_lineage_ids(product_category_id, db_session)
         if not category_lineage_ids:
-            # If a product has no category, or lineage couldn't be determined,
-            # it cannot match any rule since rules require a category_id.
             return None
 
-        # 2. Load all active rules (by date range & is_active)
-        # Pre-filter rules that could potentially match any category in the lineage
-        # and are active. Order by ID desc as a final tie-breaker.
         all_active_rules = db_session.query(GSTRule).filter(
             GSTRule.is_active == True,
-            GSTRule.category_id.in_(category_lineage_ids), # Optimization
+            GSTRule.category_id.in_(category_lineage_ids),
             or_(GSTRule.start_date == None, GSTRule.start_date <= today),
             or_(GSTRule.end_date == None, GSTRule.end_date >= today)
         ).order_by(
-            desc(GSTRule.id) # For final tie-breaking
+            desc(GSTRule.id) 
         ).all()
 
         if not all_active_rules:
             return None
 
         best_rule_for_product = None
-        # Iterate through lineage from most specific to most general
         for current_lineage_cat_id in category_lineage_ids:
-            # Filter rules for the current category in the lineage
             rules_for_this_category_level = [
                 rule for rule in all_active_rules if rule.category_id == current_lineage_cat_id
             ]
 
             if not rules_for_this_category_level:
-                continue # No rules for this specific category level, try parent
+                continue
 
-            # Apply price condition and specificity tie-breaking for this level
             matched_rules_at_this_level = []
             for rule in rules_for_this_category_level:
                 price_condition_met = False
                 if rule.price_condition_type == ProductPriceConditionType.ANY:
                     price_condition_met = True
                 elif rule.price_condition_value is not None:
-                    price_val = Decimal(rule.price_condition_value)
-                    if rule.price_condition_type == ProductPriceConditionType.LESS_THAN and base_price_decimal < price_val: price_condition_met = True
-                    elif rule.price_condition_type == ProductPriceConditionType.LESS_THAN_OR_EQUAL_TO and base_price_decimal <= price_val: price_condition_met = True
-                    elif rule.price_condition_type == ProductPriceConditionType.GREATER_THAN and base_price_decimal > price_val: price_condition_met = True
-                    elif rule.price_condition_type == ProductPriceConditionType.GREATER_THAN_OR_EQUAL_TO and base_price_decimal >= price_val: price_condition_met = True
-                    elif rule.price_condition_type == ProductPriceConditionType.EQUAL_TO and base_price_decimal == price_val: price_condition_met = True
+                    # Price condition in rule now refers to INCLUSIVE price
+                    rule_price_val_inclusive = Decimal(rule.price_condition_value) 
+                    
+                    if rule.price_condition_type == ProductPriceConditionType.LESS_THAN and inclusive_price_decimal < rule_price_val_inclusive: price_condition_met = True
+                    elif rule.price_condition_type == ProductPriceConditionType.LESS_THAN_OR_EQUAL_TO and inclusive_price_decimal <= rule_price_val_inclusive: price_condition_met = True
+                    elif rule.price_condition_type == ProductPriceConditionType.GREATER_THAN and inclusive_price_decimal > rule_price_val_inclusive: price_condition_met = True
+                    elif rule.price_condition_type == ProductPriceConditionType.GREATER_THAN_OR_EQUAL_TO and inclusive_price_decimal >= rule_price_val_inclusive: price_condition_met = True
+                    elif rule.price_condition_type == ProductPriceConditionType.EQUAL_TO and inclusive_price_decimal == rule_price_val_inclusive: price_condition_met = True
                 
                 if price_condition_met:
                     matched_rules_at_this_level.append(rule)
             
             if matched_rules_at_this_level:
-                # Tie-breaking: (a) price-condition specificity, then (b) rule ID (already sorted)
-                # Rules with specific price conditions are more specific.
                 specific_price_rules = [r for r in matched_rules_at_this_level if r.price_condition_type != ProductPriceConditionType.ANY]
                 any_price_rules = [r for r in matched_rules_at_this_level if r.price_condition_type == ProductPriceConditionType.ANY]
 
                 if specific_price_rules:
-                    # The list is already sorted by ID desc, so the first one is the highest ID.
-                    best_rule_for_product = specific_price_rules[0]
+                    best_rule_for_product = specific_price_rules[0] # Already sorted by ID desc
                     return best_rule_for_product 
                 elif any_price_rules:
-                    best_rule_for_product = any_price_rules[0]
+                    best_rule_for_product = any_price_rules[0] # Already sorted by ID desc
                     return best_rule_for_product
         
         return None
