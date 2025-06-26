@@ -120,9 +120,21 @@ class PromotionController:
 
     @staticmethod
     def soft_delete(promo_id):
-        """Soft deletes a promotion and deactivates it."""
+        """Soft deletes a promotion and deactivates it.""" 
         p = Promotion.query.get_or_404(promo_id)
-        p.deleted_at = db.func.current_timestamp()
-        p.active_flag = False
+        db.session.delete(p)    #update hard delete 
         db.session.commit()
         return p
+
+
+    @staticmethod
+    def list_current_game_promos():
+        """List all current running (active, not expired, not deleted) game promocodes."""
+        today = datetime.utcnow().date()
+        promos = Promotion.query.filter(
+            Promotion.active_flag == True,
+            Promotion.deleted_at == None,
+            Promotion.start_date <= today,
+            Promotion.end_date >= today
+        ).order_by(Promotion.created_at.desc()).all()
+        return [p.serialize() for p in promos]
