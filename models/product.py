@@ -120,45 +120,45 @@ class Product(BaseModel):
             
             return processed_attributes
 
-return {
-    "product_id": self.product_id,
-    "merchant_id": self.merchant_id,
-    "category_id": self.category_id,
-    "category_name": self.category.name if self.category else None,  # Added for convenience
-    "brand_id": self.brand_id,
-    "brand_name": self.brand.name if self.brand else None,  # Added for convenience
-    "parent_product_id": self.parent_product_id,
-    "sku": self.sku,
-    "product_name": self.product_name,
-    "product_description": self.product_description,
-    "cost_price": float(self.cost_price) if self.cost_price is not None else None,
+        return {
+            "product_id": self.product_id,
+            "merchant_id": self.merchant_id,
+            "category_id": self.category_id,
+            "category_name": self.category.name if self.category else None,  # Added for convenience
+            "brand_id": self.brand_id,
+            "brand_name": self.brand.name if self.brand else None,  # Added for convenience
+            "parent_product_id": self.parent_product_id,
+            "sku": self.sku,
+            "product_name": self.product_name,
+            "product_description": self.product_description,
+            "cost_price": float(self.cost_price) if self.cost_price is not None else None,
 
-    # Merchant's standard GST-inclusive selling price
-    "standard_selling_price_inclusive_gst": float(self.selling_price) if self.selling_price is not None else None,
+            # Merchant's standard GST-inclusive selling price
+            "standard_selling_price_inclusive_gst": float(self.selling_price) if self.selling_price is not None else None,
 
-    # Merchant's special GST-inclusive price (if any)
-    "special_price_inclusive_gst": float(self.special_price) if self.special_price is not None else None,
-    "special_start": self.special_start.isoformat() if self.special_start else None,
-    "special_end": self.special_end.isoformat() if self.special_end else None,
-    "is_on_special_offer": is_on_special,
+            # Merchant's special GST-inclusive price (if any)
+            "special_price_inclusive_gst": float(self.special_price) if self.special_price is not None else None,
+            "special_start": self.special_start.isoformat() if self.special_start else None,
+            "special_end": self.special_end.isoformat() if self.special_end else None,
+            "is_on_special_offer": is_on_special,
 
-    "active_flag": bool(self.active_flag),
-    "approval_status": self.approval_status,
+            "active_flag": bool(self.active_flag),
+            "approval_status": self.approval_status,
 
-    # Approval metadata
-    "approved_at": self.approved_at.isoformat() if self.approved_at else None,
-    "approved_by": self.approved_by,
-    "rejection_reason": self.rejection_reason,
-    "created_at": self.created_at.isoformat() if self.created_at else None,
-    "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-    "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None,
+            # Approval metadata
+            "approved_at": self.approved_at.isoformat() if self.approved_at else None,
+            "approved_by": self.approved_by,
+            "rejection_reason": self.rejection_reason,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None,
 
-    # Frontend pricing display
-    "price": float(display_price) if display_price is not None else 0.0,
-    "originalPrice": float(original_display_price) if original_display_price is not None else None,
+            # Frontend pricing display
+            "price": float(display_price) if display_price is not None else 0.0,
+            "originalPrice": float(original_display_price) if original_display_price is not None else None,
 
-    # Attributes, Variants, Stock
-    "attributes": [attr.serialize() for attr in self.product_attributes] if self.product_attributes else [],
-    "variants": [variant.serialize() for variant in self.variants] if self.variants else [],
-    "stock": self.stock.serialize() if hasattr(self, 'stock') and self.stock else None
-}
+            # Attributes, Variants, Stock
+            "attributes": [attr.serialize() for attr in self.product_attributes] if self.product_attributes else [],
+            "variants": [variant.serialize() for variant in self.variants] if self.variants else [],
+            "stock": self.stock.serialize() if hasattr(self, 'stock') and self.stock else None
+        }
