@@ -12,6 +12,7 @@ from models.product_attribute import ProductAttribute
 from datetime import datetime, timedelta
 from models.order import OrderItem, Order
 from models.review import Review
+import json
 
 class ProductController:
     @staticmethod
@@ -397,6 +398,108 @@ class ProductController:
                 product_id=product_id
             ).all()
 
+            # Process attributes to handle array format from variants
+            def process_attributes(attributes):
+                processed_attributes = []
+                
+                for attr in attributes:
+                    # Check if the value is in array format (from variants)
+                    if attr.value_text and (
+                        (attr.value_text.startswith('[') and attr.value_text.endswith(']')) or
+                        (attr.value_text.startswith("['") and attr.value_text.endswith("']"))
+                    ):
+                        try:
+                            # First try to parse as JSON
+                            values = json.loads(attr.value_text)
+                            if isinstance(values, list):
+                                # Create individual attributes for each value
+                                for index, value in enumerate(values):
+                                    processed_attributes.append({
+                                        "attribute_id": attr.attribute_id + index,  # Create unique IDs
+                                        "attribute_name": attr.attribute.name,
+                                        "value_code": attr.value_code,
+                                        "value_text": str(value),
+                                        "value_label": str(value),
+                                        "is_text_based": attr.value_code is None or attr.value_code.startswith('text_'),
+                                        "input_type": attr.attribute.input_type.value if attr.attribute.input_type else 'text'
+                                    })
+                            else:
+                                # If not a list, treat as regular attribute
+                                processed_attributes.append({
+                                    "attribute_id": attr.attribute_id,
+                                    "attribute_name": attr.attribute.name,
+                                    "value_code": attr.value_code,
+                                    "value_text": attr.value_text,
+                                    "value_label": attr.attribute_value.value_label if attr.attribute_value else None,
+                                    "is_text_based": attr.value_code is None or attr.value_code.startswith('text_'),
+                                    "input_type": attr.attribute.input_type.value if attr.attribute.input_type else 'text'
+                                })
+                        except (json.JSONDecodeError, ValueError):
+                            # If JSON parsing fails, try to parse as Python list string
+                            try:
+                                # Remove outer quotes and brackets, then split by comma
+                                clean_text = attr.value_text.strip()
+                                if clean_text.startswith("['") and clean_text.endswith("']"):
+                                    # Handle Python list with single quotes
+                                    clean_text = clean_text[2:-2]  # Remove [' and ']
+                                    values = [v.strip().strip("'\"") for v in clean_text.split("', '")]
+                                elif clean_text.startswith('[') and clean_text.endswith(']'):
+                                    # Handle JSON-like array
+                                    clean_text = clean_text[1:-1]  # Remove [ and ]
+                                    values = [v.strip().strip("'\"") for v in clean_text.split(',')]
+                                else:
+                                    # Not an array, treat as regular attribute
+                                    processed_attributes.append({
+                                        "attribute_id": attr.attribute_id,
+                                        "attribute_name": attr.attribute.name,
+                                        "value_code": attr.value_code,
+                                        "value_text": attr.value_text,
+                                        "value_label": attr.attribute_value.value_label if attr.attribute_value else None,
+                                        "is_text_based": attr.value_code is None or attr.value_code.startswith('text_'),
+                                        "input_type": attr.attribute.input_type.value if attr.attribute.input_type else 'text'
+                                    })
+                                    continue
+                                
+                                # Create individual attributes for each value
+                                for index, value in enumerate(values):
+                                    if value:  # Only add non-empty values
+                                        processed_attributes.append({
+                                            "attribute_id": attr.attribute_id + index,  # Create unique IDs
+                                            "attribute_name": attr.attribute.name,
+                                            "value_code": attr.value_code,
+                                            "value_text": str(value),
+                                            "value_label": str(value),
+                                            "is_text_based": attr.value_code is None or attr.value_code.startswith('text_'),
+                                            "input_type": attr.attribute.input_type.value if attr.attribute.input_type else 'text'
+                                        })
+                            except Exception:
+                                # If all parsing fails, treat as regular attribute
+                                processed_attributes.append({
+                                    "attribute_id": attr.attribute_id,
+                                    "attribute_name": attr.attribute.name,
+                                    "value_code": attr.value_code,
+                                    "value_text": attr.value_text,
+                                    "value_label": attr.attribute_value.value_label if attr.attribute_value else None,
+                                    "is_text_based": attr.value_code is None or attr.value_code.startswith('text_'),
+                                    "input_type": attr.attribute.input_type.value if attr.attribute.input_type else 'text'
+                                })
+                    else:
+                        # Regular attribute, no processing needed
+                        processed_attributes.append({
+                            "attribute_id": attr.attribute_id,
+                            "attribute_name": attr.attribute.name,
+                            "value_code": attr.value_code,
+                            "value_text": attr.value_text,
+                            "value_label": attr.attribute_value.value_label if attr.attribute_value else None,
+                            "is_text_based": attr.value_code is None or attr.value_code.startswith('text_'),
+                            "input_type": attr.attribute.input_type.value if attr.attribute.input_type else 'text'
+                        })
+                
+                return processed_attributes
+
+            # Process the attributes
+            processed_attributes = process_attributes(product_attributes)
+
             # Track recently viewed
             try:
                 from flask_jwt_extended import get_jwt_identity
@@ -492,14 +595,7 @@ class ProductController:
                     "meta_desc": product_meta.meta_desc if product_meta else None,
                     "meta_keywords": product_meta.meta_keywords if product_meta else None
                 },
-                "attributes": [{
-                    "attribute_id": attr.attribute_id,
-                    "attribute_name": attr.attribute.name,
-                    "value_code": attr.value_code,
-                    "value_text": attr.value_text,
-                    "value_label": attr.attribute_value.value_label if attr.attribute_value else None,
-                    "is_text_based": attr.value_code is None or attr.value_code.startswith('text_')
-                } for attr in product_attributes] if product_attributes else [],
+                "attributes": processed_attributes,
                 "category": product.category.serialize() if product.category else None,
                 "brand": product.brand.serialize() if product.brand else None,
                 # Add frontend-specific fields

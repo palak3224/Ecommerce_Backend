@@ -385,6 +385,34 @@ def get_product_details(product_id):
                     type: string
                   type:
                     type: string
+            attributes:
+              type: array
+              items:
+                type: object
+                properties:
+                  attribute_id:
+                    type: integer
+                    description: Unique identifier for the attribute (may be modified for array processing)
+                  attribute_name:
+                    type: string
+                    description: Name of the attribute (e.g., "Size", "Color")
+                  value_code:
+                    type: string
+                    description: Code value for the attribute
+                  value_text:
+                    type: string
+                    description: Text value of the attribute (individual value, not array format)
+                  value_label:
+                    type: string
+                    description: Display label for the attribute value
+                  is_text_based:
+                    type: boolean
+                    description: Whether the attribute is text-based
+                  input_type:
+                    type: string
+                    enum: [text, number, select, multiselect, boolean]
+                    description: Input type for the attribute
+              description: Array of product attributes. Array format attributes (from variants) are automatically converted to individual attributes for display.
             meta:
               type: object
               properties:

@@ -4,7 +4,11 @@ from common.database import db, BaseModel
 from auth.models.models import MerchantProfile
 from models.category import Category
 from models.brand import Brand
+
 from decimal import Decimal
+
+import json
+
 
 class Product(BaseModel):
     __tablename__ = 'products'
@@ -73,6 +77,7 @@ class Product(BaseModel):
         return current_price, is_on_special
 
     def serialize(self):
+
         current_listed_inclusive_price, is_on_special = self.get_current_listed_inclusive_price()
 
         # The main price shown to users before cart.
@@ -81,43 +86,79 @@ class Product(BaseModel):
         # originalPrice is shown if there's a special offer active. It's the standard selling_price (inclusive).
         original_display_price = self.selling_price if is_on_special and self.selling_price != display_price else None
 
-        return {
-            "product_id": self.product_id,
-            "merchant_id": self.merchant_id,
-            "category_id": self.category_id,
-            "category_name": self.category.name if self.category else None, # Added for convenience
-            "brand_id": self.brand_id,
-            "brand_name": self.brand.name if self.brand else None, # Added for convenience
-            "parent_product_id": self.parent_product_id,
-            "sku": self.sku,
-            "product_name": self.product_name,
-            "product_description": self.product_description,
-            "cost_price": float(self.cost_price) if self.cost_price is not None else None,
+        # Process attributes to handle array format from variants
+        def process_attributes(attributes):
+            processed_attributes = []
             
-            # Merchant's standard GST-inclusive selling price
-            "standard_selling_price_inclusive_gst": float(self.selling_price) if self.selling_price is not None else None,
+            for attr in attributes:
+                # Check if the value is in array format (from variants)
+                if attr.value_text and attr.value_text.startswith('[') and attr.value_text.endswith(']'):
+                    try:
+                        # Parse the array string
+                        values = json.loads(attr.value_text)
+                        if isinstance(values, list):
+                            # Create individual attributes for each value
+                            for index, value in enumerate(values):
+                                processed_attributes.append({
+                                    "attribute_id": attr.attribute_id + index,  # Create unique IDs
+                                    "attribute_name": attr.attribute.name,
+                                    "value_code": attr.value_code,
+                                    "value_text": str(value),
+                                    "value_label": str(value),
+                                    "is_text_based": attr.value_code is None or attr.value_code.startswith('text_'),
+                                    "input_type": attr.attribute.input_type.value if attr.attribute.input_type else 'text'
+                                })
+                        else:
+                            # If not a list, treat as regular attribute
+                            processed_attributes.append(attr.serialize())
+                    except (json.JSONDecodeError, ValueError):
+                        # If parsing fails, treat as regular attribute
+                        processed_attributes.append(attr.serialize())
+                else:
+                    # Regular attribute, no processing needed
+                    processed_attributes.append(attr.serialize())
             
-            # Merchant's special GST-inclusive price (if any)
-            "special_price_inclusive_gst": float(self.special_price) if self.special_price is not None else None,
-            "special_start": self.special_start.isoformat() if self.special_start else None,
-            "special_end": self.special_end.isoformat() if self.special_end else None,
-            "is_on_special_offer": is_on_special,
-            
-            "active_flag": bool(self.active_flag),
-            "approval_status": self.approval_status,
-            
-            # These are now determined at checkout/invoice time, not stored on product
-            # "gst_rate_percentage_applied": None, 
-            # "base_price_calculated": None,
-            
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-            
-            # For frontend: 'price' is current effective inclusive price, 'originalPrice' is standard inclusive if on special
-            "price": float(display_price) if display_price is not None else 0.0,
-            "originalPrice": float(original_display_price) if original_display_price is not None else None,
+            return processed_attributes
 
-            "attributes": [attr.serialize() for attr in self.product_attributes] if self.product_attributes else [],
-            "variants": [variant.serialize() for variant in self.variants] if self.variants else [],
-            "stock": self.stock.serialize() if hasattr(self, 'stock') and self.stock else None
-        }
+return {
+    "product_id": self.product_id,
+    "merchant_id": self.merchant_id,
+    "category_id": self.category_id,
+    "category_name": self.category.name if self.category else None,  # Added for convenience
+    "brand_id": self.brand_id,
+    "brand_name": self.brand.name if self.brand else None,  # Added for convenience
+    "parent_product_id": self.parent_product_id,
+    "sku": self.sku,
+    "product_name": self.product_name,
+    "product_description": self.product_description,
+    "cost_price": float(self.cost_price) if self.cost_price is not None else None,
+
+    # Merchant's standard GST-inclusive selling price
+    "standard_selling_price_inclusive_gst": float(self.selling_price) if self.selling_price is not None else None,
+
+    # Merchant's special GST-inclusive price (if any)
+    "special_price_inclusive_gst": float(self.special_price) if self.special_price is not None else None,
+    "special_start": self.special_start.isoformat() if self.special_start else None,
+    "special_end": self.special_end.isoformat() if self.special_end else None,
+    "is_on_special_offer": is_on_special,
+
+    "active_flag": bool(self.active_flag),
+    "approval_status": self.approval_status,
+
+    # Approval metadata
+    "approved_at": self.approved_at.isoformat() if self.approved_at else None,
+    "approved_by": self.approved_by,
+    "rejection_reason": self.rejection_reason,
+    "created_at": self.created_at.isoformat() if self.created_at else None,
+    "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+    "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None,
+
+    # Frontend pricing display
+    "price": float(display_price) if display_price is not None else 0.0,
+    "originalPrice": float(original_display_price) if original_display_price is not None else None,
+
+    # Attributes, Variants, Stock
+    "attributes": [attr.serialize() for attr in self.product_attributes] if self.product_attributes else [],
+    "variants": [variant.serialize() for variant in self.variants] if self.variants else [],
+    "stock": self.stock.serialize() if hasattr(self, 'stock') and self.stock else None
+}

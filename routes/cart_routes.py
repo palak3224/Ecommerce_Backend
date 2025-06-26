@@ -47,6 +47,10 @@ def get_cart():
                         type: integer
                       quantity:
                         type: integer
+                      selected_attributes:
+                        type: object
+                        description: Selected attributes for the product
+                        example: {"1": "red", "2": ["small", "medium"]}
       400:
         description: Error retrieving cart
         schema:
@@ -100,6 +104,10 @@ def add_to_cart():
               type: integer
               description: Quantity of the product to add
               minimum: 1
+            selected_attributes:
+              type: object
+              description: Selected attributes for the product (optional)
+              example: {"1": "red", "2": ["small", "medium"]}
     responses:
       200:
         description: Product added to cart successfully
@@ -127,6 +135,8 @@ def add_to_cart():
                         type: integer
                       quantity:
                         type: integer
+                      selected_attributes:
+                        type: object
       400:
         description: Invalid request or product not available
         schema:
@@ -160,8 +170,9 @@ def add_to_cart():
         
         product_id = data['product_id']
         quantity = data['quantity']
+        selected_attributes = data.get('selected_attributes', {})
         
-        cart = CartController.add_to_cart(user_id, product_id, quantity)
+        cart = CartController.add_to_cart(user_id, product_id, quantity, selected_attributes)
         return jsonify({
             'status': 'success',
             'data': cart.serialize()
@@ -424,6 +435,10 @@ def get_cart_items():
                     type: integer
                   quantity:
                     type: integer
+                  selected_attributes:
+                    type: object
+                    description: Selected attributes for the product
+                    example: {"1": "red", "2": ["small", "medium"]}
                   product:
                     type: object
                     properties:
@@ -457,12 +472,13 @@ def get_cart_items():
         formatted_items = [{
             'cart_item_id': item.cart_item_id,
             'product_id': item.product_id,
-            'merchant_id': item.product.merchant_id,
+            'merchant_id': item.merchant_id,
             'quantity': item.quantity,
+            'selected_attributes': item.get_selected_attributes(),
             'product': {
-                'name': item.product.product_name,
+                'name': item.product_name,
                 'price': float(item.product_price),
-                'original_price': float(item.product.selling_price),
+                'original_price': float(item.product_price),  # Use stored price as original
                 'special_price': float(item.product_special_price) if item.product_special_price else None,
                 'image_url': item.product_image_url,
                 'stock': item.product_stock_qty,

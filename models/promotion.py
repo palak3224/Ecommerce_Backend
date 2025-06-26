@@ -75,3 +75,23 @@ class Promotion(BaseModel):
             'updated_at': self.updated_at.isoformat(),
             'deleted_at': self.deleted_at.isoformat() if self.deleted_at else None
         }
+
+class GamePlay(BaseModel):
+    __tablename__ = 'game_plays'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    game_type = db.Column(db.String(50), nullable=False)  # e.g., 'spin-wheel', 'match-card'
+    promotion_id = db.Column(db.Integer, db.ForeignKey('promotions.promotion_id'), nullable=True)
+    played_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    user = db.relationship('User', backref='game_plays')
+    promotion = db.relationship('Promotion', backref='game_plays')
+
+    def serialize(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'game_type': self.game_type,
+            'promotion': self.promotion.serialize() if self.promotion else None,
+            'played_at': self.played_at.isoformat(),
+        }

@@ -13,6 +13,9 @@ from models.product_media import ProductMedia
 from models.gst_rule import GSTRule 
 from models.shipment import Shipment, ShipmentItem
 
+import json
+
+
 class OrderController:
     @staticmethod
     def create_order(user_id, order_data):
@@ -167,6 +170,24 @@ class OrderController:
                 internal_notes=order_data.get('internal_notes') # Good place for promo code used
             )
             new_order.items.extend(new_order_items)
+
+
+            # Create order items
+            for item_data in order_data['items']:
+                order_item = OrderItem(
+                    product_id=item_data.get('product_id'),
+                    merchant_id=item_data.get('merchant_id'),
+                    product_name_at_purchase=item_data.get('product_name_at_purchase'),
+                    sku_at_purchase=item_data.get('sku_at_purchase'),
+                    quantity=item_data.get('quantity'),
+                    unit_price_at_purchase=Decimal(str(item_data.get('unit_price_at_purchase'))),
+                    item_subtotal_amount=Decimal(str(item_data.get('item_subtotal_amount'))),
+                    final_price_for_item=Decimal(str(item_data.get('final_price_for_item'))),
+                    selected_attributes=json.dumps(item_data.get('selected_attributes', {}))
+                )
+                new_order.items.append(order_item)
+
+            # Create initial status history
 
             status_history = OrderStatusHistory(
                 status=OrderStatusEnum.PENDING_PAYMENT,

@@ -6,6 +6,7 @@ from models.product_shipping import ProductShipping
 from models.product_media import ProductMedia
 from sqlalchemy.orm import foreign
 from decimal import Decimal
+import json
 
 class Cart(BaseModel):
     __tablename__ = 'carts'
@@ -46,6 +47,10 @@ class CartItem(BaseModel):
     product_special_price = db.Column(db.Numeric(10, 2), nullable=True)
     product_image_url = db.Column(db.String(255), nullable=True)
     product_stock_qty = db.Column(db.Integer, nullable=False)
+    merchant_id = db.Column(db.Integer, nullable=False)  # Store merchant_id at time of adding
+    
+    # NEW: Store selected attributes as JSON
+    selected_attributes = db.Column(db.Text, nullable=True)  # JSON string of selected attributes
     
     # Shipping details
     shipping_weight_kg = db.Column(db.Numeric(10, 2), nullable=True)
@@ -75,7 +80,7 @@ class CartItem(BaseModel):
     )
 
     @classmethod
-    def create_from_product(cls, cart_id, product, quantity):
+    def create_from_product(cls, cart_id, product, quantity, selected_attributes=None):
         """Create a cart item from a product, storing all relevant details"""
         # Get the first product image
         main_image = next((media.url for media in product.media if media.type.value == 'image'), None) if product.media else None
@@ -98,18 +103,31 @@ class CartItem(BaseModel):
             product_special_price=product.special_price,
             product_image_url=main_image,
             product_stock_qty=stock_qty,
+            merchant_id=product.merchant_id,
+            selected_attributes=json.dumps(selected_attributes) if selected_attributes else None,
             shipping_weight_kg=shipping.weight_kg if shipping else None,
             shipping_length_cm=shipping.length_cm if shipping else None,
             shipping_width_cm=shipping.width_cm if shipping else None,
             shipping_height_cm=shipping.height_cm if shipping else None
         )
 
+    def get_selected_attributes(self):
+        """Get selected attributes as a dictionary"""
+        if self.selected_attributes:
+            try:
+                return json.loads(self.selected_attributes)
+            except json.JSONDecodeError:
+                return {}
+        return {}
+
     def serialize(self):
         return {
             'cart_item_id': self.cart_item_id,
             'cart_id': self.cart_id,
             'product_id': self.product_id,
+            'merchant_id': self.merchant_id,
             'quantity': self.quantity,
+            'selected_attributes': self.get_selected_attributes(),
             'product': {
                 'name': self.product_name,
                 'sku': self.product_sku,
