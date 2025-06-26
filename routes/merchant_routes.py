@@ -1,5 +1,6 @@
 # routes/merchant_routes.py
 from flask import Blueprint, request, jsonify, current_app
+from controllers.merchant.merchant_settings_controller import MerchantSettingsController
 from http import HTTPStatus
 from auth.utils import merchant_role_required, super_admin_role_required
 from common.database import db
@@ -28,6 +29,7 @@ from auth.models.models import MerchantProfile
 from datetime import datetime
 from controllers.merchant.dashboard_controller import MerchantDashboardController
 from controllers.merchant.report_controller import MerchantReportController
+from controllers.merchant.merchant_settings_controller import MerchantSettingsController
 
 
 ALLOWED_MEDIA_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'mov', 'avi'} 
@@ -4043,3 +4045,31 @@ def get_most_viewed_products():
             "status": "error",
             "message": "Failed to fetch most viewed products"
         }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+#Merchant-Settings Change Password
+@merchant_dashboard_bp.route('/api/auth/merchant/change-password', methods=['POST'])
+@merchant_role_required
+@jwt_required
+def change_password():
+    data = request.get_json()
+    current_password = data.get("current_password")
+    new_password = data.get("new_password")
+    return MerchantSettingsController.change_password(current_password, new_password)
+
+#Load Merchant Details
+@merchant_dashboard_bp.route('/account', methods=['GET', 'OPTIONS'])
+@merchant_role_required
+def get_merchant_account():
+    """
+    Get merchant account and bank details
+    ---
+    tags:
+      - Merchant - Settings
+    responses:
+      200:
+        description: Merchant account data returned successfully
+      404:
+        description: Merchant not found
+    """
+    return MerchantSettingsController.get_account_settings()

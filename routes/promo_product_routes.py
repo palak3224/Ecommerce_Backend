@@ -11,7 +11,7 @@ promo_product_bp = Blueprint('promo_product', __name__, url_prefix='/api/promo-p
 @cached(timeout=300, key_prefix='promo_products')  # Cache for 5 minutes
 def get_promo_products():
     """
-    Get all promo products with pagination
+    Get all promo products with pagination and filters
     ---
     tags:
       - Promo Products
@@ -28,6 +28,31 @@ def get_promo_products():
         required: false
         default: 12
         description: Items per page (max 50)
+      - in: query
+        name: category_id
+        type: integer
+        required: false
+        description: Filter by category ID
+      - in: query
+        name: brand_id
+        type: integer
+        required: false
+        description: Filter by brand ID
+      - in: query
+        name: min_price
+        type: number
+        required: false
+        description: Minimum price filter
+      - in: query
+        name: max_price
+        type: number
+        required: false
+        description: Maximum price filter
+      - in: query
+        name: search
+        type: string
+        required: false
+        description: Search term for product name/description
     responses:
       200:
         description: List of promo products retrieved successfully
@@ -163,6 +188,11 @@ def get_promo_products():
     try:
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 12, type=int)
+        category_id = request.args.get('category_id', type=int)
+        brand_id = request.args.get('brand_id', type=int)
+        min_price = request.args.get('min_price', type=float)
+        max_price = request.args.get('max_price', type=float)
+        search = request.args.get('search', type=str)
         
         # Validate pagination parameters
         if page < 1:
@@ -179,7 +209,15 @@ def get_promo_products():
                 'data': None
             }), 400
         
-        result = PromoProductController.get_promo_products(page, per_page)
+        result = PromoProductController.get_promo_products(
+            page=page,
+            per_page=per_page,
+            category_id=category_id,
+            brand_id=brand_id,
+            min_price=min_price,
+            max_price=max_price,
+            search=search
+        )
         return success_response(result)
     except Exception as e:
         return jsonify({
