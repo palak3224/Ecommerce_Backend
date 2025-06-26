@@ -3,8 +3,9 @@ import uuid
 from datetime import datetime, timezone
 from common.database import db, BaseModel
 from models.enums import OrderStatusEnum, PaymentMethodEnum, PaymentStatusEnum, OrderItemStatusEnum # Your enums
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 import json
+
 
 def generate_order_id_string():
     now = datetime.now(timezone.utc)
@@ -93,9 +94,14 @@ class OrderItem(BaseModel):
     sku_at_purchase = db.Column(db.String(100), nullable=True) 
 
     quantity = db.Column(db.Integer, nullable=False)
-    unit_price_at_purchase = db.Column(db.Numeric(10, 2), nullable=False) # Price per unit
-    item_subtotal_amount = db.Column(db.Numeric(12, 2), nullable=False) 
-    final_price_for_item = db.Column(db.Numeric(12, 2), nullable=False) 
+    final_base_price_for_gst_calc = db.Column(db.Numeric(10, 2), nullable=False) 
+    
+    gst_rate_applied_at_purchase = db.Column(db.Numeric(5,2), nullable=True)
+    gst_amount_per_unit = db.Column(db.Numeric(12, 2), nullable=True) # GST amount for a single unit
+
+
+    # Final price for one unit, inclusive of its GST (final_base_price_for_gst_calc + gst_amount_per_unit)
+    unit_price_inclusive_gst = db.Column(db.Numeric(10, 2), nullable=False)
 
     # NEW: Store selected attributes as JSON
     selected_attributes = db.Column(db.Text, nullable=True)  # JSON string of selected attributes
@@ -103,12 +109,21 @@ class OrderItem(BaseModel):
     item_status = db.Column(db.Enum(OrderItemStatusEnum), nullable=False, default=OrderItemStatusEnum.PENDING_FULFILLMENT)
     # created_at, updated_at from BaseModel
 
-    order = db.relationship('Order', back_populates='items')
-    product = db.relationship('Product', lazy='joined')
-    merchant = db.relationship('MerchantProfile', lazy='joined')
 
-    def __repr__(self):
-        return f"<OrderItem id={self.order_item_id} order_id={self.order_id} sku='{self.sku_at_purchase}'>"
+    # Total for this line item (quantity * unit_price_inclusive_gst)
+    line_item_total_inclusive_gst = db.Column(db.Numeric(12, 2), nullable=False)
+
+    # Original GST-inclusive price listed by merchant for this product (standard or special) before cart discounts. For reference.
+    original_listed_inclusive_price_per_unit = db.Column(db.Numeric(10,2), nullable=True)
+    # Amount of discount applied to this item from cart-level promotions, calculated on a per-unit pre-GST basis.
+    discount_amount_per_unit_applied = db.Column(db.Numeric(10,2), default=Decimal("0.00"))
+
+
+    item_status = db.Column(db.Enum(OrderItemStatusEnum), nullable=False, default=OrderItemStatusEnum.PENDING_FULFILLMENT)
+    
+    order = db.relationship('Order', back_populates='items')
+    product = db.relationship('Product', lazy='select') # Changed to select for potentially better perf than joined in all OrderItem queries
+    merchant = db.relationship('MerchantProfile', lazy='select')
 
     def get_selected_attributes(self):
         """Get selected attributes as a dictionary"""
@@ -120,6 +135,7 @@ class OrderItem(BaseModel):
         return {}
 
     def serialize(self):
+        total_gst_for_line_item = (self.gst_amount_per_unit or Decimal(0)) * self.quantity
         return {
             "order_item_id": self.order_item_id,
             "order_id": self.order_id,
@@ -128,10 +144,25 @@ class OrderItem(BaseModel):
             "product_name_at_purchase": self.product_name_at_purchase,
             "sku_at_purchase": self.sku_at_purchase,
             "quantity": self.quantity,
+
+            
+            "final_base_price_for_gst_calc_unit": str(self.final_base_price_for_gst_calc), # Pre-GST, post-discount unit price
+            "gst_rate_applied_at_purchase": str(self.gst_rate_applied_at_purchase) if self.gst_rate_applied_at_purchase is not None else None,
+            "gst_amount_per_unit": str(self.gst_amount_per_unit) if self.gst_amount_per_unit is not None else None,
+            "total_gst_for_line_item": str(total_gst_for_line_item.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+
+            "unit_price_inclusive_gst": str(self.unit_price_inclusive_gst), # What customer effectively pays per unit after all
+            "line_item_total_inclusive_gst": str(self.line_item_total_inclusive_gst), # Total for this line
+            
+            "original_listed_inclusive_price_per_unit": str(self.original_listed_inclusive_price_per_unit) if self.original_listed_inclusive_price_per_unit is not None else None,
+            "discount_amount_per_unit_applied": str(self.discount_amount_per_unit_applied),
+            
+
             "unit_price_at_purchase": str(self.unit_price_at_purchase),
             "item_subtotal_amount": str(self.item_subtotal_amount),
             "final_price_for_item": str(self.final_price_for_item),
             "selected_attributes": self.get_selected_attributes(),
+
             "item_status": self.item_status.value,
             "created_at": self.created_at.isoformat() if hasattr(self, 'created_at') and self.created_at else None,
             "updated_at": self.updated_at.isoformat() if hasattr(self, 'updated_at') and self.updated_at else None,

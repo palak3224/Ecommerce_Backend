@@ -107,16 +107,31 @@ def apply_promo_code():
 
     # --- 2. Check the promotion type and apply discount ---
     
+    total_discount = 0.0
+    item_discounts = {}  # Track discount per item: {product_id: discount_amount}
+    
     # Case 1: Sitewide Promotion
     if not promo.product_id and not promo.category_id and not promo.brand_id:
-        for item in cart_items:
-            item_total = item['price'] * item['quantity']
-            if promo.discount_type.value == 'fixed':
-                # For sitewide fixed discount, apply it once to the whole cart
-                total_discount = min(item_total, float(promo.discount_value))
-                break 
-            elif promo.discount_type.value == 'percentage':
-                total_discount += item_total * (float(promo.discount_value) / 100.0)
+        if promo.discount_type.value == 'fixed':
+            # For sitewide fixed discount, apply it once to the whole cart
+            # Distribute proportionally across all items
+            cart_total = sum(item['price'] * item['quantity'] for item in cart_items)
+            if cart_total > 0:
+                discount_to_apply = min(cart_total, float(promo.discount_value))
+                total_discount = discount_to_apply
+                
+                for item in cart_items:
+                    item_total = item['price'] * item['quantity']
+                    item_proportion = item_total / cart_total
+                    item_discount = discount_to_apply * item_proportion
+                    item_discounts[item['product_id']] = round(item_discount, 2)
+        elif promo.discount_type.value == 'percentage':
+            # Apply percentage discount to each item
+            for item in cart_items:
+                item_total = item['price'] * item['quantity']
+                item_discount = item_total * (float(promo.discount_value) / 100.0)
+                item_discounts[item['product_id']] = round(item_discount, 2)
+                total_discount += item_discount
 
     # Case 2: Target-specific Promotion
     else:
@@ -137,10 +152,17 @@ def apply_promo_code():
             if is_applicable:
                 applicable_items_found = True
                 item_total = item['price'] * item['quantity']
+                
                 if promo.discount_type.value == 'fixed':
-                    total_discount += min(item_total, float(promo.discount_value))
+                    item_discount = min(item_total, float(promo.discount_value))
                 elif promo.discount_type.value == 'percentage':
-                    total_discount += item_total * (float(promo.discount_value) / 100.0)
+                    item_discount = item_total * (float(promo.discount_value) / 100.0)
+                
+                item_discounts[item['product_id']] = round(item_discount, 2)
+                total_discount += item_discount
+            else:
+                # Non-applicable items get zero discount
+                item_discounts[item['product_id']] = 0.0
         
         if not applicable_items_found:
             return jsonify({'error': 'This promo code is not valid for any items in your cart.'}), HTTPStatus.BAD_REQUEST
@@ -153,5 +175,6 @@ def apply_promo_code():
         'message': 'Promotion applied successfully!',
         'discount_amount': round(total_discount, 2),
         'new_total': round(new_total, 2),
-        'promotion_id': promo.promotion_id
+        'promotion_id': promo.promotion_id,
+        'item_discounts': item_discounts  # NEW: per-item discount breakdown
     }), HTTPStatus.OK

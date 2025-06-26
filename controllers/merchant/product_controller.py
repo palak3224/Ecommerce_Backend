@@ -5,6 +5,7 @@ from flask import abort
 from common.database import db
 from models.product import Product
 from auth.models.models import MerchantProfile
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime, timezone
 
 class MerchantProductController:
@@ -37,6 +38,7 @@ class MerchantProductController:
         if not merchant:
             abort(404, "Merchant profile not found")
 
+        # selling_price and special_price from data are GST-inclusive
         p = Product(
             merchant_id=merchant.id,
             category_id=data['category_id'],
@@ -44,15 +46,17 @@ class MerchantProductController:
             sku=data['sku'],
             product_name=data['product_name'],
             product_description=data['product_description'],
-            cost_price=data['cost_price'],
-            selling_price=data['selling_price'],
-            discount_pct=data.get('discount_pct', 0),
-            special_price=data.get('special_price'),
+            cost_price=data['cost_price'], 
+            selling_price=Decimal(data['selling_price']), # GST-inclusive
+            discount_pct=data.get('discount_pct', Decimal('0.00')), 
+            special_price=Decimal(data['special_price']) if data.get('special_price') is not None else None, # GST-inclusive
             special_start=data.get('special_start'),
             special_end=data.get('special_end'),
-            approval_status='pending'  # Set initial approval status
+            approval_status='pending'
         )
-        p.save()
+        # NO call to p.update_base_price_and_gst_details() here
+        db.session.add(p)
+        db.session.commit()
         return p
 
     @staticmethod
@@ -79,13 +83,18 @@ class MerchantProductController:
                 p.approved_by = None
                 p.rejection_reason = None
 
-        for field in (
+        update_fields = [
             'category_id','brand_id','sku','product_name','product_description',
             'cost_price','selling_price','discount_pct','special_price',
             'special_start','special_end','active_flag'
-        ):
+        ]
+        for field in update_fields:
             if field in data:
-                setattr(p, field, data[field])
+                value_to_set = data[field]
+                if field in ['selling_price', 'special_price', 'cost_price', 'discount_pct']:
+                    value_to_set = Decimal(value_to_set) if value_to_set is not None else None
+                setattr(p, field, value_to_set)
+        
         db.session.commit()
         return p
 
