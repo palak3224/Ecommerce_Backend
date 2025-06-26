@@ -11,24 +11,31 @@ class GamesController:
 
     @staticmethod
     def _get_or_create_promo(discount_value):
-        # Find an active, unassigned promo code of this discount
+        today = datetime.utcnow().date()
+
+        # Find an active, unassigned, non-expired promo
         promo = Promotion.query.filter_by(
             discount_type=DiscountType.PERCENTAGE,
             discount_value=discount_value,
             active_flag=True,
             deleted_at=None,
-        ).filter(Promotion.game_plays == None).first()
+        ).filter(
+            Promotion.game_plays == None,
+            Promotion.end_date >= today
+        ).first()
+
         if promo:
             return promo
-        # If not found, create one
+
+        # Create a new promo if no valid one exists
         code = f"GAME{discount_value}{random.randint(1000,9999)}"
         new_promo = Promotion(
             code=code,
             description=f"{discount_value}% off from game",
             discount_type=DiscountType.PERCENTAGE,
             discount_value=discount_value,
-            start_date=datetime.utcnow().date(),
-            end_date=(datetime.utcnow() + timedelta(days=1)).date(),
+            start_date=today,
+            end_date=today + timedelta(days=2),
             active_flag=True
         )
         db.session.add(new_promo)
