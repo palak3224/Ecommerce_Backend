@@ -273,7 +273,7 @@ class PerformanceAnalyticsController:
             monthly_data = db.session.query(
                 extract('year', Order.order_date).label('year'),
                 extract('month', Order.order_date).label('month'),
-                func.sum(OrderItem.final_price_for_item).label('revenue'),
+                func.sum(OrderItem.line_item_total_inclusive_gst).label('revenue'),
                 func.count(func.distinct(Order.order_id)).label('orders')
             ).join(
                 OrderItem,
@@ -341,7 +341,7 @@ class PerformanceAnalyticsController:
             merchant_data = db.session.query(
                 MerchantProfile.id,
                 MerchantProfile.business_name,
-                func.sum(OrderItem.final_price_for_item).label('total_revenue'),
+                func.sum(OrderItem.line_item_total_inclusive_gst).label('total_revenue'),
                 func.count(func.distinct(Order.order_id)).label('total_orders')
             ).join(
                 OrderItem,
@@ -358,7 +358,7 @@ class PerformanceAnalyticsController:
                 MerchantProfile.id,
                 MerchantProfile.business_name
             ).order_by(
-                func.sum(OrderItem.final_price_for_item).desc()
+                func.sum(OrderItem.line_item_total_inclusive_gst).desc()
             ).all()
 
             # Format the data
@@ -610,7 +610,7 @@ class PerformanceAnalyticsController:
             merchant_data = db.session.query(
                 MerchantProfile.id,
                 MerchantProfile.business_name,
-                func.sum(OrderItem.final_price_for_item).label('total_revenue'),
+                func.sum(OrderItem.line_item_total_inclusive_gst).label('total_revenue'),
                 func.count(func.distinct(Order.order_id)).label('total_orders')
             ).join(
                 OrderItem,
@@ -624,13 +624,13 @@ class PerformanceAnalyticsController:
                 MerchantProfile.id,
                 MerchantProfile.business_name
             ).order_by(
-                func.sum(OrderItem.final_price_for_item).desc()
+                func.sum(OrderItem.line_item_total_inclusive_gst).desc()
             ).limit(limit).all()
 
             # Get previous month data for growth calculation
             previous_month_data = db.session.query(
                 MerchantProfile.id,
-                func.sum(OrderItem.final_price_for_item).label('previous_revenue')
+                func.sum(OrderItem.line_item_total_inclusive_gst).label('previous_revenue')
             ).join(
                 OrderItem,
                 OrderItem.merchant_id == MerchantProfile.id
@@ -689,7 +689,7 @@ class PerformanceAnalyticsController:
             merchant_data = db.session.query(
                 MerchantProfile.id,
                 MerchantProfile.business_name,
-                func.sum(OrderItem.final_price_for_item).label('total_revenue'),
+                func.sum(OrderItem.line_item_total_inclusive_gst).label('total_revenue'),
                 func.count(func.distinct(Order.order_id)).label('total_orders'),
                 func.avg(Review.rating).label('average_rating')
             ).join(
@@ -713,7 +713,7 @@ class PerformanceAnalyticsController:
                 MerchantProfile.id,
                 MerchantProfile.business_name
             ).order_by(
-                func.sum(OrderItem.final_price_for_item).desc()
+                func.sum(OrderItem.line_item_total_inclusive_gst).desc()
             ).all()
 
             # Format the data

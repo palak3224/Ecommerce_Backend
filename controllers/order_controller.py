@@ -253,10 +253,10 @@ class OrderController:
                 # For now, it ignores invalid status
                 pass 
         
-        # Eager load items for efficiency in serialization loop
-        paginated_orders = query.options(db.joinedload(Order.items))\
-                                .order_by(Order.order_date.desc())\
-                                .paginate(page=page, per_page=per_page, error_out=False)
+        # Eager load items and product media for efficiency in serialization loop
+        paginated_orders = query.options(
+            db.joinedload(Order.items).joinedload(OrderItem.product).joinedload(Product.media)
+        ).order_by(Order.order_date.desc()).paginate(page=page, per_page=per_page, error_out=False)
         
         return {
             'orders': [order.serialize(include_items=True) for order in paginated_orders.items], # include_items=True
@@ -425,9 +425,9 @@ class OrderController:
             # Ensure distinct orders if a merchant has multiple items in one order
             query = query.join(OrderItem).filter(OrderItem.merchant_id == merchant_id_filter).distinct(Order.order_id)
         
-        paginated_orders = query.options(db.joinedload(Order.items))\
-                                .order_by(Order.order_date.desc())\
-                                .paginate(page=page, per_page=per_page, error_out=False)
+        paginated_orders = query.options(
+            db.joinedload(Order.items).joinedload(OrderItem.product).joinedload(Product.media)
+        ).order_by(Order.order_date.desc()).paginate(page=page, per_page=per_page, error_out=False)
         
         return {
             'orders': [order.serialize(include_items=True) for order in paginated_orders.items],

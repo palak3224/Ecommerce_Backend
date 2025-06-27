@@ -60,7 +60,7 @@ def create_merchant_transaction_from_order(order_id, settlement_date=None):
     
     for merchant_id, items in merchant_items.items():
         # Calculate total amount for this merchant (excluding tax)
-        merchant_order_amount = sum(item.final_price_for_item for item in items)
+        merchant_order_amount = sum(item.line_item_total_inclusive_gst for item in items)
         
         # Calculate fees
         fees = calculate_transaction_fees(merchant_order_amount)

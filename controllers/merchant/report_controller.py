@@ -39,7 +39,7 @@ class MerchantReportController:
                     extract('month', Order.created_at).label('month'),
                     extract('year', Order.created_at).label('year'),
                     func.sum(OrderItem.quantity).label('units'),
-                    func.sum(OrderItem.final_price_for_item).label('revenue')
+                    func.sum(OrderItem.line_item_total_inclusive_gst).label('revenue')
                 )
                 .join(OrderItem, Order.order_id == OrderItem.order_id)
                 .filter(
@@ -108,7 +108,7 @@ class MerchantReportController:
                     Category.name.label('category'),
                     Product.selling_price,
                     func.sum(OrderItem.quantity).label('quantity'),
-                    func.sum(OrderItem.final_price_for_item).label('revenue')
+                    func.sum(OrderItem.line_item_total_inclusive_gst).label('revenue')
                 )
                 .join(OrderItem, Order.order_id == OrderItem.order_id)
                 .join(Product, Product.product_id == OrderItem.product_id)
@@ -177,7 +177,7 @@ class MerchantReportController:
             products = (
                 db.session.query(
                     Product.product_name.label('name'),
-                    func.sum(OrderItem.final_price_for_item).label('revenue')
+                    func.sum(OrderItem.line_item_total_inclusive_gst).label('revenue')
                 )
                 .join(OrderItem, OrderItem.product_id == Product.product_id)
                 .join(Order, Order.order_id == OrderItem.order_id)
@@ -188,7 +188,7 @@ class MerchantReportController:
                     Order.created_at >= start_date
                 )
                 .group_by(Product.product_name)
-                .order_by(func.sum(OrderItem.final_price_for_item).desc())
+                .order_by(func.sum(OrderItem.line_item_total_inclusive_gst).desc())
                 .limit(limit)
                 .all()
             )
@@ -228,7 +228,7 @@ class MerchantReportController:
             category_revenues = (
                 db.session.query(
                     Category.name.label('category'),
-                    func.sum(OrderItem.final_price_for_item).label('revenue')
+                    func.sum(OrderItem.line_item_total_inclusive_gst).label('revenue')
                 )
                 .join(Product, Product.category_id == Category.category_id)
                 .join(OrderItem, OrderItem.product_id == Product.product_id)
@@ -240,7 +240,7 @@ class MerchantReportController:
                     Order.created_at >= start_date
                 )
                 .group_by(Category.name)
-                .order_by(func.sum(OrderItem.final_price_for_item).desc())
+                .order_by(func.sum(OrderItem.line_item_total_inclusive_gst).desc())
                 .all()
             )
 
@@ -527,7 +527,7 @@ class MerchantReportController:
                 db.session.query(
                     Product.product_name.label('name'),
                     func.sum(OrderItem.quantity).label('sold'),
-                    func.sum(OrderItem.final_price_for_item * OrderItem.quantity).label('revenue')
+                    func.sum(OrderItem.line_item_total_inclusive_gst * OrderItem.quantity).label('revenue')
                 )
                 .join(OrderItem, OrderItem.product_id == Product.product_id)
                 .join(Order, Order.order_id == OrderItem.order_id)

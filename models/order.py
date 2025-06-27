@@ -134,6 +134,16 @@ class OrderItem(BaseModel):
 
     def serialize(self):
         total_gst_for_line_item = (self.gst_amount_per_unit or Decimal(0)) * self.quantity
+        
+        # Get product image
+        product_image = None
+        if self.product and hasattr(self.product, 'media') and self.product.media:
+            # Find the first image media, ordered by sort_order
+            from models.enums import MediaType
+            image_media = sorted([m for m in self.product.media if m.type == MediaType.IMAGE], key=lambda m: m.sort_order)
+            if image_media:
+                product_image = image_media[0].url
+        
         return {
             "order_item_id": self.order_item_id,
             "order_id": self.order_id,
@@ -160,6 +170,7 @@ class OrderItem(BaseModel):
             "item_subtotal_amount": str(self.line_item_total_inclusive_gst),
             "final_price_for_item": str(self.line_item_total_inclusive_gst),
             "selected_attributes": self.get_selected_attributes(),
+            "product_image": product_image,  # Add product image
 
             "item_status": self.item_status.value,
             "created_at": self.created_at.isoformat() if hasattr(self, 'created_at') and self.created_at else None,
