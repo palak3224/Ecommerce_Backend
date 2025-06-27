@@ -118,8 +118,6 @@ class OrderItem(BaseModel):
     # Amount of discount applied to this item from cart-level promotions, calculated on a per-unit pre-GST basis.
     discount_amount_per_unit_applied = db.Column(db.Numeric(10,2), default=Decimal("0.00"))
 
-
-    item_status = db.Column(db.Enum(OrderItemStatusEnum), nullable=False, default=OrderItemStatusEnum.PENDING_FULFILLMENT)
     
     order = db.relationship('Order', back_populates='items')
     product = db.relationship('Product', lazy='select') # Changed to select for potentially better perf than joined in all OrderItem queries
@@ -145,7 +143,7 @@ class OrderItem(BaseModel):
             "sku_at_purchase": self.sku_at_purchase,
             "quantity": self.quantity,
 
-            
+            # Internal GST calculation fields
             "final_base_price_for_gst_calc_unit": str(self.final_base_price_for_gst_calc), # Pre-GST, post-discount unit price
             "gst_rate_applied_at_purchase": str(self.gst_rate_applied_at_purchase) if self.gst_rate_applied_at_purchase is not None else None,
             "gst_amount_per_unit": str(self.gst_amount_per_unit) if self.gst_amount_per_unit is not None else None,
@@ -157,10 +155,10 @@ class OrderItem(BaseModel):
             "original_listed_inclusive_price_per_unit": str(self.original_listed_inclusive_price_per_unit) if self.original_listed_inclusive_price_per_unit is not None else None,
             "discount_amount_per_unit_applied": str(self.discount_amount_per_unit_applied),
             
-
-            "unit_price_at_purchase": str(self.unit_price_at_purchase),
-            "item_subtotal_amount": str(self.item_subtotal_amount),
-            "final_price_for_item": str(self.final_price_for_item),
+            # Frontend compatibility field names
+            "unit_price_at_purchase": str(self.unit_price_inclusive_gst),
+            "item_subtotal_amount": str(self.line_item_total_inclusive_gst),
+            "final_price_for_item": str(self.line_item_total_inclusive_gst),
             "selected_attributes": self.get_selected_attributes(),
 
             "item_status": self.item_status.value,

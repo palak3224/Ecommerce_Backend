@@ -127,7 +127,8 @@ class OrderController:
                     unit_price_inclusive_gst=final_customer_pays_for_item_inclusive_per_unit, # What customer pays per unit after all discounts
                     line_item_total_inclusive_gst=(final_customer_pays_for_item_inclusive_per_unit * quantity).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP),
                     original_listed_inclusive_price_per_unit=current_listed_inclusive_price_per_unit,
-                    discount_amount_per_unit_applied=item_specific_discount_inclusive_per_unit # Only item-specific discount
+                    discount_amount_per_unit_applied=item_specific_discount_inclusive_per_unit, # Only item-specific discount
+                    selected_attributes=json.dumps(cart_item_data.get('selected_attributes', {}))
                 )
                 new_order_items.append(order_item)
 
@@ -171,28 +172,12 @@ class OrderController:
             )
             new_order.items.extend(new_order_items)
 
-
-            # Create order items
-            for item_data in order_data['items']:
-                order_item = OrderItem(
-                    product_id=item_data.get('product_id'),
-                    merchant_id=item_data.get('merchant_id'),
-                    product_name_at_purchase=item_data.get('product_name_at_purchase'),
-                    sku_at_purchase=item_data.get('sku_at_purchase'),
-                    quantity=item_data.get('quantity'),
-                    unit_price_at_purchase=Decimal(str(item_data.get('unit_price_at_purchase'))),
-                    item_subtotal_amount=Decimal(str(item_data.get('item_subtotal_amount'))),
-                    final_price_for_item=Decimal(str(item_data.get('final_price_for_item'))),
-                    selected_attributes=json.dumps(item_data.get('selected_attributes', {}))
-                )
-                new_order.items.append(order_item)
-
             # Create initial status history
 
             status_history = OrderStatusHistory(
                 status=OrderStatusEnum.PENDING_PAYMENT,
                 changed_by_user_id=user_id,
-                notes=f"Order created. {order_data.get('internal_notes', '')}".strip()
+                notes=f"Order created.{' ' + order_data.get('internal_notes', '') if order_data.get('internal_notes') else ''}"
             )
             new_order.status_history.append(status_history)
 
