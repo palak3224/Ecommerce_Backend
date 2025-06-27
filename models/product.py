@@ -134,10 +134,10 @@ class Product(BaseModel):
             "cost_price": float(self.cost_price) if self.cost_price is not None else None,
 
             # Merchant's standard GST-inclusive selling price
-            "standard_selling_price_inclusive_gst": float(self.selling_price) if self.selling_price is not None else None,
+            "selling_price": float(self.selling_price) if self.selling_price is not None else None,
 
             # Merchant's special GST-inclusive price (if any)
-            "special_price_inclusive_gst": float(self.special_price) if self.special_price is not None else None,
+            "special_price": float(self.special_price) if self.special_price is not None else None,
             "special_start": self.special_start.isoformat() if self.special_start else None,
             "special_end": self.special_end.isoformat() if self.special_end else None,
             "is_on_special_offer": is_on_special,
