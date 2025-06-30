@@ -1,6 +1,7 @@
 from flask import current_app
 from common.database import db
 from auth.models import MerchantProfile
+from models.product_placement import ProductPlacement
 from models.subscription import SubscriptionPlan, SubscriptionHistory
 from datetime import datetime, timedelta
 
@@ -52,6 +53,17 @@ class MerchantProfileController:
             profile.can_place_premium = True  # All subscribed users can place premium products
             
             db.session.commit()
+            # Reactivate any previous soft-deleted placements up to plan limits when subscribing to a plan
+            ProductPlacement.reactivate_placements_for_merchant(
+                profile.id,
+                subscription_duration_days=plan.duration_days,
+                placement_limit_per_type=plan.featured_limit
+            )
+            ProductPlacement.reactivate_placements_for_merchant(
+                profile.id,
+                subscription_duration_days=plan.duration_days,
+                placement_limit_per_type=plan.promo_limit
+            )
             return profile
         except Exception as e:
             db.session.rollback()
@@ -75,12 +87,15 @@ class MerchantProfileController:
                 active_subscription.status = 'cancelled'
                 active_subscription.updated_at = datetime.utcnow()
 
+            # Delete all existing placements so slots reset on cancellation
+            db.session.query(ProductPlacement).filter_by(merchant_id=profile.id).delete()
             # Update merchant profile
             profile.is_subscribed = False
             profile.subscription_plan_id = None
             profile.subscription_started_at = None
             profile.subscription_expires_at = None
             profile.can_place_premium = False  # Remove premium placement ability on cancellation
+            # All placements have been deleted; no soft-deactivation needed
             
             db.session.commit()
             return profile
@@ -102,13 +117,24 @@ class MerchantProfileController:
                 profile.can_place_premium = True
                 db.session.commit()
             
+            # Import here to avoid circular imports
+            from controllers.merchant.product_placement_controller import MerchantProductPlacementController
+            
+            # Get monthly usage tracking
+            monthly_usage = MerchantProductPlacementController.get_monthly_placement_usage(
+                profile.id,
+                profile.subscription_started_at.isoformat() if profile.subscription_started_at else None
+            )
+            
             return {
                 "is_subscribed": profile.is_subscribed,
                 "can_place_premium": profile.can_place_premium,
                 "subscription_started_at": profile.subscription_started_at.isoformat() if profile.subscription_started_at else None,
                 "subscription_expires_at": profile.subscription_expires_at.isoformat() if profile.subscription_expires_at else None,
+                "monthly_featured_used": monthly_usage.get('monthly_featured_used', 0),
+                "monthly_promo_used": monthly_usage.get('monthly_promo_used', 0),
                 "plan": profile.subscription_plan.serialize() if profile.subscription_plan else None
             }
         except Exception as e:
             current_app.logger.error(f"Error getting subscription status: {str(e)}")
-            raise 
+            raise
