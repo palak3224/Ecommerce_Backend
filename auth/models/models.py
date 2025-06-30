@@ -194,6 +194,11 @@ class MerchantProfile(BaseModel):
     subscription_expires_at = db.Column(db.DateTime, nullable=True)
     can_place_premium = db.Column(db.Boolean, default=False, nullable=False, server_default=db.false())
 
+    # ShipRocket Integration Fields
+    shiprocket_pickup_location_id = db.Column(db.Integer, nullable=True, index=True)
+    shiprocket_pickup_location_name = db.Column(db.String(100), nullable=True)
+    contact_person_name = db.Column(db.String(100), nullable=True)  # Contact person for pickup location
+
     # Relationships
     user = db.relationship('User', back_populates='merchant_profile')
     documents = db.relationship('MerchantDocument', back_populates='merchant', cascade='all, delete-orphan')

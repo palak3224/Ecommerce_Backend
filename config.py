@@ -50,6 +50,10 @@ class Config:
     EXCHANGE_RATE_API_KEY = os.getenv('EXCHANGE_RATE_API_KEY', 'f60545f362ec1fdd1e5e7338')
     CARD_ENCRYPTION_KEY = os.getenv('CARD_ENCRYPTION_KEY')
     
+    # ShipRocket Configuration
+    SHIPROCKET_EMAIL = os.getenv('SHIPROCKET_EMAIL')
+    SHIPROCKET_PASSWORD = os.getenv('SHIPROCKET_PASSWORD')
+    SHIPROCKET_BASE_URL = 'https://apiv2.shiprocket.in/v1/external'
 
 class DevelopmentConfig(Config):
     """Configuration for development environment."""

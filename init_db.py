@@ -46,7 +46,7 @@ from models.subscription import SubscriptionPlan
 
 from models.gst_rule import GSTRule
 
-from models.merchant_transaction import MerchantTransacti
+from models.merchant_transaction import MerchantTransaction
 
 # --- Merchant models ---
 from models.product import Product
