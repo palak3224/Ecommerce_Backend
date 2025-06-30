@@ -175,8 +175,6 @@ class ProductController:
                         'id': str(product.product_id),  # Convert to string for frontend
                         'name': product.product_name,
                         'description': product.product_description,
-                        'price': float(product.selling_price),
-                        'originalPrice': float(product.cost_price),
                         'stock': 100,  # TODO: Add stock tracking
                         'isNew': True,  # TODO: Add logic for new products
                         'isBuiltIn': False,  # TODO: Add logic for built-in products
@@ -238,8 +236,6 @@ class ProductController:
                         'id': str(product.product_id),  # Convert to string for frontend
                         'name': product.product_name,
                         'description': product.product_description,
-                        'price': float(product.selling_price),
-                        'originalPrice': float(product.cost_price),
                         'stock': 100,  # TODO: Add stock tracking
                         'isNew': True,  # TODO: Add logic for new products
                         'isBuiltIn': False,  # TODO: Add logic for built-in products
@@ -579,14 +575,11 @@ class ProductController:
                 .filter(Review.product_id == product_id)\
                 .scalar() or 0
 
-            # Prepare response data
-            response_data = {
-                "product_id": product.product_id,
-                "product_name": product.product_name,
-                "cost_price": float(product.cost_price),
-                "selling_price": float(product.selling_price),
-                "discount_pct": float(product.discount_pct),
-                "description": product.product_description,
+            # Prepare response data - start with serialized product data
+            response_data = product.serialize()
+            
+            # Add additional detailed information
+            response_data.update({
                 "media": [media.serialize() for media in product_media] if product_media else [],
                 "meta": {
                     "short_desc": product_meta.short_desc if product_meta else None,
@@ -601,8 +594,6 @@ class ProductController:
                 # Add frontend-specific fields
                 "id": str(product.product_id),
                 "name": product.product_name,
-                "price": float(product.selling_price),
-                "originalPrice": float(product.cost_price),
                 "currency": "INR",
                 "stock": 100,
                 "isNew": True,
@@ -626,11 +617,17 @@ class ProductController:
                 "sku": product.sku if hasattr(product, 'sku') else None,
                 "parent_product_id": product.parent_product_id,
                 "is_variant": product.parent_product_id is not None,
-                "variants": [{
+                "variants": []  # Will be populated below
+            })
+            
+            # Add variants with proper price handling
+            for v in variants:
+                variant_data = v.serialize()  # Use serialize() to get correct price logic
+                variant_dict = {
                     "id": str(v.product_id),
                     "name": v.product_name,
-                    "price": float(v.selling_price),
-                    "originalPrice": float(v.cost_price),
+                    "price": variant_data.get('price', v.selling_price),  # Use serialized price
+                    "originalPrice": variant_data.get('originalPrice', v.cost_price),  # Use serialized originalPrice
                     "sku": v.sku if hasattr(v, 'sku') else None,
                     "isVariant": v.product_id != product.parent_product_id,
                     "isParent": v.product_id == product.parent_product_id,
@@ -642,8 +639,8 @@ class ProductController:
                         product_id=v.product_id,
                         deleted_at=None
                     ).first() else []
-                } for v in variants]
-            }
+                }
+                response_data["variants"].append(variant_dict)
 
             return jsonify(response_data)
 
@@ -750,8 +747,6 @@ class ProductController:
                     'id': str(product.product_id),
                     'name': product.product_name,
                     'description': product.product_description,
-                    'price': float(product.selling_price),
-                    'originalPrice': float(product.cost_price),
                     'stock': 100,
                     'isNew': True,
                     'isBuiltIn': False,
@@ -897,8 +892,6 @@ class ProductController:
                     'id': str(product.product_id),
                     'name': product.product_name,
                     'description': product.product_description,
-                    'price': float(product.selling_price),
-                    'originalPrice': float(product.cost_price),
                     'stock': 100,
                     'isNew': True,
                     'isBuiltIn': False,
@@ -971,8 +964,6 @@ class ProductController:
                     'id': str(variant.product_id),
                     'name': variant.product_name,
                     'description': variant.product_description,
-                    'price': float(variant.selling_price),
-                    'originalPrice': float(variant.cost_price),
                     'stock': 100,  # TODO: Add stock tracking
                     'isNew': True,  # TODO: Add logic for new products
                     'isBuiltIn': False,  # TODO: Add logic for built-in products
@@ -1037,8 +1028,6 @@ class ProductController:
                     'id': str(product.product_id),
                     'name': product.product_name,
                     'description': product.product_description,
-                    'price': float(product.selling_price),
-                    'originalPrice': float(product.cost_price),
                     'stock': 100,  # TODO: Add stock tracking
                     'isNew': True,  # These are new products
                     'isBuiltIn': False,
@@ -1159,8 +1148,6 @@ class ProductController:
                     'id': str(product.product_id),
                     'name': product.product_name,
                     'description': product.product_description,
-                    'price': float(product.selling_price),
-                    'originalPrice': float(product.cost_price),
                     'stock': 100,  # TODO: Add stock tracking
                     'isNew': True,  # TODO: Add logic for new products
                     'isBuiltIn': False,

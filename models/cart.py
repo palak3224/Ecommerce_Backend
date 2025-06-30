@@ -92,13 +92,16 @@ class CartItem(BaseModel):
         # Get shipping details
         shipping = ProductShipping.query.filter_by(product_id=product.product_id).first()
         
+        # Get the product data with proper price calculations (including special price logic)
+        product_data = product.serialize()
+        
         return cls(
             cart_id=cart_id,
             product_id=product.product_id,
             quantity=quantity,
             product_name=product.product_name,
             product_sku=product.sku,
-            product_price=product.selling_price,
+            product_price=product_data.get('price', product.selling_price),  # Use backend-calculated price
             product_discount_pct=product.discount_pct,
             product_special_price=product.special_price,
             product_image_url=main_image,
@@ -121,6 +124,17 @@ class CartItem(BaseModel):
         return {}
 
     def serialize(self):
+        # Calculate original price for savings calculation
+        # If there's a special price active, original price is the selling price
+        # Otherwise, use cost_price as fallback if available through product relationship
+        original_price = self.product_price  # Default fallback
+        if self.product_special_price and self.product_special_price < self.product_price:
+            # If we have special price and it's less than stored price, 
+            # it means stored price is already the special price, so get original from product
+            if self.product:
+                product_data = self.product.serialize()
+                original_price = product_data.get('originalPrice', self.product.selling_price)
+        
         return {
             'cart_item_id': self.cart_item_id,
             'cart_id': self.cart_id,
@@ -129,13 +143,15 @@ class CartItem(BaseModel):
             'quantity': self.quantity,
             'selected_attributes': self.get_selected_attributes(),
             'product': {
+                'id': self.product_id,
                 'name': self.product_name,
                 'sku': self.product_sku,
-                'price': float(self.product_price),
-                'discount_pct': float(self.product_discount_pct),
+                'price': float(self.product_price),  # This is now the backend-calculated price (with special price applied)
+                'original_price': float(original_price),  # Original price for savings calculation
                 'special_price': float(self.product_special_price) if self.product_special_price else None,
                 'image_url': self.product_image_url,
                 'stock': self.product_stock_qty,
+                'is_deleted': False,
                 'shipping': {
                     'weight_kg': str(self.shipping_weight_kg) if self.shipping_weight_kg else None,
                     'dimensions': {
