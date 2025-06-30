@@ -77,18 +77,6 @@ class CartController:
                 type='image'
             ).first()
 
-            # Check if product has a valid special price
-            current_date = datetime.utcnow().date()
-            has_valid_special_price = (
-                product.special_price is not None and
-                product.special_start is not None and
-                product.special_end is not None and
-                product.special_start <= current_date <= product.special_end
-            )
-            
-            # Use special price if valid, otherwise use selling price
-            effective_price = product.special_price if has_valid_special_price else product.selling_price
-            
             # Check if product already exists in cart with the same attributes
             existing_cart_item = None
             if selected_attributes:
