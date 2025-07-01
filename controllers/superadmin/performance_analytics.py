@@ -395,31 +395,80 @@ class PerformanceAnalyticsController:
 
     @staticmethod
     def get_user_growth_trend(months=12):
-        """Get total user and merchant counts"""
+        """Get user and merchant growth trend for the last N months"""
         try:
-            # Get total users (role = USER)
+            end_date = datetime.now(timezone.utc)
+            start_date = end_date - timedelta(days=30 * months)
+
+            # Get monthly user growth data
+            monthly_user_data = db.session.query(
+                extract('year', User.created_at).label('year'),
+                extract('month', User.created_at).label('month'),
+                func.count(User.id).label('users'),
+                func.count(case(
+                    (User.role == UserRole.MERCHANT, 1),
+                    else_=None
+                )).label('merchants')
+            ).filter(
+                and_(
+                    User.created_at >= start_date,
+                    User.created_at <= end_date,
+                    User.is_active == True
+                )
+            ).group_by(
+                extract('year', User.created_at),
+                extract('month', User.created_at)
+            ).order_by(
+                extract('year', User.created_at),
+                extract('month', User.created_at)
+            ).all()
+
+            # Format the data
+            growth_data = []
+            for data in monthly_user_data:
+                growth_data.append({
+                    "month": f"{int(data.year)}-{int(data.month):02d}",
+                    "users": int(data.users or 0),
+                    "merchants": int(data.merchants or 0)
+                })
+
+            # Calculate cumulative totals
+            cumulative_users = 0
+            cumulative_merchants = 0
+            for data in growth_data:
+                cumulative_users += data["users"]
+                cumulative_merchants += data["merchants"]
+                data["cumulative_users"] = cumulative_users
+                data["cumulative_merchants"] = cumulative_merchants
+
+            # Get total counts
             total_users = db.session.query(
                 func.count(User.id)
             ).filter(
-                User.role == UserRole.USER
+                and_(
+                    User.role == UserRole.USER,
+                    User.is_active == True
+                )
             ).scalar() or 0
 
-            # Get total merchants (role = MERCHANT)
             total_merchants = db.session.query(
                 func.count(User.id)
             ).filter(
-                User.role == UserRole.MERCHANT
+                and_(
+                    User.role == UserRole.MERCHANT,
+                    User.is_active == True
+                )
             ).scalar() or 0
 
             return {
                 "status": "success",
                 "data": {
+                    "trend": growth_data,
                     "summary": {
-                        "total_users": total_users,  # Only users with role USER
-                        "total_merchants": total_merchants,  # Only users with role MERCHANT
-                        "total_users": total_users,  # Changed: Only count users, not including merchants
-                        "average_user_growth": 0,
-                        "average_merchant_growth": 0
+                        "total_users": total_users,
+                        "total_merchants": total_merchants,
+                        "average_user_growth": round(sum(item["users"] for item in growth_data) / len(growth_data) if growth_data else 0, 1),
+                        "average_merchant_growth": round(sum(item["merchants"] for item in growth_data) / len(growth_data) if growth_data else 0, 1)
                     }
                 }
             }
@@ -984,6 +1033,427 @@ class PerformanceAnalyticsController:
                                 "rate": peak_conversion_hour["conversion_rate"] if peak_conversion_hour else 0
                             }
                         }
+                    }
+                }
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+
+    @staticmethod
+    def get_total_revenue_by_period(months=1):
+        """Calculate total revenue for a specific time period"""
+        try:
+            end_date = datetime.now(timezone.utc)
+            start_date = end_date - timedelta(days=30 * months)
+            
+            # Calculate period start (current period)
+            period_start = start_date
+            # Calculate previous period start
+            previous_period_start = start_date - timedelta(days=30 * months)
+
+            # Current period revenue
+            current_revenue = db.session.query(
+                func.sum(Order.total_amount)
+            ).filter(
+                and_(
+                    Order.order_date >= period_start,
+                    Order.order_date <= end_date
+                )
+            ).scalar() or 0
+
+            # Previous period revenue
+            previous_revenue = db.session.query(
+                func.sum(Order.total_amount)
+            ).filter(
+                and_(
+                    Order.order_date >= previous_period_start,
+                    Order.order_date < period_start
+                )
+            ).scalar() or 0
+
+            change_percentage = PerformanceAnalyticsController.calculate_month_over_month_change(
+                float(current_revenue), float(previous_revenue)
+            )
+
+            return {
+                "status": "success",
+                "total_revenue": float(current_revenue),
+                "previous_revenue": float(previous_revenue),
+                "change_percentage": round(change_percentage, 1),
+                "currency": "INR",
+                "period": f"Last {months} month{'s' if months > 1 else ''}"
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+
+    @staticmethod
+    def get_active_users_by_period(months=1):
+        """Get count of active users for a specific time period"""
+        try:
+            end_date = datetime.now(timezone.utc)
+            start_date = end_date - timedelta(days=30 * months)
+            
+            # Calculate period start (current period)
+            period_start = start_date
+            # Calculate previous period start
+            previous_period_start = start_date - timedelta(days=30 * months)
+
+            # Current period active users with role USER
+            current_users = db.session.query(
+                func.count(User.id)
+            ).filter(
+                and_(
+                    User.is_active == True,
+                    User.role == UserRole.USER,
+                    User.created_at >= period_start,
+                    User.created_at <= end_date
+                )
+            ).scalar() or 0
+
+            # Previous period active users with role USER
+            previous_users = db.session.query(
+                func.count(User.id)
+            ).filter(
+                and_(
+                    User.is_active == True,
+                    User.role == UserRole.USER,
+                    User.created_at >= previous_period_start,
+                    User.created_at < period_start
+                )
+            ).scalar() or 0
+
+            change_percentage = PerformanceAnalyticsController.calculate_month_over_month_change(
+                current_users, previous_users
+            )
+
+            return {
+                "status": "success",
+                "active_users": current_users,
+                "previous_users": previous_users,
+                "change_percentage": round(change_percentage, 1),
+                "period": f"Last {months} month{'s' if months > 1 else ''}"
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+
+    @staticmethod
+    def get_total_merchants_by_period(months=1):
+        """Get count of total merchants for a specific time period"""
+        try:
+            end_date = datetime.now(timezone.utc)
+            start_date = end_date - timedelta(days=30 * months)
+            
+            # Calculate period start (current period)
+            period_start = start_date
+            # Calculate previous period start
+            previous_period_start = start_date - timedelta(days=30 * months)
+
+            # Current period merchants
+            current_merchants = db.session.query(
+                func.count(MerchantProfile.id)
+            ).filter(
+                and_(
+                    MerchantProfile.is_verified == True,
+                    MerchantProfile.created_at >= period_start,
+                    MerchantProfile.created_at <= end_date
+                )
+            ).scalar() or 0
+
+            # Previous period merchants
+            previous_merchants = db.session.query(
+                func.count(MerchantProfile.id)
+            ).filter(
+                and_(
+                    MerchantProfile.is_verified == True,
+                    MerchantProfile.created_at >= previous_period_start,
+                    MerchantProfile.created_at < period_start
+                )
+            ).scalar() or 0
+
+            change_percentage = PerformanceAnalyticsController.calculate_month_over_month_change(
+                current_merchants, previous_merchants
+            )
+
+            return {
+                "status": "success",
+                "total_merchants": current_merchants,
+                "previous_merchants": previous_merchants,
+                "change_percentage": round(change_percentage, 1),
+                "period": f"Last {months} month{'s' if months > 1 else ''}"
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+
+    @staticmethod
+    def get_orders_by_period(months=1):
+        """Get count and total amount of orders for a specific time period"""
+        try:
+            end_date = datetime.now(timezone.utc)
+            start_date = end_date - timedelta(days=30 * months)
+            
+            # Calculate period start (current period)
+            period_start = start_date
+            # Calculate previous period start
+            previous_period_start = start_date - timedelta(days=30 * months)
+            
+            # Current period orders - count all orders
+            current_orders_count = db.session.query(
+                func.count(Order.order_id)
+            ).filter(
+                and_(
+                    Order.order_date >= period_start,
+                    Order.order_date <= end_date
+                )
+            ).scalar() or 0
+
+            current_orders_amount = db.session.query(
+                func.sum(Order.total_amount)
+            ).filter(
+                and_(
+                    Order.order_date >= period_start,
+                    Order.order_date <= end_date
+                )
+            ).scalar() or 0
+
+            # Previous period orders - count all orders
+            previous_orders_count = db.session.query(
+                func.count(Order.order_id)
+            ).filter(
+                and_(
+                    Order.order_date >= previous_period_start,
+                    Order.order_date < period_start
+                )
+            ).scalar() or 0
+
+            previous_orders_amount = db.session.query(
+                func.sum(Order.total_amount)
+            ).filter(
+                and_(
+                    Order.order_date >= previous_period_start,
+                    Order.order_date < period_start
+                )
+            ).scalar() or 0
+
+            count_change = PerformanceAnalyticsController.calculate_month_over_month_change(
+                current_orders_count, previous_orders_count
+            )
+
+            amount_change = PerformanceAnalyticsController.calculate_month_over_month_change(
+                float(current_orders_amount), float(previous_orders_amount)
+            )
+
+            return {
+                "status": "success",
+                "orders_count": current_orders_count,
+                "previous_orders_count": previous_orders_count,
+                "orders_amount": float(current_orders_amount),
+                "previous_orders_amount": float(previous_orders_amount),
+                "count_change_percentage": round(count_change, 1),
+                "amount_change_percentage": round(amount_change, 1),
+                "currency": "INR",
+                "period": f"Last {months} month{'s' if months > 1 else ''}"
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+
+    @staticmethod
+    def get_average_order_value_by_period(months=1):
+        """Calculate average order value for a specific time period"""
+        try:
+            end_date = datetime.now(timezone.utc)
+            start_date = end_date - timedelta(days=30 * months)
+            
+            # Calculate period start (current period)
+            period_start = start_date
+            # Calculate previous period start
+            previous_period_start = start_date - timedelta(days=30 * months)
+
+            # Current period AOV
+            current_period_data = db.session.query(
+                func.sum(Order.total_amount).label('total_revenue'),
+                func.count(Order.order_id).label('total_orders')
+            ).filter(
+                and_(
+                    Order.order_date >= period_start,
+                    Order.order_date <= end_date
+                )
+            ).first()
+
+            current_revenue = float(current_period_data.total_revenue or 0)
+            current_orders = int(current_period_data.total_orders or 0)
+            current_aov = current_revenue / current_orders if current_orders > 0 else 0
+
+            # Previous period AOV
+            previous_period_data = db.session.query(
+                func.sum(Order.total_amount).label('total_revenue'),
+                func.count(Order.order_id).label('total_orders')
+            ).filter(
+                and_(
+                    Order.order_date >= previous_period_start,
+                    Order.order_date < period_start
+                )
+            ).first()
+
+            previous_revenue = float(previous_period_data.total_revenue or 0)
+            previous_orders = int(previous_period_data.total_orders or 0)
+            previous_aov = previous_revenue / previous_orders if previous_orders > 0 else 0
+
+            change_percentage = PerformanceAnalyticsController.calculate_month_over_month_change(
+                current_aov, previous_aov
+            )
+
+            return {
+                "status": "success",
+                "data": {
+                    "current": round(current_aov, 2),
+                    "previous": round(previous_aov, 2),
+                    "change_percentage": round(change_percentage, 1),
+                    "currency": "INR",
+                    "period": f"Last {months} month{'s' if months > 1 else ''}"
+                }
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+
+    @staticmethod
+    def get_total_products_by_period(months=1):
+        """Calculate total products for a specific time period"""
+        try:
+            end_date = datetime.now(timezone.utc)
+            start_date = end_date - timedelta(days=30 * months)
+            
+            # Calculate period start (current period)
+            period_start = start_date
+            # Calculate previous period start
+            previous_period_start = start_date - timedelta(days=30 * months)
+
+            # Current period products
+            current_products = db.session.query(
+                func.count(Product.product_id)
+            ).filter(
+                and_(
+                    Product.active_flag == True,
+                    Product.approval_status == 'approved',
+                    Product.created_at >= period_start,
+                    Product.created_at <= end_date
+                )
+            ).scalar() or 0
+
+            # Previous period products
+            previous_products = db.session.query(
+                func.count(Product.product_id)
+            ).filter(
+                and_(
+                    Product.active_flag == True,
+                    Product.approval_status == 'approved',
+                    Product.created_at >= previous_period_start,
+                    Product.created_at < period_start
+                )
+            ).scalar() or 0
+
+            # Total active products
+            total_active_products = db.session.query(
+                func.count(Product.product_id)
+            ).filter(
+                and_(
+                    Product.active_flag == True,
+                    Product.approval_status == 'approved'
+                )
+            ).scalar() or 0
+
+            change_percentage = PerformanceAnalyticsController.calculate_month_over_month_change(
+                current_products, previous_products
+            )
+
+            return {
+                "status": "success",
+                "data": {
+                    "current": current_products,
+                    "previous": previous_products,
+                    "total_active": total_active_products,
+                    "change_percentage": round(change_percentage, 1),
+                    "period": f"Last {months} month{'s' if months > 1 else ''}"
+                }
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+
+    @staticmethod
+    def get_all_metrics_by_period(months=1):
+        """Get all performance metrics for a specific time period"""
+        try:
+            revenue = PerformanceAnalyticsController.get_total_revenue_by_period(months)
+            active_users = PerformanceAnalyticsController.get_active_users_by_period(months)
+            total_merchants = PerformanceAnalyticsController.get_total_merchants_by_period(months)
+            monthly_orders = PerformanceAnalyticsController.get_orders_by_period(months)
+            average_order_value = PerformanceAnalyticsController.get_average_order_value_by_period(months)
+            total_products = PerformanceAnalyticsController.get_total_products_by_period(months)
+
+            return {
+                "status": "success",
+                "data": {
+                    "revenue": {
+                        "current": revenue.get("total_revenue", 0),
+                        "previous": revenue.get("previous_revenue", 0),
+                        "change_percentage": revenue.get("change_percentage", 0),
+                        "currency": "INR"
+                    },
+                    "active_users": {
+                        "current": active_users.get("active_users", 0),
+                        "previous": active_users.get("previous_users", 0),
+                        "change_percentage": active_users.get("change_percentage", 0)
+                    },
+                    "total_merchants": {
+                        "current": total_merchants.get("total_merchants", 0),
+                        "previous": total_merchants.get("previous_merchants", 0),
+                        "change_percentage": total_merchants.get("change_percentage", 0)
+                    },
+                    "monthly_orders": {
+                        "count": {
+                            "current": monthly_orders.get("orders_count", 0),
+                            "previous": monthly_orders.get("previous_orders_count", 0),
+                            "change_percentage": monthly_orders.get("count_change_percentage", 0)
+                        },
+                        "amount": {
+                            "current": monthly_orders.get("orders_amount", 0),
+                            "previous": monthly_orders.get("previous_orders_amount", 0),
+                            "change_percentage": monthly_orders.get("amount_change_percentage", 0),
+                            "currency": "INR"
+                        },
+                        "period": monthly_orders.get("period", "")
+                    },
+                    "average_order_value": {
+                        "current": average_order_value.get("data", {}).get("current", 0),
+                        "previous": average_order_value.get("data", {}).get("previous", 0),
+                        "change_percentage": average_order_value.get("data", {}).get("change_percentage", 0),
+                        "currency": "INR"
+                    },
+                    "total_products": {
+                        "current": total_products.get("data", {}).get("current", 0),
+                        "previous": total_products.get("data", {}).get("previous", 0),
+                        "total_active": total_products.get("data", {}).get("total_active", 0),
+                        "change_percentage": total_products.get("data", {}).get("change_percentage", 0)
                     }
                 }
             }

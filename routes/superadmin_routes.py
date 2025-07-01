@@ -5126,3 +5126,95 @@ def reactivate_superadmin_route(user_id):
             "message": f"Failed to reactivate superadmin: {str(e)}"
         }), 500
 
+# ── PERIOD-BASED ANALYTICS ROUTES ───────────────────────────────────────────────
+@superadmin_bp.route('/analytics/dashboard-by-period', methods=['GET'])
+@super_admin_role_required
+def get_all_metrics_by_period():
+    """Get all performance metrics for a specific time period"""
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        months = request.args.get('months', default=6, type=int)
+        result = PerformanceAnalyticsController.get_all_metrics_by_period(months)
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting all metrics by period: {e}")
+        return jsonify({'message': 'Failed to retrieve dashboard metrics by period.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/revenue-by-period', methods=['GET'])
+@super_admin_role_required
+def get_total_revenue_by_period():
+    """Get total revenue for a specific time period"""
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        months = request.args.get('months', default=1, type=int)
+        result = PerformanceAnalyticsController.get_total_revenue_by_period(months)
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting total revenue by period: {e}")
+        return jsonify({'message': 'Failed to retrieve revenue data by period.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/active-users-by-period', methods=['GET'])
+@super_admin_role_required
+def get_active_users_by_period():
+    """Get active users for a specific time period"""
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        months = request.args.get('months', default=1, type=int)
+        result = PerformanceAnalyticsController.get_active_users_by_period(months)
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting active users by period: {e}")
+        return jsonify({'message': 'Failed to retrieve active users data by period.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/total-merchants-by-period', methods=['GET'])
+@super_admin_role_required
+def get_total_merchants_by_period():
+    """Get total merchants for a specific time period"""
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        months = request.args.get('months', default=1, type=int)
+        result = PerformanceAnalyticsController.get_total_merchants_by_period(months)
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting total merchants by period: {e}")
+        return jsonify({'message': 'Failed to retrieve merchants data by period.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/orders-by-period', methods=['GET'])
+@super_admin_role_required
+def get_orders_by_period():
+    """Get orders for a specific time period"""
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        months = request.args.get('months', default=1, type=int)
+        result = PerformanceAnalyticsController.get_orders_by_period(months)
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting orders by period: {e}")
+        return jsonify({'message': 'Failed to retrieve orders data by period.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/average-order-value-by-period', methods=['GET'])
+@super_admin_role_required
+def get_average_order_value_by_period():
+    """Get average order value for a specific time period"""
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        months = request.args.get('months', default=1, type=int)
+        result = PerformanceAnalyticsController.get_average_order_value_by_period(months)
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting average order value by period: {e}")
+        return jsonify({'message': 'Failed to retrieve average order value data by period.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/total-products-by-period', methods=['GET'])
+@super_admin_role_required
+def get_total_products_by_period():
+    """Get total products for a specific time period"""
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        months = request.args.get('months', default=1, type=int)
+        result = PerformanceAnalyticsController.get_total_products_by_period(months)
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting total products by period: {e}")
+        return jsonify({'message': 'Failed to retrieve total products data by period.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+

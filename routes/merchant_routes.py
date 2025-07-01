@@ -3813,11 +3813,13 @@ def get_merchant_performance():
 @merchant_dashboard_bp.route('/analytics/top-products', methods=['GET'])
 @jwt_required()
 @merchant_role_required
-def get_top_products():
+def get_analytics_top_products():
     """Get top performing products."""
     try:
         current_user_id = get_jwt_identity()
-        products_data = MerchantDashboardController.get_top_products(current_user_id)
+        # Get optional query parameter for limit
+        limit = request.args.get('limit', default=5, type=int)
+        products_data = MerchantDashboardController.get_top_products(current_user_id, limit=limit)
         return jsonify({
             'status': 'success',
             'data': products_data
@@ -3832,7 +3834,7 @@ def get_top_products():
 @merchant_dashboard_bp.route('/analytics/recent-orders', methods=['GET'])
 @jwt_required()
 @merchant_role_required
-def get_recent_orders():
+def get_analytics_recent_orders():
     """Get recent orders."""
     try:
         current_user_id = get_jwt_identity()
