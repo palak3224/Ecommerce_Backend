@@ -3400,6 +3400,16 @@ def delete_product_placement(placement_id):
         type: integer
         required: true
         description: ID of the placement to delete
+    requestBody:
+      required: false
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              cleanup_promotion:
+                type: boolean
+                description: Whether to clean up promotional pricing for promoted placements
     responses:
       204:
         description: Product placement deleted successfully
@@ -3409,7 +3419,10 @@ def delete_product_placement(placement_id):
         description: Internal server error
     """
     try:
-        MerchantProductPlacementController.remove_product_from_placement(placement_id)
+        data = request.get_json() or {}
+        cleanup_promotion = data.get('cleanup_promotion', False)
+        
+        MerchantProductPlacementController.remove_product_from_placement(placement_id, cleanup_promotion)
         return '', HTTPStatus.NO_CONTENT
     except ValueError as e:
         return jsonify({'message': str(e)}), HTTPStatus.NOT_FOUND
@@ -3470,6 +3483,81 @@ def update_placement_sort_order(placement_id):
     except Exception as e:
         current_app.logger.error(f"Error updating placement sort order: {str(e)}")
         return jsonify({'message': 'Failed to update placement sort order.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchant_dashboard_bp.route('/product-placements/<int:placement_id>', methods=['PUT'])
+@merchant_role_required
+def update_promoted_placement(placement_id):
+    """
+    Update a promoted product placement's promotional details
+    ---
+    tags:
+      - Merchant - Product Placements
+    security:
+      - Bearer: []
+    parameters:
+      - name: placement_id
+        in: path
+        type: integer
+        required: true
+        description: ID of the promoted placement to update
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - promotional_price
+              - special_start
+              - special_end
+            properties:
+              promotional_price:
+                type: number
+                description: New promotional price
+              special_start:
+                type: string
+                format: date
+                description: New promotion start date (YYYY-MM-DD)
+              special_end:
+                type: string
+                format: date
+                description: New promotion end date (YYYY-MM-DD)
+    responses:
+      200:
+        description: Promoted placement updated successfully
+      400:
+        description: Invalid request data or validation error
+      404:
+        description: Placement not found
+      500:
+        description: Internal server error
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'message': 'No data provided'}), HTTPStatus.BAD_REQUEST
+
+        # Validate required fields
+        required_fields = ['promotional_price', 'special_start', 'special_end']
+        missing_fields = [field for field in required_fields if field not in data]
+        if missing_fields:
+            return jsonify({
+                'message': f'Missing required fields: {", ".join(missing_fields)}',
+                'error': 'MISSING_FIELDS'
+            }), HTTPStatus.BAD_REQUEST
+
+        placement = MerchantProductPlacementController.update_promoted_placement(
+            placement_id,
+            data['promotional_price'],
+            data['special_start'],
+            data['special_end']
+        )
+        return jsonify(placement.serialize()), HTTPStatus.OK
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+    except Exception as e:
+        current_app.logger.error(f"Error updating promoted placement: {str(e)}")
+        return jsonify({'message': 'Failed to update promoted placement.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 # ── MERCHANT PRODUCT REVIEWS ─────────────────────────────────────────────────────
 @merchant_dashboard_bp.route('/product-reviews', methods=['GET'])
