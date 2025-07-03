@@ -18,4 +18,8 @@ cloudinary
 flasgger
 pymysql
 psutil
+pandas
+openpyxl
+reportlab
+fpdf2
 stripe

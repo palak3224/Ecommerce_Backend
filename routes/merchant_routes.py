@@ -29,6 +29,8 @@ from auth.models.models import MerchantProfile
 from datetime import datetime
 from controllers.merchant.dashboard_controller import MerchantDashboardController
 from controllers.merchant.report_controller import MerchantReportController
+from controllers.merchant.report_export_controller import MerchantReportExportController
+from controllers.merchant.inventory_export_controller import MerchantInventoryExportController
 from controllers.merchant.merchant_settings_controller import MerchantSettingsController
 
 
@@ -2930,6 +2932,54 @@ def list_inventory_products():
         current_app.logger.error(f"Error listing inventory products: {str(e)}")
         return jsonify({'message': 'Failed to retrieve inventory products.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
+
+# Inventory Export
+@merchant_dashboard_bp.route('/inventory/export', methods=['GET'])
+@jwt_required()
+@merchant_role_required
+def export_inventory_report():
+    """Export inventory report in various formats (PDF, Excel, CSV)"""
+    try:
+        current_user_id = get_jwt_identity()
+        
+        # Get export format from query parameter (default: pdf)
+        export_format = request.args.get('format', 'pdf').lower()
+        
+        # Validate format
+        if export_format not in ['pdf', 'excel', 'csv']:
+            return jsonify({
+                "status": "error",
+                "message": "Invalid export format. Supported formats: pdf, excel, csv"
+            }), HTTPStatus.BAD_REQUEST
+        
+        # Get filters from query parameters (same as inventory page)
+        filters = {
+            'search': request.args.get('search'),
+            'category': request.args.get('category'),
+            'brand': request.args.get('brand'),
+            'stock_status': request.args.get('stock_status')
+        }
+        
+        # Remove None values
+        filters = {k: v for k, v in filters.items() if v is not None and v != ''}
+        
+        # Generate and return the report
+        response = MerchantInventoryExportController.export_inventory_report(
+            user_id=current_user_id,
+            export_format=export_format,
+            filters=filters
+        )
+        
+        return response
+        
+    except Exception as e:
+        current_app.logger.error(f"Error exporting inventory report: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": f"Failed to export inventory report: {str(e)}"
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
 @merchant_dashboard_bp.route('/brands/<int:bid>', methods=['GET'])
 @merchant_role_required
 def get_brand(bid):
@@ -4145,6 +4195,41 @@ def get_most_viewed_products():
         return jsonify({
             "status": "error",
             "message": "Failed to fetch most viewed products"
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+# Sales Report Export
+@merchant_dashboard_bp.route('/reports/sales/export', methods=['GET'])
+@jwt_required()
+@merchant_role_required
+def export_sales_report():
+    """Export sales report in various formats (PDF, Excel, CSV)"""
+    try:
+        current_user_id = get_jwt_identity()
+        
+        # Get export format from query parameter (default: pdf)
+        export_format = request.args.get('format', 'pdf').lower()
+        
+        # Validate format
+        if export_format not in ['pdf', 'excel', 'csv']:
+            return jsonify({
+                "status": "error",
+                "message": "Invalid export format. Supported formats: pdf, excel, csv"
+            }), HTTPStatus.BAD_REQUEST
+        
+        # Generate and return the report
+        response = MerchantReportExportController.export_sales_report(
+            user_id=current_user_id,
+            export_format=export_format
+        )
+        
+        return response
+        
+    except Exception as e:
+        current_app.logger.error(f"Error exporting sales report: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": f"Failed to export sales report: {str(e)}"
         }), HTTPStatus.INTERNAL_SERVER_ERROR
 
 
