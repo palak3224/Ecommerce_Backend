@@ -36,8 +36,8 @@ class MerchantReportController:
 
             rows = (
                 db.session.query(
-                    extract('month', Order.created_at).label('month'),
-                    extract('year', Order.created_at).label('year'),
+                    extract('month', Order.order_date).label('month'),
+                    extract('year', Order.order_date).label('year'),
                     func.sum(OrderItem.quantity).label('units'),
                     func.sum(OrderItem.line_item_total_inclusive_gst).label('revenue')
                 )
@@ -47,11 +47,11 @@ class MerchantReportController:
                     # Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
                     # Order.order_status == OrderStatusEnum.DELIVERED,
                     tuple_(
-                        extract('month', Order.created_at),
-                        extract('year', Order.created_at)
+                        extract('month', Order.order_date),
+                        extract('year', Order.order_date)
                     ).in_(last_5_months)
                 )
-                .group_by(extract('month', Order.created_at), extract('year', Order.created_at))
+                .group_by(extract('month', Order.order_date), extract('year', Order.order_date))
                 .all()
             )
 
@@ -102,8 +102,8 @@ class MerchantReportController:
             # Modified query to include year in SELECT and GROUP BY
             rows = (
                 db.session.query(
-                    extract('month', Order.created_at).label('month'),
-                    extract('year', Order.created_at).label('year'),  # ADDED
+                    extract('month', Order.order_date).label('month'),
+                    extract('year', Order.order_date).label('year'),  # ADDED
                     Product.product_name,
                     Category.name.label('category'),
                     Product.selling_price,
@@ -118,13 +118,13 @@ class MerchantReportController:
                     # Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
                     # Order.order_status == OrderStatusEnum.DELIVERED,
                     tuple_(
-                        extract('month', Order.created_at),
-                        extract('year', Order.created_at)
+                        extract('month', Order.order_date),
+                        extract('year', Order.order_date)
                     ).in_(last_5_months)
                 )
                 .group_by(
-                    extract('year', Order.created_at),  # ADDED
-                    extract('month', Order.created_at),
+                    extract('year', Order.order_date),  # ADDED
+                    extract('month', Order.order_date),
                     Product.product_name,
                     Category.name,
                     Product.selling_price
@@ -185,7 +185,7 @@ class MerchantReportController:
                     OrderItem.merchant_id == merchant.id,
                     # Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
                     # Order.order_status == OrderStatusEnum.DELIVERED,
-                    Order.created_at >= start_date
+                    Order.order_date >= start_date
                 )
                 .group_by(Product.product_name)
                 .order_by(func.sum(OrderItem.line_item_total_inclusive_gst).desc())
@@ -237,7 +237,7 @@ class MerchantReportController:
                     OrderItem.merchant_id == merchant.id,
                     # Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
                     # Order.order_status == OrderStatusEnum.DELIVERED,
-                    Order.created_at >= start_date
+                    Order.order_date >= start_date
                 )
                 .group_by(Category.name)
                 .order_by(func.sum(OrderItem.line_item_total_inclusive_gst).desc())
@@ -331,8 +331,8 @@ class MerchantReportController:
                     OrderItem.merchant_id == merchant.id,
                     # Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
                     # Order.order_status == OrderStatusEnum.DELIVERED,
-                    extract('year', Order.created_at) == current_year,
-                    extract('month', Order.created_at) == current_month
+                    extract('year', Order.order_date) == current_year,
+                    extract('month', Order.order_date) == current_month
                 ) \
                 .scalar() or 0
             
@@ -343,8 +343,8 @@ class MerchantReportController:
                     OrderItem.merchant_id == merchant.id,
                     # Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
                     # Order.order_status == OrderStatusEnum.DELIVERED,
-                    extract('year', Order.created_at) == prev_year,
-                    extract('month', Order.created_at) == prev_month
+                    extract('year', Order.order_date) == prev_year,
+                    extract('month', Order.order_date) == prev_month
                 ) \
                 .scalar() or 0
             
@@ -448,7 +448,7 @@ class MerchantReportController:
             # Query daily sales data
             sales_data = (
                 db.session.query(
-                    func.date(Order.created_at).label('date'),
+                    func.date(Order.order_date).label('date'),
                     func.sum(OrderItem.quantity).label('quantity')
                 )
                 .join(OrderItem, Order.order_id == OrderItem.order_id)
@@ -456,9 +456,9 @@ class MerchantReportController:
                     OrderItem.merchant_id == merchant.id,
                     # Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
                     # Order.order_status == OrderStatusEnum.DELIVERED,
-                    func.date(Order.created_at).in_(date_range)
+                    func.date(Order.order_date).in_(date_range)
                 )
-                .group_by(func.date(Order.created_at))
+                .group_by(func.date(Order.order_date))
                 .all()
             )
             
@@ -535,7 +535,7 @@ class MerchantReportController:
                     OrderItem.merchant_id == merchant.id,
                     # Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
                     # Order.order_status == OrderStatusEnum.DELIVERED,
-                    Order.created_at >= start_date
+                    Order.order_date >= start_date
                 )
                 .group_by(Product.product_name)
                 .order_by(func.sum(OrderItem.quantity).desc())

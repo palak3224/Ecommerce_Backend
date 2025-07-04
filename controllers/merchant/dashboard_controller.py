@@ -29,7 +29,7 @@ class MerchantDashboardController:
                 .join(OrderItem, Order.order_id == OrderItem.order_id)   # use order_id here
                 .join(User, Order.user_id == User.id)
                 .filter(OrderItem.merchant_id == merchant.id)
-                .order_by(Order.created_at.desc())
+                .order_by(Order.order_date.desc())  # Changed from created_at to order_date
                 .limit(5)
                 .all()
             )
@@ -41,10 +41,10 @@ class MerchantDashboardController:
                 orders_list.append({
                     "order_id": order.order_id,
                     "customer_name": customer_name,
-                    "total_amount": order.total_amount,
+                    "total_amount": float(order.total_amount),  # Convert Decimal to float for JSON serialization
                     "order_status": order.order_status.value,
                     "payment_status": order.payment_status.value,
-                    "order_date": order.created_at.strftime('%Y-%m-%d %H:%M:%S')
+                    "order_date": order.order_date.strftime('%Y-%m-%d %H:%M:%S') if order.order_date else None  # Changed from created_at to order_date
                 })
 
             return orders_list
@@ -79,8 +79,8 @@ class MerchantDashboardController:
                     .join(OrderItem, Order.order_id == OrderItem.order_id)
                     .filter(
                         OrderItem.merchant_id == merchant.id,
-                        extract('month', Order.order_date) == month,
-                        extract('year', Order.order_date) == year,
+                        extract('month', Order.order_date) == month,  # Using order_date consistently
+                        extract('year', Order.order_date) == year,    # Using order_date consistently
                         # Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
                         # Order.order_status == OrderStatusEnum.DELIVERED
                     )
@@ -144,8 +144,8 @@ class MerchantDashboardController:
 
             rows = (
                 db.session.query(
-                    extract('month', Order.created_at).label('month'),
-                    extract('year', Order.created_at).label('year'),
+                    extract('month', Order.order_date).label('month'),  # Changed from created_at to order_date
+                    extract('year', Order.order_date).label('year'),    # Changed from created_at to order_date
                     func.count(func.distinct(Order.order_id)).label('orders'),
                     func.sum(Order.total_amount).label('sales')
                 )
@@ -155,11 +155,11 @@ class MerchantDashboardController:
                     # Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
                     # Order.order_status == OrderStatusEnum.DELIVERED,
                     tuple_(
-                        extract('month', Order.created_at),
-                        extract('year', Order.created_at)
+                        extract('month', Order.order_date),  # Changed from created_at to order_date
+                        extract('year', Order.order_date)    # Changed from created_at to order_date
                     ).in_(last_7_months)
                 )
-                .group_by(extract('month', Order.created_at), extract('year', Order.created_at))
+                .group_by(extract('month', Order.order_date), extract('year', Order.order_date))  # Changed from created_at to order_date
                 .all()
             )
 
@@ -208,7 +208,7 @@ class MerchantDashboardController:
                     OrderItem.product_id,
                     Product.product_name,
                     func.sum(OrderItem.quantity).label("sold"),
-                    func.sum(OrderItem.unit_price_inclusive_gst).label("revenue")
+                    func.sum(OrderItem.line_item_total_inclusive_gst).label("revenue")  # Changed from unit_price_inclusive_gst to line_item_total_inclusive_gst for total revenue
                 )
                 .join(Product, Product.product_id == OrderItem.product_id)
                 .filter(OrderItem.merchant_id == merchant.id)
