@@ -73,23 +73,21 @@ class MerchantDashboardController:
             def fetch_monthly_data(month, year):
                 stats = (
                     db.session.query(
-                        func.coalesce(func.sum(Order.total_amount), 0).label("total_sales"),
+                        func.coalesce(func.sum(OrderItem.line_item_total_inclusive_gst), 0).label("total_sales"),
                         func.count(func.distinct(Order.order_id)).label("total_orders")
                     )
-                    .join(OrderItem, Order.order_id == OrderItem.order_id)
+                    .join(Order, Order.order_id == OrderItem.order_id)
                     .filter(
                         OrderItem.merchant_id == merchant.id,
-                        extract('month', Order.order_date) == month,  # Using order_date consistently
-                        extract('year', Order.order_date) == year,    # Using order_date consistently
-                        # Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
-                        # Order.order_status == OrderStatusEnum.DELIVERED
+                        extract('month', Order.order_date) == month,
+                        extract('year', Order.order_date) == year,
                     )
                     .first()
                 )
 
-                total_sales = float(stats.total_sales or 0)
+                total_sales = float(Decimal(str(stats.total_sales or 0)).quantize(Decimal('0.01')))
                 total_orders = stats.total_orders or 0
-                avg_order_value = total_sales / total_orders if total_orders > 0 else 0
+                avg_order_value = float(Decimal(str(total_sales / total_orders if total_orders > 0 else 0)).quantize(Decimal('0.01')))
 
                 return {
                     "total_sales": total_sales,
@@ -103,7 +101,7 @@ class MerchantDashboardController:
             def calc_percentage(curr, prev):
                 if prev == 0:
                     return 100.0 if curr > 0 else 0.0
-                return round(((curr - prev) / prev) * 100, 2)
+                return float(Decimal(str(((curr - prev) / prev) * 100)).quantize(Decimal('0.01')))
 
             return {
                 "total_sales": {
@@ -115,7 +113,7 @@ class MerchantDashboardController:
                     "change_percent": calc_percentage(current["total_orders"], previous["total_orders"])
                 },
                 "average_order_value": {
-                    "value": round(current["avg_order_value"], 2),
+                    "value": current["avg_order_value"],
                     "change_percent": calc_percentage(current["avg_order_value"], previous["avg_order_value"])
                 }
             }
@@ -144,22 +142,20 @@ class MerchantDashboardController:
 
             rows = (
                 db.session.query(
-                    extract('month', Order.order_date).label('month'),  # Changed from created_at to order_date
-                    extract('year', Order.order_date).label('year'),    # Changed from created_at to order_date
+                    extract('month', Order.order_date).label('month'),
+                    extract('year', Order.order_date).label('year'),
                     func.count(func.distinct(Order.order_id)).label('orders'),
-                    func.sum(Order.total_amount).label('sales')
+                    func.sum(OrderItem.line_item_total_inclusive_gst).label('sales')
                 )
                 .join(OrderItem, Order.order_id == OrderItem.order_id)
                 .filter(
                     OrderItem.merchant_id == merchant.id,
-                    # Order.payment_status == PaymentStatusEnum.SUCCESSFUL,
-                    # Order.order_status == OrderStatusEnum.DELIVERED,
                     tuple_(
-                        extract('month', Order.order_date),  # Changed from created_at to order_date
-                        extract('year', Order.order_date)    # Changed from created_at to order_date
+                        extract('month', Order.order_date),
+                        extract('year', Order.order_date)
                     ).in_(last_7_months)
                 )
-                .group_by(extract('month', Order.order_date), extract('year', Order.order_date))  # Changed from created_at to order_date
+                .group_by(extract('month', Order.order_date), extract('year', Order.order_date))
                 .all()
             )
 
