@@ -11,7 +11,7 @@ feature_product_bp = Blueprint('feature_product', __name__, url_prefix='/api/fea
 @cached(timeout=300, key_prefix='featured_products')  # Cache for 5 minutes
 def get_featured_products():
     """
-    Get all featured products with pagination
+    Get all featured products with pagination and filters
     ---
     tags:
       - Featured Products
@@ -28,6 +28,31 @@ def get_featured_products():
         required: false
         default: 12
         description: Items per page (max 50)
+      - in: query
+        name: category_id
+        type: integer
+        required: false
+        description: Filter by category ID
+      - in: query
+        name: brand_id
+        type: integer
+        required: false
+        description: Filter by brand ID
+      - in: query
+        name: min_price
+        type: number
+        required: false
+        description: Minimum price filter
+      - in: query
+        name: max_price
+        type: number
+        required: false
+        description: Maximum price filter
+      - in: query
+        name: search
+        type: string
+        required: false
+        description: Search term for product name/description
     responses:
       200:
         description: List of featured products retrieved successfully
@@ -60,6 +85,14 @@ def get_featured_products():
                         format: float
                         nullable: true
                         example: 79.99
+                      price:
+                        type: number
+                        format: float
+                        example: 79.99
+                      originalPrice:
+                        type: number
+                        format: float
+                        example: 99.99
                       discount_pct:
                         type: number
                         format: float
@@ -156,6 +189,11 @@ def get_featured_products():
     try:
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 12, type=int)
+        category_id = request.args.get('category_id', type=int)
+        brand_id = request.args.get('brand_id', type=int)
+        min_price = request.args.get('min_price', type=float)
+        max_price = request.args.get('max_price', type=float)
+        search = request.args.get('search', type=str)
         
         # Validate pagination parameters
         if page < 1:
@@ -172,7 +210,15 @@ def get_featured_products():
                 'data': None
             }), 400
         
-        result = FeatureProductController.get_featured_products(page, per_page)
+        result = FeatureProductController.get_featured_products(
+            page=page,
+            per_page=per_page,
+            category_id=category_id,
+            brand_id=brand_id,
+            min_price=min_price,
+            max_price=max_price,
+            search=search
+        )
         return success_response(result)
     except Exception as e:
         return jsonify({
@@ -223,6 +269,14 @@ def get_featured_product_details(product_id):
                   format: float
                   nullable: true
                   example: 79.99
+                price:
+                  type: number
+                  format: float
+                  example: 79.99
+                originalPrice:
+                  type: number
+                  format: float
+                  example: 99.99
                 discount_pct:
                   type: number
                   format: float
