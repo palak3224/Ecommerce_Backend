@@ -1076,6 +1076,20 @@ class ProductController:
             page = request.args.get('page', 1, type=int)
             per_page = min(request.args.get('per_page', 10, type=int), 50)
             
+            # Get sorting parameters
+            sort_by = request.args.get('sort_by', 'created_at')
+            order = request.args.get('order', 'desc')
+            
+            # Get filter parameters
+            category_id = request.args.get('category_id')
+            brand_id = request.args.get('brand_id')
+            min_price = request.args.get('min_price', type=float)
+            max_price = request.args.get('max_price', type=float)
+            search = request.args.get('search', '')
+            include_children = request.args.get('include_children', 'true').lower() == 'true'
+            min_rating = request.args.get('min_rating', type=float)
+            min_discount = request.args.get('min_discount', type=float)
+            
             # Calculate the date one month ago for recent orders
             one_month_ago = datetime.utcnow() - timedelta(days=30)
             
@@ -1108,30 +1122,103 @@ class ProductController:
                 OrderItem.product_id
             ).order_by(
                 desc('total_ordered')
-            ).limit(per_page).all()
+            ).all()
             
             print(f"Found {len(product_counts)} products with orders")
             
             # Get the product IDs
             product_ids = [pc[0] for pc in product_counts]
             
-            if not product_ids:
-                # If no products found, get some active products as fallback
-                products = Product.query.filter(
-                    Product.deleted_at.is_(None),
-                    Product.active_flag.is_(True),
-                    Product.approval_status == 'approved',
-                    Product.parent_product_id.is_(None)
-                ).limit(per_page).all()
-            else:
-                # Get the products with their details
-                products = Product.query.filter(
-                    Product.product_id.in_(product_ids),
-                    Product.deleted_at.is_(None),
-                    Product.active_flag.is_(True),
-                    Product.approval_status == 'approved',
-                    Product.parent_product_id.is_(None)
-                ).all()
+            # Base query for products
+            query = Product.query.filter(
+                Product.deleted_at.is_(None),
+                Product.active_flag.is_(True),
+                Product.approval_status == 'approved',
+                Product.parent_product_id.is_(None)
+            )
+
+            # Apply category filter with child categories
+            if category_id and category_id != 'all-products':
+                try:
+                    category_id = int(category_id)
+                    if include_children:
+                        # Get the category and all its child categories
+                        category = Category.query.get(category_id)
+                        if category:
+                            # Get all child category IDs recursively
+                            def get_child_category_ids(parent_id):
+                                child_ids = []
+                                children = Category.query.filter_by(parent_id=parent_id).all()
+                                for child in children:
+                                    child_ids.append(child.category_id)
+                                    child_ids.extend(get_child_category_ids(child.category_id))
+                                return child_ids
+                            
+                            child_category_ids = get_child_category_ids(category_id)
+                            category_ids = [category_id] + child_category_ids
+                            query = query.filter(Product.category_id.in_(category_ids))
+                    else:
+                        # Only include products from the selected category
+                        query = query.filter(Product.category_id == category_id)
+                except ValueError:
+                    print(f"Invalid category_id: {category_id}")
+            
+            # Apply brand filter
+            if brand_id:
+                try:
+                    # Handle multiple brand IDs
+                    if ',' in brand_id:
+                        brand_ids = [int(bid) for bid in brand_id.split(',')]
+                        query = query.filter(Product.brand_id.in_(brand_ids))
+                    else:
+                        brand_id = int(brand_id)
+                        query = query.filter(Product.brand_id == brand_id)
+                except ValueError:
+                    print(f"Invalid brand_id: {brand_id}")
+
+            # Apply price range filter
+            if min_price is not None:
+                query = query.filter(Product.selling_price >= min_price)
+            if max_price is not None:
+                query = query.filter(Product.selling_price <= max_price)
+
+            # Apply search filter
+            if search:
+                search_terms = search.lower().split()
+                search_conditions = []
+                
+                for term in search_terms:
+                    term = f"%{term}%"
+                    search_conditions.extend([
+                        Product.product_name.ilike(term),
+                        Product.product_description.ilike(term),
+                        Product.sku.ilike(term),
+                        Category.name.ilike(term),
+                        Brand.name.ilike(term)
+                    ])
+                
+                # Join with category and brand tables for searching
+                query = query.outerjoin(Category).outerjoin(Brand)
+                
+                # Apply the search conditions
+                query = query.filter(or_(*search_conditions))
+
+            # Apply rating filter
+            if min_rating is not None:
+                query = query.join(Review, Product.product_id == Review.product_id)\
+                    .group_by(Product.product_id)\
+                    .having(func.avg(Review.rating) >= min_rating)
+
+            # Apply discount filter
+            if min_discount is not None:
+                query = query.filter(Product.discount_pct >= min_discount)
+
+            # Filter by trendy products
+            if product_ids:
+                query = query.filter(Product.product_id.in_(product_ids))
+            
+            # Get the filtered products
+            products = query.all()
             
             # Create a dictionary to store order counts
             order_counts = {pc[0]: pc[1] for pc in product_counts}
@@ -1139,19 +1226,35 @@ class ProductController:
             # Sort products based on order counts
             products.sort(key=lambda p: order_counts.get(p.product_id, 0), reverse=True)
             
+            # Apply pagination
+            total = len(products)
+            start_idx = (page - 1) * per_page
+            end_idx = start_idx + per_page
+            paginated_products = products[start_idx:end_idx]
+            
             # Prepare response
             product_data = []
-            for product in products:
+            for product in paginated_products:
                 product_dict = product.serialize()
+                
+                # Calculate average rating
+                avg_rating = db.session.query(func.avg(Review.rating))\
+                    .filter(Review.product_id == product.product_id)\
+                    .scalar() or 0
+                
                 # Add frontend-specific fields
                 product_dict.update({
                     'id': str(product.product_id),
                     'name': product.product_name,
                     'description': product.product_description,
-                    'stock': 100,  # TODO: Add stock tracking
-                    'isNew': True,  # TODO: Add logic for new products
+                    'stock': 100,
+                    'isNew': True,
                     'isBuiltIn': False,
-                    'orderCount': order_counts.get(product.product_id, 0)  # Add order count
+                    'rating': round(float(avg_rating), 1),
+                    'discount_pct': float(product.discount_pct),
+                    'orderCount': order_counts.get(product.product_id, 0),
+                    'category': product.category.serialize() if product.category else None,
+                    'brand': product.brand.serialize() if product.brand else None
                 })
                 
                 # Get primary media
@@ -1167,12 +1270,12 @@ class ProductController:
             return jsonify({
                 'products': product_data,
                 'pagination': {
-                    'total': len(product_data),
-                    'pages': 1,
+                    'total': total,
+                    'pages': (total + per_page - 1) // per_page,
                     'current_page': page,
                     'per_page': per_page,
-                    'has_next': False,
-                    'has_prev': False
+                    'has_next': end_idx < total,
+                    'has_prev': page > 1
                 }
             })
             

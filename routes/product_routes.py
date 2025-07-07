@@ -853,6 +853,60 @@ def get_trendy_deals():
         required: false
         default: 10
         description: Items per page (max 50)
+      - in: query
+        name: sort_by
+        type: string
+        required: false
+        default: created_at
+        description: Field to sort by (created_at, selling_price, discount_pct)
+      - in: query
+        name: order
+        type: string
+        required: false
+        default: desc
+        enum: [asc, desc]
+        description: Sort order
+      - in: query
+        name: category_id
+        type: integer
+        required: false
+        description: Filter by category ID
+      - in: query
+        name: brand_id
+        type: string
+        required: false
+        description: Filter by brand ID(s). Can be a single ID or comma-separated list
+      - in: query
+        name: min_price
+        type: number
+        required: false
+        description: Minimum price filter
+      - in: query
+        name: max_price
+        type: number
+        required: false
+        description: Maximum price filter
+      - in: query
+        name: search
+        type: string
+        required: false
+        description: Search term for product name/description/SKU/category/brand
+      - in: query
+        name: include_children
+        type: boolean
+        required: false
+        default: true
+        description: Whether to include products from child categories
+      - in: query
+        name: min_rating
+        type: number
+        required: false
+        description: Minimum average rating filter
+      - in: query
+        name: min_discount
+        type: number
+        required: false
+        description: Minimum discount percentage filter
     responses:
       200:
         description: List of trendy products retrieved successfully
@@ -884,6 +938,12 @@ def get_trendy_deals():
                     type: boolean
                   orderCount:
                     type: integer
+                  rating:
+                    type: number
+                    format: float
+                  discount_pct:
+                    type: number
+                    format: float
                   primary_image:
                     type: string
                   image:
@@ -961,7 +1021,7 @@ def get_trendy_deals():
                 "has_next": False,
                 "has_prev": False
             }
-        }), 500 
+        }), 500
 
 # Add new route for getting product reviews
 @product_bp.route('/api/products/<int:product_id>/reviews', methods=['GET'])

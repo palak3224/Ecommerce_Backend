@@ -8,6 +8,11 @@ from models.category import Category
 from common.database import db
 from models.review import Review
 from models.visit_tracking import VisitTracking
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter, landscape
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
 
 class PerformanceAnalyticsController:
     @staticmethod
@@ -1462,3 +1467,186 @@ class PerformanceAnalyticsController:
                 "status": "error",
                 "message": str(e)
             }
+
+    @staticmethod
+    def export_sales_report(format='csv'):
+        """Export sales report in specified format (csv, excel, pdf)"""
+        try:
+            from io import BytesIO
+            import pandas as pd
+            from datetime import datetime, timezone, timedelta
+            from sqlalchemy import and_
+            from models.order import Order, OrderItem
+            from models.product import Product
+            from models.category import Category
+            from auth.models.models import MerchantProfile
+            from reportlab.lib import colors
+            from reportlab.lib.pagesizes import letter, landscape
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.units import inch
+
+            # Get sales data for the report
+            end_date = datetime.now(timezone.utc)
+            start_date = end_date - timedelta(days=365)  # Last 12 months
+
+            # Query to get detailed sales data
+            sales_data = db.session.query(
+                Order.order_date,
+                Order.order_id,
+                Order.total_amount,
+                OrderItem.quantity,
+                OrderItem.line_item_total_inclusive_gst,
+                Product.product_name.label('product_name'),
+                Category.name.label('category_name'),
+                MerchantProfile.business_name.label('merchant_name')
+            ).join(
+                OrderItem, OrderItem.order_id == Order.order_id
+            ).join(
+                Product, Product.product_id == OrderItem.product_id
+            ).join(
+                Category, Category.category_id == Product.category_id
+            ).join(
+                MerchantProfile, MerchantProfile.id == Product.merchant_id
+            ).filter(
+                and_(
+                    Order.order_date >= start_date,
+                    Order.order_date <= end_date
+                )
+            ).order_by(Order.order_date.desc()).all()
+
+            # Convert to DataFrame
+            df = pd.DataFrame([{
+                'Date': row.order_date.strftime('%Y-%m-%d'),
+                'Order ID': row.order_id,
+                'Product': row.product_name,
+                'Category': row.category_name,
+                'Merchant': row.merchant_name,
+                'Quantity': row.quantity,
+                'Amount': float(row.line_item_total_inclusive_gst),
+                'Total Order Value': float(row.total_amount)
+            } for row in sales_data])
+
+            # Add summary statistics
+            summary_df = pd.DataFrame([{
+                'Total Orders': len(df['Order ID'].unique()),
+                'Total Revenue': df['Total Order Value'].sum(),
+                'Average Order Value': df['Total Order Value'].mean(),
+                'Total Products Sold': df['Quantity'].sum()
+            }])
+
+            if format == 'csv':
+                # Export as CSV
+                output = BytesIO()
+                df.to_csv(output, index=False)
+                output.seek(0)
+                return output.getvalue(), 'text/csv', f'sales_report_{datetime.now().strftime("%Y%m%d")}.csv'
+
+            elif format == 'excel':
+                # Export as Excel
+                output = BytesIO()
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    df.to_excel(writer, sheet_name='Sales Data', index=False)
+                    summary_df.to_excel(writer, sheet_name='Summary', index=False)
+                    
+                    # Get workbook and add formats
+                    workbook = writer.book
+                    header_format = workbook.add_format({
+                        'bold': True,
+                        'bg_color': '#FF5733',
+                        'font_color': 'white'
+                    })
+                    
+                    # Format the Sales Data sheet
+                    worksheet = writer.sheets['Sales Data']
+                    for col_num, value in enumerate(df.columns.values):
+                        worksheet.write(0, col_num, value, header_format)
+                        worksheet.set_column(col_num, col_num, 15)
+                    
+                    # Format the Summary sheet
+                    worksheet = writer.sheets['Summary']
+                    for col_num, value in enumerate(summary_df.columns.values):
+                        worksheet.write(0, col_num, value, header_format)
+                        worksheet.set_column(col_num, col_num, 20)
+
+                output.seek(0)
+                return output.getvalue(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', f'sales_report_{datetime.now().strftime("%Y%m%d")}.xlsx'
+
+            elif format == 'pdf':
+                # Export as PDF using reportlab
+                output = BytesIO()
+                doc = SimpleDocTemplate(
+                    output,
+                    pagesize=landscape(letter),
+                    rightMargin=0.5*inch,
+                    leftMargin=0.5*inch,
+                    topMargin=0.5*inch,
+                    bottomMargin=0.5*inch
+                )
+
+                # Create the PDF content
+                elements = []
+                styles = getSampleStyleSheet()
+                
+                # Add title
+                title_style = ParagraphStyle(
+                    'CustomTitle',
+                    parent=styles['Heading1'],
+                    textColor=colors.HexColor('#FF5733'),
+                    spaceAfter=30
+                )
+                elements.append(Paragraph('Sales Report', title_style))
+                
+                # Add summary section
+                elements.append(Paragraph('Summary', styles['Heading2']))
+                summary_data = [[k, f"{v:,.2f}" if isinstance(v, float) else f"{v:,}"] 
+                              for k, v in summary_df.iloc[0].items()]
+                summary_table = Table(summary_data)
+                summary_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, -1), colors.lightgrey),
+                    ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, -1), 10),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+                    ('TOPPADDING', (0, 0), (-1, -1), 12),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
+                ]))
+                elements.append(summary_table)
+                elements.append(Spacer(1, 20))
+
+                # Add detailed data
+                elements.append(Paragraph('Detailed Sales Data', styles['Heading2']))
+                data = [df.columns.values.tolist()] + df.values.tolist()
+                table = Table(data)
+                table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#FF5733')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 10),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                    ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+                    ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                    ('FONTSIZE', (0, 1), (-1, -1), 8),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('TOPPADDING', (0, 0), (-1, -1), 6),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                ]))
+                elements.append(table)
+
+                # Build PDF
+                doc.build(elements)
+                output.seek(0)
+                return output.getvalue(), 'application/pdf', f'sales_report_{datetime.now().strftime("%Y%m%d")}.pdf'
+
+            else:
+                raise ValueError(f"Unsupported format: {format}")
+
+        except Exception as e:
+            print(f"Error exporting sales report: {str(e)}")
+            return None, None, None

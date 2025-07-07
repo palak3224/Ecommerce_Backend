@@ -1,7 +1,11 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_file
 from models.visit_tracking import VisitTracking
 from common.database import db
 from datetime import datetime, timezone
+from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+from common.decorators import superadmin_required
+from flask_cors import cross_origin
+from io import BytesIO
 
 analytics_bp = Blueprint('analytics', __name__)
 
@@ -199,6 +203,70 @@ def mark_converted():
         
     except Exception as e:
         db.session.rollback()
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@analytics_bp.route('/superadmin/analytics/export-sales-report', methods=['GET', 'OPTIONS'])
+@cross_origin()
+@superadmin_required
+def export_sales_report():
+    """
+    Export sales report in specified format
+    ---
+    tags:
+      - Analytics
+    parameters:
+      - in: query
+        name: format
+        type: string
+        required: true
+        description: Export format (csv, excel, pdf)
+    responses:
+      200:
+        description: Report exported successfully
+      400:
+        description: Invalid format specified
+      500:
+        description: Internal server error
+    """
+    if request.method == 'OPTIONS':
+        return '', 204
+
+    try:
+        export_format = request.args.get('format', 'csv').lower()
+        if export_format not in ['csv', 'excel', 'pdf']:
+            return jsonify({
+                'status': 'error',
+                'message': f'Invalid format: {export_format}. Supported formats are csv, excel, and pdf.'
+            }), 400
+
+        # Get the report data
+        report_data, mime_type, filename = PerformanceAnalyticsController.export_sales_report(export_format)
+        
+        if report_data is None:
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to generate report'
+            }), 500
+
+        # Send the file
+        response = send_file(
+            path_or_file=BytesIO(report_data) if isinstance(report_data, bytes) else report_data,
+            mimetype=mime_type,
+            as_attachment=True,
+            download_name=filename
+        )
+        
+        # Add CORS headers
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'GET,OPTIONS')
+        
+        return response
+
+    except Exception as e:
         return jsonify({
             'status': 'error',
             'message': str(e)
