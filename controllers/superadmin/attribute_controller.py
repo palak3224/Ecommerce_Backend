@@ -41,6 +41,36 @@ class AttributeController:
             db.session.rollback()
             raise e
 
+        # If this is a boolean attribute, automatically create true/false values
+        if input_type == AttributeInputType.BOOLEAN:
+            from models.attribute_value import AttributeValue
+            
+            # Create 'true' value
+            true_value = AttributeValue(
+                attribute_id=attr.attribute_id,
+                value_code='true',
+                value_label='Yes'
+            )
+            
+            # Create 'false' value
+            false_value = AttributeValue(
+                attribute_id=attr.attribute_id,
+                value_code='false',
+                value_label='No'
+            )
+            
+            db.session.add(true_value)
+            db.session.add(false_value)
+            
+            try:
+                db.session.commit()
+            except IntegrityError as e:
+                db.session.rollback()
+                # If we can't create the boolean values, delete the attribute
+                db.session.delete(attr)
+                db.session.commit()
+                raise ValueError(f"Failed to create boolean attribute values: {str(e)}")
+
         return attr
 
     @staticmethod

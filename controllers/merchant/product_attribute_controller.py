@@ -122,6 +122,29 @@ class MerchantProductAttributeController:
             AttributeValue.query.get_or_404((attribute_id, value))
             code = value
 
+        elif itype == 'boolean':
+            # Handle boolean attributes
+            if isinstance(value, bool):
+                bool_value = value
+            elif isinstance(value, str):
+                if value.lower() in ['true', '1', 'yes', 'on']:
+                    bool_value = True
+                elif value.lower() in ['false', '0', 'no', 'off']:
+                    bool_value = False
+                else:
+                    raise ValueError(f"Invalid boolean value: {value!r}")
+            else:
+                raise ValueError(f"Boolean attribute expects true/false, got {value!r}")
+            
+            # Convert boolean to string for storage in value_code
+            code = str(bool_value).lower()
+            # Verify the boolean attribute value exists in the database
+            try:
+                AttributeValue.query.get_or_404((attribute_id, code))
+            except:
+                # If the boolean value doesn't exist, it means the attribute values weren't created
+                raise ValueError(f"Boolean attribute values not properly configured. Please contact admin.")
+
         elif itype == 'number':
             try:
                 num = float(value)
