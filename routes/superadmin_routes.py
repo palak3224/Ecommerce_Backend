@@ -29,6 +29,7 @@ from controllers.superadmin.product_controller import ProductController
 from controllers.superadmin.carousel_controller import CarouselController
 
 from controllers.superadmin.system_monitoring_controller import SystemMonitoringController
+from controllers.superadmin.merchant_subscription_controller import MerchantSubscriptionController
 
 from controllers.superadmin.gst_controller import GSTManagementController
 from schemas.superadmin_gst_schemas import CreateGSTRuleSchema, UpdateGSTRuleSchema 
@@ -5218,3 +5219,70 @@ def get_total_products_by_period():
         current_app.logger.error(f"Error getting total products by period: {e}")
         return jsonify({'message': 'Failed to retrieve total products data by period.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
+
+# ── MERCHANT SUBSCRIPTIONS ───────────────────────────────────────────────────────────────────
+@superadmin_bp.route('/merchant-subscriptions', methods=['GET'])
+@super_admin_role_required
+def get_subscribed_merchants():
+    try:
+        result = MerchantSubscriptionController.get_subscribed_merchants()
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting subscribed merchants: {e}")
+        return jsonify({'message': 'Failed to retrieve subscribed merchants.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/merchant-subscriptions/summary', methods=['GET'])
+@super_admin_role_required
+def get_subscription_summary():
+    try:
+        result = MerchantSubscriptionController.get_subscription_summary()
+        return jsonify(result), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error getting subscription summary: {e}")
+        return jsonify({'message': 'Failed to retrieve subscription summary.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+    
+
+@superadmin_bp.route('/subscription/plans', methods=['GET'])
+@super_admin_role_required
+def list_subscription_plans():
+    """
+    Get all available subscription plans
+    ---
+    tags:
+      - Merchant - Subscription
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of subscription plans retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              plan_id:
+                type: integer
+              name:
+                type: string
+              description:
+                type: string
+              featured_limit:
+                type: integer
+              promo_limit:
+                type: integer
+              duration_days:
+                type: integer
+              price:
+                type: number
+              can_place_premium:
+                type: boolean
+      500:
+        description: Internal server error
+    """
+    try:
+        from models.subscription import SubscriptionPlan
+        plans = SubscriptionPlan.query.filter_by(active_flag=True).all()
+        return jsonify([plan.serialize() for plan in plans]), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error listing subscription plans: {str(e)}")
+        return jsonify({'message': 'Failed to retrieve subscription plans.'}), HTTPStatus.INTERNAL_SERVER_ERROR
