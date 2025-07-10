@@ -113,6 +113,17 @@ class ProductController:
             if max_price is not None:
                 query = query.filter(Product.selling_price <= max_price)
 
+            # Apply discount filter
+            if min_discount is not None:
+                query = query.filter(Product.discount_pct >= min_discount)
+
+            # Apply rating filter
+            if min_rating is not None:
+                # Join with reviews table and filter by average rating
+                query = query.join(Review, Product.product_id == Review.product_id, isouter=True)\
+                    .group_by(Product.product_id)\
+                    .having(func.coalesce(func.avg(Review.rating), 0) >= min_rating)
+
             # Apply search filter
             if search:
                 search_terms = search.lower().split()
