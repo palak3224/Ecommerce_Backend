@@ -58,6 +58,38 @@ class CarouselController:
         return carousel
 
     @staticmethod
+    def update(carousel_id, data, image_file=None):
+        """
+        Update a carousel item by ID. Supports updating fields and image upload.
+        Args:
+            carousel_id (int): ID of the carousel item to update
+            data (dict): Fields to update
+            image_file (FileStorage): New image file (optional)
+        Returns:
+            Carousel: Updated carousel item
+        """
+        carousel = Carousel.query.get_or_404(carousel_id)
+        if 'type' in data:
+            carousel.type = data['type']
+        if 'target_id' in data:
+            carousel.target_id = data['target_id']
+        if 'display_order' in data:
+            carousel.display_order = data['display_order']
+        if 'is_active' in data:
+            carousel.is_active = data['is_active']
+        if 'shareable_link' in data:
+            carousel.shareable_link = data['shareable_link']
+        if image_file:
+            upload_result = cloudinary.uploader.upload(
+                image_file,
+                folder="carousel_images",
+                resource_type="image"
+            )
+            carousel.image_url = upload_result.get('secure_url')
+        db.session.commit()
+        return carousel
+
+    @staticmethod
     def update_display_orders(order_list):
         """
         Update display_order for multiple carousel items.

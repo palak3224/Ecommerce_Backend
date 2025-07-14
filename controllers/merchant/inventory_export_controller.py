@@ -139,8 +139,8 @@ class MerchantInventoryExportController:
         try:
             # Create PDF buffer
             buffer = io.BytesIO()
-            doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=72, leftMargin=72,
-                                  topMargin=72, bottomMargin=18)
+            doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=50, leftMargin=50,
+                                  topMargin=50, bottomMargin=50)
             
             # Get styles
             styles = getSampleStyleSheet()
@@ -149,120 +149,217 @@ class MerchantInventoryExportController:
             title_style = ParagraphStyle(
                 'CustomTitle',
                 parent=styles['Heading1'],
-                fontSize=18,
+                fontSize=20,
                 spaceAfter=30,
                 alignment=TA_CENTER,
-                textColor=colors.HexColor('#FF4D00')
+                textColor=colors.HexColor('#FF4D00'),
+                fontName='Helvetica-Bold'
+            )
+            
+            subtitle_style = ParagraphStyle(
+                'CustomSubtitle',
+                parent=styles['Normal'],
+                fontSize=12,
+                spaceAfter=20,
+                alignment=TA_CENTER,
+                textColor=colors.HexColor('#666666'),
+                fontName='Helvetica'
             )
             
             heading_style = ParagraphStyle(
                 'CustomHeading',
                 parent=styles['Heading2'],
-                fontSize=14,
-                spaceAfter=12,
-                spaceBefore=20,
-                textColor=colors.HexColor('#333333')
+                fontSize=16,
+                spaceAfter=15,
+                spaceBefore=25,
+                textColor=colors.HexColor('#333333'),
+                fontName='Helvetica-Bold'
+            )
+            
+            section_style = ParagraphStyle(
+                'SectionStyle',
+                parent=styles['Normal'],
+                fontSize=10,
+                spaceAfter=8,
+                textColor=colors.HexColor('#333333'),
+                fontName='Helvetica'
             )
             
             # Build PDF content
             content = []
             
             # Title
-            title = Paragraph(f"Inventory Report - {report_data['merchant_info']['business_name']}", title_style)
+            title = Paragraph(f"Inventory Report", title_style)
             content.append(title)
-            content.append(Spacer(1, 20))
             
-            # Merchant Info
-            merchant_info = [
-                ['Business Name:', report_data['merchant_info']['business_name']],
+            # Subtitle
+            subtitle = Paragraph(f"{report_data['merchant_info']['business_name']}", subtitle_style)
+            content.append(subtitle)
+            
+            # Report Info
+            report_info = [
+                ['Report Generated:', report_data['merchant_info']['generated_at']],
                 ['Merchant ID:', str(report_data['merchant_info']['merchant_id'])],
-                ['Email:', report_data['merchant_info']['email']],
-                ['Phone:', report_data['merchant_info']['phone']],
-                ['Generated:', report_data['merchant_info']['generated_at']]
+                ['Business Email:', report_data['merchant_info']['email']],
+                ['Business Phone:', report_data['merchant_info']['phone'] or 'N/A']
             ]
             
-            merchant_table = Table(merchant_info, colWidths=[2*inch, 3*inch])
-            merchant_table.setStyle(TableStyle([
+            report_table = Table(report_info, colWidths=[2.5*inch, 3.5*inch])
+            report_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#F8F9FA')),
                 ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+                ('ALIGN', (1, 0), (1, -1), 'LEFT'),
                 ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
                 ('FONTSIZE', (0, 0), (-1, -1), 10),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-                ('TOPPADDING', (0, 0), (-1, -1), 8),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E0E0E0')),
+                ('ROWBACKGROUNDS', (0, 0), (-1, -1), [colors.white, colors.HexColor('#FAFAFA')])
             ]))
-            content.append(merchant_table)
-            content.append(Spacer(1, 20))
+            content.append(report_table)
+            content.append(Spacer(1, 25))
             
             # Inventory Statistics
             if report_data['inventory_stats']:
-                content.append(Paragraph("Inventory Statistics", heading_style))
+                content.append(Paragraph("Inventory Overview", heading_style))
+                
                 stats = report_data['inventory_stats']
                 stats_data = [
                     ['Metric', 'Value'],
                     ['Total Products', f"{stats.get('total_products', 0):,}"],
                     ['Total Stock Quantity', f"{stats.get('total_stock', 0):,}"],
                     ['Low Stock Products', f"{stats.get('low_stock_count', 0):,}"],
-                    ['Out of Stock Products', f"{stats.get('out_of_stock_count', 0):,}"],
-                    ['Inventory Value', f"${stats.get('inventory_value', 0):,.2f}"]
+                    ['Out of Stock Products', f"{stats.get('out_of_stock_count', 0):,}"]
+                  
                 ]
                 
                 stats_table = Table(stats_data, colWidths=[2.5*inch, 2*inch])
                 stats_table.setStyle(TableStyle([
                     ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#FF4D00')),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
                     ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                     ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 12),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                    ('FONTSIZE', (0, 0), (-1, 0), 11),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+                    ('TOPPADDING', (0, 0), (-1, 0), 10),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F8F9FA')),
                     ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
                     ('FONTSIZE', (0, 1), (-1, -1), 10),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E0E0E0')),
+                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#FAFAFA')])
                 ]))
                 content.append(stats_table)
-                content.append(Spacer(1, 20))
+                content.append(Spacer(1, 25))
             
-            # Products Table (first 50 products to avoid huge PDFs)
+            # Products Table
             if report_data['products']:
-                content.append(Paragraph("Product Inventory", heading_style))
-                products_data = [['Product Name', 'SKU', 'Category', 'Brand', 'Stock', 'Available', 'Status']]
+                content.append(Paragraph("Product Inventory Details", heading_style))
                 
-                # Limit to first 50 products for PDF readability
-                limited_products = report_data['products'][:50]
+                # Create a function to truncate text
+                def truncate_text(text, max_length=30):
+                    if len(text) <= max_length:
+                        return text
+                    return text[:max_length-3] + "..."
+                
+                # Prepare products data with proper text handling
+                products_data = [['Product Name', 'SKU', 'Category', 'Brand', 'Stock Qty', 'Available', 'Status']]
+                
+                # Limit to first 100 products for PDF readability
+                limited_products = report_data['products'][:100]
                 for product in limited_products:
                     products_data.append([
-                        product['name'][:25] + ('...' if len(product['name']) > 25 else ''),
-                        product['sku'],
-                        product['category'][:15] + ('...' if len(product['category']) > 15 else ''),
-                        product['brand'][:15] + ('...' if len(product['brand']) > 15 else ''),
+                        truncate_text(product['name'], 25),
+                        truncate_text(product['sku'], 12),
+                        truncate_text(product['category'], 15),
+                        truncate_text(product['brand'], 15),
                         str(product['stock_qty']),
                         str(product['available']),
                         product['stock_status']
                     ])
                 
                 # Add note if there are more products
-                if len(report_data['products']) > 50:
-                    note = f"Note: Showing first 50 products out of {len(report_data['products'])} total products. Download Excel/CSV for complete data."
-                    content.append(Paragraph(note, styles['Normal']))
+                if len(report_data['products']) > 100:
+                    note = f"Note: Showing first 100 products out of {len(report_data['products'])} total products. Download Excel/CSV for complete data."
+                    content.append(Paragraph(note, section_style))
                     content.append(Spacer(1, 10))
                 
-                products_table = Table(products_data, colWidths=[1.5*inch, 0.8*inch, 0.8*inch, 0.8*inch, 0.5*inch, 0.6*inch, 0.7*inch])
+                # Calculate column widths to fit the page
+                products_table = Table(products_data, colWidths=[1.8*inch, 0.8*inch, 0.9*inch, 0.9*inch, 0.6*inch, 0.6*inch, 0.8*inch])
                 products_table.setStyle(TableStyle([
+                    # Header styling
                     ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#FF4D00')),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                    ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
                     ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 8),
+                    ('FONTSIZE', (0, 0), (-1, 0), 9),
                     ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                    ('TOPPADDING', (0, 0), (-1, 0), 8),
+                    
+                    # Data rows styling
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.white),
                     ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-                    ('FONTSIZE', (0, 1), (-1, -1), 7),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.black),
-                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE')
+                    ('FONTSIZE', (0, 1), (-1, -1), 8),
+                    ('ALIGN', (0, 1), (-1, -1), 'CENTER'),
+                    ('ALIGN', (0, 1), (0, -1), 'LEFT'),  # Product name left-aligned
+                    ('ALIGN', (1, 1), (1, -1), 'LEFT'),   # SKU left-aligned
+                    ('ALIGN', (2, 1), (2, -1), 'LEFT'),   # Category left-aligned
+                    ('ALIGN', (3, 1), (3, -1), 'LEFT'),   # Brand left-aligned
+                    
+                    # Grid and spacing
+                    ('GRID', (0, 0), (-1, -1), 0.25, colors.HexColor('#E0E0E0')),
+                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#FAFAFA')]),
+                    ('BOTTOMPADDING', (0, 1), (-1, -1), 4),
+                    ('TOPPADDING', (0, 1), (-1, -1), 4),
+                    
+                    # Status column color coding
+                    ('BACKGROUND', (6, 1), (6, -1), colors.HexColor('#F8F9FA')),
                 ]))
+                
                 content.append(products_table)
+                content.append(Spacer(1, 20))
+                
+                # Add summary statistics
+                if limited_products:
+                    content.append(Paragraph("Summary by Stock Status", heading_style))
+                    
+                    # Calculate summary
+                    status_counts = {}
+                    for product in limited_products:
+                        status = product['stock_status']
+                        status_counts[status] = status_counts.get(status, 0) + 1
+                    
+                    summary_data = [['Stock Status', 'Product Count']]
+                    for status, count in status_counts.items():
+                        summary_data.append([status, str(count)])
+                    
+                    summary_table = Table(summary_data, colWidths=[2.5*inch, 2*inch])
+                    summary_table.setStyle(TableStyle([
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#FF4D00')),
+                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                        ('FONTSIZE', (0, 0), (-1, 0), 10),
+                        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F8F9FA')),
+                        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                        ('FONTSIZE', (0, 1), (-1, -1), 10),
+                        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E0E0E0')),
+                    ]))
+                    content.append(summary_table)
+            
+            # Footer
+            content.append(Spacer(1, 30))
+            footer_style = ParagraphStyle(
+                'FooterStyle',
+                parent=styles['Normal'],
+                fontSize=8,
+                alignment=TA_CENTER,
+                textColor=colors.HexColor('#999999'),
+                fontName='Helvetica'
+            )
+            footer = Paragraph(f"This report was generated on {report_data['merchant_info']['generated_at']} for {report_data['merchant_info']['business_name']}", footer_style)
+            content.append(footer)
             
             # Build PDF
             doc.build(content)

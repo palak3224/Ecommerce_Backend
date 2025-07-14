@@ -32,7 +32,10 @@ class AttributeValueController:
 
     @staticmethod
     def delete(attribute_id, value_code):
-        av = AttributeValue.query.get_or_404((attribute_id, value_code))
+        av = AttributeValue.query.filter_by(attribute_id=attribute_id, value_code=value_code).first()
+        if not av:
+            # Optionally raise a custom error or return False
+            raise ValueError("Attribute value not found")
         db.session.delete(av)
         db.session.commit()
         return True

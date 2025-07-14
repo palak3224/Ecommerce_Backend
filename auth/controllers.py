@@ -129,6 +129,9 @@ def login_user(data):
                 user_to_check = User.get_by_id(merchant_profile.user_id)
         else:
             user_to_check = User.get_by_email(login_email)
+            # Prevent merchant login via regular login
+            if user_to_check and user_to_check.role == UserRole.MERCHANT:
+                return {"error": "Merchants must sign in through the merchant dashboard."}, 403
         if not user_to_check or not user_to_check.check_password(password):
             return {"error": "Invalid email or password"}, 401
         if not user_to_check.is_active:
@@ -242,24 +245,19 @@ def google_auth(token_data):
         google_info = validate_google_token(token_data['id_token'])
         if not google_info:
             return {"error": "Invalid Google token"}, 401
-        
         # Get user info from Google token
         google_id = google_info['sub']
         email = google_info['email']
         first_name = google_info.get('given_name', '')
         last_name = google_info.get('family_name', '')
-        
         # Check if user exists with this Google ID
         user = User.get_by_provider_id(AuthProvider.GOOGLE, google_id)
-        
         # If not, check by email
         if not user:
             user = User.get_by_email(email)
-            
             # If user exists with this email but different auth provider
             if user and user.auth_provider != AuthProvider.GOOGLE:
                 return {"error": "Email already registered with different authentication method"}, 409
-            
             # Create new user if not exists
             if not user:
                 user = User(
@@ -272,22 +270,21 @@ def google_auth(token_data):
                     is_email_verified=True  # Email verified by Google
                 )
                 user.save()
-        
+        # Prevent merchant login via Google on regular login
+        if user and user.role == UserRole.MERCHANT:
+            return {"error": "Merchants must sign in through the merchant dashboard."}, 403
         # Update user's Google ID if needed
         if user.provider_user_id != google_id:
             user.provider_user_id = google_id
             user.auth_provider = AuthProvider.GOOGLE
             db.session.commit()
-        
         # Update last login timestamp
         user.update_last_login()
-        
         # Generate tokens
         access_token = create_access_token(identity=str(user.id))
         access_token = create_access_token(identity=str(user.id))        
         refresh_expires = datetime.utcnow() + current_app.config['JWT_REFRESH_TOKEN_EXPIRES']
         refresh_token = RefreshToken.create_token(user.id, refresh_expires)
-        
         return {
             "message": "Google authentication successful",
             "access_token": access_token,

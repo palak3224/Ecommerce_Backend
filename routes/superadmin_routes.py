@@ -2066,39 +2066,11 @@ def update_attribute_value(aid, value_code):
 @superadmin_bp.route('/attribute-values/<int:aid>/<value_code>', methods=['DELETE'])
 @super_admin_role_required
 def delete_attribute_value(aid, value_code):
-    """
-    Delete an attribute value
-    ---
-    tags:
-      - Attribute Values
-    security:
-      - Bearer: []
-    parameters:
-      - name: aid
-        in: path
-        type: integer
-        required: true
-        description: ID of the attribute this value belongs to
-      - name: value_code
-        in: path
-        type: string
-        required: true
-        description: Code of the attribute value to delete
-    responses:
-      204:
-        description: Attribute value deleted successfully
-      401:
-        description: Unauthorized - Invalid or missing token
-      403:
-        description: Forbidden - User does not have super admin role
-      404:
-        description: Attribute value not found
-      409:
-        description: Conflict - Attribute value is in use and cannot be deleted
-      500:
-        description: Internal server error
-    """
-    AttributeValueController.delete(aid, value_code)
+    try:
+        AttributeValueController.delete(aid, value_code)
+        return '', 204
+    except ValueError as e:
+        return jsonify({'message': str(e)}), 404
 
 
 # ── ATTRIBUTES ───────────────────────────────────────────────────────────────────
@@ -4014,6 +3986,44 @@ def update_carousel_order():
     except Exception as e:
         current_app.logger.error(f"Error updating carousel order: {e}")
         return jsonify({'message': f'Failed to update carousel order: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/carousels/<int:carousel_id>', methods=['PUT'])
+@cross_origin()
+@super_admin_role_required
+def update_carousel(carousel_id):
+    """
+    Update a carousel item by ID
+    """
+    from controllers.superadmin.carousel_controller import CarouselController
+    from flask import request, jsonify, current_app
+    try:
+        # Support both JSON and multipart/form-data
+        if request.content_type and request.content_type.startswith('multipart/form-data'):
+            data = request.form.to_dict()
+            # Convert types for known fields
+            if 'target_id' in data:
+                try:
+                    data['target_id'] = int(data['target_id'])
+                except Exception:
+                    pass
+            if 'display_order' in data:
+                try:
+                    data['display_order'] = int(data['display_order'])
+                except Exception:
+                    pass
+            if 'is_active' in data:
+                val = data['is_active']
+                if isinstance(val, str):
+                    data['is_active'] = val.lower() == 'true'
+            image_file = request.files.get('image') if 'image' in request.files else None
+        else:
+            data = request.get_json() or {}
+            image_file = None
+        updated_carousel = CarouselController.update(carousel_id, data, image_file)
+        return jsonify(updated_carousel.serialize()), 200
+    except Exception as e:
+        current_app.logger.error(f"Error updating carousel {carousel_id}: {e}")
+        return jsonify({'message': f'Failed to update carousel: {str(e)}'}), 500
 
 # ── PERFORMANCE ANALYTICS ───────────────────────────────────────────────────────
 @superadmin_bp.route('/analytics/revenue', methods=['GET'])
