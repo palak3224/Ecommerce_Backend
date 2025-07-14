@@ -230,14 +230,27 @@ class OrderController:
         order = Order.query.options(
             db.joinedload(Order.items).joinedload(OrderItem.product).joinedload(Product.media), # Eager load product media
             db.joinedload(Order.shipping_address_obj),
-            db.joinedload(Order.billing_address_obj),
-            db.joinedload(Order.status_history).joinedload(OrderStatusHistory.changed_by_user),
-            db.joinedload(Order.shipments).joinedload(Shipment.items).joinedload(ShipmentItem.order_item)
+            db.joinedload(Order.billing_address_obj)
+            # Do NOT eager load status_history or shipments if they are dynamic
         ).get(order_id) # Use .get() for primary key lookup
         
         if not order:
             return None
-        return order.serialize(include_items=True, include_history=True, include_shipments=True)
+        # For dynamic relationships, always call .all()
+        status_history = order.status_history.all() if hasattr(order.status_history, 'all') else order.status_history
+        shipments = order.shipments.all() if hasattr(order.shipments, 'all') else order.shipments
+        # Patch the order object for serialization
+        order._patched_status_history = status_history
+        order._patched_shipments = shipments
+        def serialize_with_patch(self, include_items=True, include_history=False, include_shipments=False):
+            data = self.serialize(include_items=include_items, include_history=False, include_shipments=False)
+            if include_history:
+                data["status_history"] = [hist.serialize() for hist in self._patched_status_history]
+            if include_shipments:
+                data["shipments"] = [ship.serialize() for ship in self._patched_shipments]
+            return data
+        # Use the patched serializer
+        return serialize_with_patch(order, include_items=True, include_history=True, include_shipments=True)
 
     @staticmethod
     def get_user_orders(user_id, page=1, per_page=10, status_filter_str=None): # Renamed status to status_filter_str
