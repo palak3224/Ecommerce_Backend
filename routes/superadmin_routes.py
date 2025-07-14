@@ -52,6 +52,8 @@ from controllers.superadmin.profile_controller import (
     get_all_superadmins
 )
 
+from routes.order_routes import get_order as get_order_details_regular
+
 
 superadmin_bp = Blueprint('superadmin_bp', __name__)
 
@@ -5127,6 +5129,27 @@ def reactivate_superadmin_route(user_id):
             "message": f"Failed to reactivate superadmin: {str(e)}"
         }), 500
 
+@superadmin_bp.route('/superadmins/<int:user_id>', methods=['PATCH'])
+@cross_origin()
+@super_admin_role_required
+def update_superadmin_route(user_id):
+    """Update a superadmin user."""
+    try:
+        from controllers.superadmin.profile_controller import update_superadmin
+        return update_superadmin(user_id)
+    except ImportError as e:
+        current_app.logger.error(f"Import error in update_superadmin_route: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": "Server configuration error"
+        }), 500
+    except Exception as e:
+        current_app.logger.error(f"Error in update_superadmin_route: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": f"Failed to update superadmin: {str(e)}"
+        }), 500
+
 # ── PERIOD-BASED ANALYTICS ROUTES ───────────────────────────────────────────────
 @superadmin_bp.route('/analytics/dashboard-by-period', methods=['GET'])
 @super_admin_role_required
@@ -5286,3 +5309,41 @@ def list_subscription_plans():
     except Exception as e:
         current_app.logger.error(f"Error listing subscription plans: {str(e)}")
         return jsonify({'message': 'Failed to retrieve subscription plans.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/orders/<string:order_id>', methods=['GET'])
+@super_admin_role_required
+def get_order_details_superadmin(order_id):
+    """
+    Get detailed information about a specific order (superadmin access)
+    ---
+    tags:
+      - Superadmin - Orders
+    security:
+      - Bearer: []
+    parameters:
+      - name: order_id
+        in: path
+        type: string
+        required: true
+        description: ID of the order to retrieve
+    responses:
+      200:
+        description: Order details retrieved successfully
+      401:
+        description: Unauthorized - Invalid or missing token
+      403:
+        description: Forbidden - User does not have super admin role
+      404:
+        description: Order not found
+      500:
+        description: Internal server error
+    """
+    try:
+        from controllers.order_controller import OrderController
+        order = OrderController.get_order(order_id)
+        if not order:
+            return jsonify({'status': 'error', 'message': 'Order not found'}), 404
+        return jsonify({'status': 'success', 'data': order})
+    except Exception as e:
+        current_app.logger.error(f"Error getting order (superadmin): {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
