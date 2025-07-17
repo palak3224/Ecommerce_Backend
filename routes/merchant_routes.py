@@ -32,6 +32,8 @@ from controllers.merchant.report_controller import MerchantReportController
 from controllers.merchant.report_export_controller import MerchantReportExportController
 from controllers.merchant.inventory_export_controller import MerchantInventoryExportController
 from controllers.merchant.merchant_settings_controller import MerchantSettingsController
+from controllers.merchant.live_stream_controller import MerchantLiveStreamController
+import logging
 
 
 ALLOWED_MEDIA_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'mov', 'avi'} 
@@ -4399,3 +4401,158 @@ def get_user_info():
         description: Internal server error
     """
     return MerchantSettingsController.get_user_info()
+
+# LIVE STREAM ROUTES
+from flask import request
+
+@merchant_dashboard_bp.route('/live-streams', methods=['POST'])
+@jwt_required()
+def schedule_live_stream():
+    user_id = get_jwt_identity()
+    merchant = MerchantProfile.get_by_user_id(user_id)
+    if not merchant:
+        return jsonify({"error": "Merchant profile not found."}), 404
+    try:
+        if request.content_type and request.content_type.startswith('multipart/form-data'):
+            title = request.form.get('title')
+            description = request.form.get('description')
+            product_id = request.form.get('product_id')
+            scheduled_time = request.form.get('scheduled_time')
+            thumbnail_file = request.files.get('thumbnail')
+            thumbnail_url = None
+        else:
+            data = request.get_json()
+            title = data.get('title')
+            description = data.get('description')
+            product_id = data.get('product_id')
+            scheduled_time = data.get('scheduled_time')
+            thumbnail_file = None
+            thumbnail_url = data.get('thumbnail_url')
+        if not all([title, description, product_id, scheduled_time]):
+            return jsonify({"error": "Missing required fields."}), 400
+        # Updated: get rtmp_info from controller
+        stream, yt_event_id, yt_status, yt_thumbnails, rtmp_info = MerchantLiveStreamController.schedule_live_stream(
+            merchant.id, title, description, product_id, scheduled_time, thumbnail_file, thumbnail_url
+        )
+        return jsonify({
+            "data": stream.serialize(),
+            "youtube_event_id": yt_event_id,
+            "youtube_status": yt_status,
+            "youtube_thumbnails": yt_thumbnails,
+            "rtmp_info": rtmp_info
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error scheduling live stream: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@merchant_dashboard_bp.route('/live-streams', methods=['GET'])
+@jwt_required()
+def list_merchant_live_streams():
+    user_id = get_jwt_identity()
+    merchant = MerchantProfile.get_by_user_id(user_id)
+    if not merchant:
+        return jsonify({"error": "Merchant profile not found."}), 404
+    streams = MerchantLiveStreamController.get_by_merchant(merchant.id)
+    # Only return streams that are not deleted
+    visible_streams = [s.serialize() for s in streams if not s.deleted_at]
+    return jsonify(visible_streams), 200
+
+@merchant_dashboard_bp.route('/live-streams/<int:stream_id>', methods=['GET'])
+@jwt_required()
+def get_merchant_live_stream(stream_id):
+    import logging
+    user_id = get_jwt_identity()
+    merchant = MerchantProfile.get_by_user_id(user_id)
+    if not merchant:
+        return jsonify({"error": "Merchant profile not found."}), 404
+    stream = MerchantLiveStreamController.get_by_id(stream_id)
+    if not stream or stream.merchant_id != merchant.id:
+        return jsonify({"error": "Live stream not found or not owned by merchant."}), 404
+    # Debug: log stream key, url, and rtmp_info if present
+    logging.debug(f"[GET /live-streams/{stream_id}] stream_key={getattr(stream, 'stream_key', None)} stream_url={getattr(stream, 'stream_url', None)}")
+    if hasattr(stream, 'rtmp_info'):
+        logging.debug(f"[GET /live-streams/{stream_id}] rtmp_info={getattr(stream, 'rtmp_info')}")
+        return jsonify({**stream.serialize(), "rtmp_info": stream.rtmp_info}), 200
+    return jsonify(stream.serialize()), 200
+
+@merchant_dashboard_bp.route('/live-streams/<int:stream_id>/start', methods=['POST'])
+@jwt_required()
+def start_merchant_live_stream(stream_id):
+    user_id = get_jwt_identity()
+    merchant = MerchantProfile.get_by_user_id(user_id)
+    if not merchant:
+        return jsonify({"error": "Merchant profile not found."}), 404
+    stream = MerchantLiveStreamController.get_by_id(stream_id)
+    try:
+        # --- YouTube Go Live automation ---
+        if stream and stream.stream_key and stream.yt_livestream_id:
+            from models.youtube_token import YouTubeToken
+            import requests
+            yt_token = YouTubeToken.query.filter_by(is_active=True).order_by(YouTubeToken.created_at.desc()).first()
+            if yt_token:
+                access_token = yt_token.access_token
+                url = 'https://www.googleapis.com/youtube/v3/liveBroadcasts/transition'
+                params = {
+                    'broadcastStatus': 'live',
+                    'id': stream.stream_key,
+                    'part': 'status'
+                }
+                headers = {
+                    'Authorization': f'Bearer {access_token}',
+                    'Accept': 'application/json'
+                }
+                resp = requests.post(url, headers=headers, params=params)
+                if resp.status_code != 200:
+                    return jsonify({"error": f'YouTube Go Live failed: {resp.text}'}), 400
+        # --- End YouTube Go Live automation ---
+        stream = MerchantLiveStreamController.start_stream(stream, merchant.id)
+        return jsonify({"data": stream.serialize()}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 400
+
+@merchant_dashboard_bp.route('/live-streams/<int:stream_id>/end', methods=['POST'])
+@jwt_required()
+def end_merchant_live_stream(stream_id):
+    user_id = get_jwt_identity()
+    merchant = MerchantProfile.get_by_user_id(user_id)
+    if not merchant:
+        return jsonify({"error": "Merchant profile not found."}), 404
+    stream = MerchantLiveStreamController.get_by_id(stream_id)
+    try:
+        stream = MerchantLiveStreamController.end_stream(stream, merchant.id)
+        return jsonify({"data": stream.serialize()}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 400
+
+@merchant_dashboard_bp.route('/live-streams/<int:stream_id>', methods=['DELETE'])
+@jwt_required()
+def delete_merchant_live_stream(stream_id):
+    user_id = get_jwt_identity()
+    merchant = MerchantProfile.get_by_user_id(user_id)
+    if not merchant:
+        return jsonify({"error": "Merchant profile not found."}), 404
+    stream = MerchantLiveStreamController.get_by_id(stream_id)
+    try:
+        MerchantLiveStreamController.delete_stream(stream, merchant.id)
+        return jsonify({"message": "Live stream deleted."}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 400
+
+@merchant_dashboard_bp.route('/live-streams/youtube-scheduled', methods=['GET'])
+@jwt_required()
+def get_youtube_scheduled_streams():
+    user_id = get_jwt_identity()
+    merchant = MerchantProfile.get_by_user_id(user_id)
+    if not merchant:
+        return jsonify({"error": "Merchant profile not found."}), 404
+    try:
+        streams = MerchantLiveStreamController.get_merchant_youtube_scheduled_streams(merchant.id)
+        return jsonify({"data": streams}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+

@@ -54,6 +54,8 @@ from controllers.superadmin.profile_controller import (
 
 from routes.order_routes import get_order as get_order_details_regular
 
+from controllers.superadmin import youtube_controller
+
 
 superadmin_bp = Blueprint('superadmin_bp', __name__)
 
@@ -5357,3 +5359,53 @@ def get_order_details_superadmin(order_id):
     except Exception as e:
         current_app.logger.error(f"Error getting order (superadmin): {str(e)}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@superadmin_bp.route('/youtube/configure', methods=['POST'])
+@super_admin_role_required
+def youtube_configure():
+    """Get OAuth URL for YouTube integration (company account)."""
+    result = youtube_controller.configure_youtube()
+    return jsonify({"data": result}), 200
+
+@superadmin_bp.route('/youtube/callback', methods=['GET', 'POST'])
+def youtube_callback():
+    """OAuth callback endpoint for YouTube. Accepts ?code=... or JSON body."""
+    code = request.args.get('code') or (request.json.get('code') if request.is_json else None)
+    if not code:
+        return jsonify({"error": "Missing code parameter."}), 400
+    result = youtube_controller.handle_oauth_callback(code)
+    if 'error' in result:
+        return jsonify(result), 400
+    return jsonify(result), 200
+
+@superadmin_bp.route('/youtube/status', methods=['GET'])
+@super_admin_role_required
+def youtube_status():
+    """Get current YouTube integration status."""
+    result = youtube_controller.get_status()
+    return jsonify({"data": result}), 200
+
+@superadmin_bp.route('/youtube/refresh', methods=['POST'])
+@super_admin_role_required
+def youtube_refresh():
+    """Refresh YouTube access token using refresh token."""
+    result = youtube_controller.refresh_token()
+    if 'error' in result:
+        return jsonify(result), 400
+    return jsonify(result), 200
+
+@superadmin_bp.route('/youtube/revoke', methods=['DELETE'])
+@super_admin_role_required
+def youtube_revoke():
+    """Revoke and deactivate YouTube token."""
+    result = youtube_controller.revoke_token()
+    if 'error' in result:
+        return jsonify(result), 400
+    return jsonify(result), 200
+
+@superadmin_bp.route('/youtube/test-connection', methods=['POST'])
+@super_admin_role_required
+def youtube_test_connection():
+    """Test connection to YouTube with current token."""
+    result = youtube_controller.test_connection()
+    return jsonify({"data": result}), 200

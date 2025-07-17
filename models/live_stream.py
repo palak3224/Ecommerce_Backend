@@ -7,10 +7,10 @@ from models.product import Product
 import enum
 
 class StreamStatus(str, enum.Enum):
-    SCHEDULED = 'scheduled'
-    LIVE = 'live'
-    ENDED = 'ended'
-    CANCELLED = 'cancelled'
+    SCHEDULED = 'SCHEDULED'
+    LIVE = 'LIVE'
+    ENDED = 'ENDED'
+    CANCELLED = 'CANCELLED'
 
 class LiveStream(BaseModel):
     __tablename__ = 'live_streams'
@@ -34,8 +34,9 @@ class LiveStream(BaseModel):
     viewers_count = Column(Integer, default=0, nullable=False)
     likes_count = Column(Integer, default=0, nullable=False)
     
-    stream_key = Column(String(255), unique=True, nullable=False)  # Unique key for stream access
-    stream_url = Column(String(255), nullable=True)  # RTMP URL for streaming
+    stream_key = Column(String(255), unique=True, nullable=False)  # Unique key for stream access (broadcast ID)
+    stream_url = Column(String(255), nullable=True)  # RTMP URL for streaming (YouTube watch URL)
+    yt_livestream_id = Column(String(255), nullable=True)  # YouTube liveStream ID for RTMP info
     
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -64,6 +65,7 @@ class LiveStream(BaseModel):
             "likes_count": self.likes_count,
             "stream_key": self.stream_key,
             "stream_url": self.stream_url,
+            "yt_livestream_id": self.yt_livestream_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None,
@@ -109,6 +111,15 @@ class LiveStream(BaseModel):
             (cls.scheduled_time + timedelta(hours=1)) > scheduled_time
         ).first()
         return conflict is None
+
+    @classmethod
+    def delete_by_id(cls, stream_id):
+        stream = cls.get_by_id(stream_id)
+        if stream:
+            db.session.delete(stream)
+            db.session.commit()
+            return True
+        return False
 
 class LiveStreamComment(BaseModel):
     __tablename__ = 'live_stream_comments'
