@@ -15,7 +15,7 @@ class ShopProduct(BaseModel):
 
     product_id    = db.Column(db.Integer, primary_key=True)
     category_id   = db.Column(db.Integer, db.ForeignKey('categories.category_id'), nullable=False)
-    brand_id      = db.Column(db.Integer, db.ForeignKey('brands.brand_id'), nullable=False)
+    brand_id      = db.Column(db.Integer, db.ForeignKey('brands.brand_id'), nullable=True)
     parent_product_id = db.Column(db.Integer, db.ForeignKey('shop_products.product_id'), nullable=True)
     sku           = db.Column(db.String(50), unique=True, nullable=False)
     product_name  = db.Column(db.String(255), nullable=False)
