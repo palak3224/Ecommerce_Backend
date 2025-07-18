@@ -218,6 +218,11 @@ class ProductController:
                     product_data.append(product_dict)
 
             else:
+                if sort_by and hasattr(Product, sort_by):
+                    if order == 'asc':
+                        query = query.order_by(getattr(Product, sort_by))
+                    else:
+                        query = query.order_by(desc(getattr(Product, sort_by)))
                 # Execute paginated query without relevance
                 pagination = query.paginate(page=page, per_page=per_page, error_out=False)
                 
