@@ -306,4 +306,12 @@ class MerchantLiveStreamController:
                 "status": b.get("status", {}).get("lifeCycleStatus"),
                 "stream_info": stream_info
             })
-        return result 
+        return result
+
+    @staticmethod
+    def get_scheduled_streams_by_merchant(merchant_id):
+        """
+        Return all scheduled (not live, ended, or cancelled) live streams for a given merchant from the LiveStream model.
+        """
+        scheduled_streams = LiveStream.query.filter_by(merchant_id=merchant_id, status='scheduled', deleted_at=None).all()
+        return scheduled_streams 

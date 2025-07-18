@@ -4555,4 +4555,15 @@ def get_youtube_scheduled_streams():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@merchant_dashboard_bp.route('/live-streams/scheduled', methods=['GET'])
+@jwt_required()
+def list_merchant_scheduled_live_streams():
+    user_id = get_jwt_identity()
+    merchant = MerchantProfile.get_by_user_id(user_id)
+    if not merchant:
+        return jsonify({"error": "Merchant profile not found."}), 404
+    scheduled_streams = MerchantLiveStreamController.get_scheduled_streams_by_merchant(merchant.id)
+    visible_streams = [s.serialize() for s in scheduled_streams if not s.deleted_at]
+    return jsonify(visible_streams), 200
+
 
