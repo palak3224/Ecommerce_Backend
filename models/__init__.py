@@ -27,6 +27,7 @@ from .order import Order, OrderItem, OrderStatusHistory
 from .shipment import Shipment, ShipmentItem
 from .visit_tracking import VisitTracking
 
+
 from .gst_rule import GSTRule 
 from .enums import ProductPriceConditionType 
 
