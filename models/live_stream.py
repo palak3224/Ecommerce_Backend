@@ -7,6 +7,13 @@ from models.product import Product
 import enum
 
 class StreamStatus(str, enum.Enum):
+    """
+    Enum for live stream status:
+    - scheduled: Stream is scheduled but not started
+    - live: Stream is currently live (including if YouTube returns redundantTransition)
+    - ended: Stream has ended
+    - cancelled: Stream was cancelled
+    """
     scheduled = 'scheduled'
     live = 'live'
     ended = 'ended'

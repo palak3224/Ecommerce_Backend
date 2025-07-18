@@ -4486,6 +4486,7 @@ def start_merchant_live_stream(stream_id):
     stream = MerchantLiveStreamController.get_by_id(stream_id)
     try:
         # --- YouTube Go Live automation ---
+        redundant_transition = False
         if stream and stream.stream_key and stream.yt_livestream_id:
             from models.youtube_token import YouTubeToken
             import requests
@@ -4504,7 +4505,17 @@ def start_merchant_live_stream(stream_id):
                 }
                 resp = requests.post(url, headers=headers, params=params)
                 if resp.status_code != 200:
-                    return jsonify({"error": f'YouTube Go Live failed: {resp.text}'}), 400
+                    # Check for redundantTransition error
+                    try:
+                        err_json = resp.json()
+                        errors = err_json.get('error', {}).get('errors', [])
+                        if any(e.get('reason') == 'redundantTransition' for e in errors):
+                            # Treat as success: already live
+                            redundant_transition = True
+                        else:
+                            return jsonify({"error": f'YouTube Go Live failed: {resp.text}'}), 400
+                    except Exception:
+                        return jsonify({"error": f'YouTube Go Live failed: {resp.text}'}), 400
         # --- End YouTube Go Live automation ---
         stream = MerchantLiveStreamController.start_stream(stream, merchant.id)
         return jsonify({"data": stream.serialize()}), 200
@@ -4521,6 +4532,7 @@ def end_merchant_live_stream(stream_id):
         return jsonify({"error": "Merchant profile not found."}), 404
     stream = MerchantLiveStreamController.get_by_id(stream_id)
     try:
+        # Now handled in controller: end YouTube broadcast and update DB
         stream = MerchantLiveStreamController.end_stream(stream, merchant.id)
         return jsonify({"data": stream.serialize()}), 200
     except Exception as e:

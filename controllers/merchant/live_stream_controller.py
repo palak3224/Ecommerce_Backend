@@ -196,6 +196,7 @@ class MerchantLiveStreamController:
         if not stream or stream.merchant_id != merchant_id:
             raise Exception("Live stream not found or not owned by merchant.")
         # 1. Transition YouTube broadcast to live
+        redundant_transition = False
         if stream.stream_key and stream.yt_livestream_id:
             yt_token = YouTubeToken.query.filter_by(is_active=True).order_by(YouTubeToken.created_at.desc()).first()
             if yt_token:
@@ -212,7 +213,17 @@ class MerchantLiveStreamController:
                 }
                 resp = requests.post(url, headers=headers, params=params)
                 if resp.status_code != 200:
-                    raise Exception(f'YouTube Go Live failed: {resp.text}')
+                    # Check for redundantTransition error
+                    try:
+                        err_json = resp.json()
+                        errors = err_json.get('error', {}).get('errors', [])
+                        if any(e.get('reason') == 'redundantTransition' for e in errors):
+                            # Treat as success: already live
+                            redundant_transition = True
+                        else:
+                            raise Exception(f'YouTube Go Live failed: {resp.text}')
+                    except Exception:
+                        raise Exception(f'YouTube Go Live failed: {resp.text}')
         # 2. Update local DB
         stream.is_live = True
         stream.status = 'live'
@@ -224,6 +235,36 @@ class MerchantLiveStreamController:
     def end_stream(stream, merchant_id):
         if not stream or stream.merchant_id != merchant_id:
             raise Exception("Live stream not found or not owned by merchant.")
+        # 1. End YouTube broadcast if possible
+        redundant_transition = False
+        if stream.stream_key and stream.yt_livestream_id:
+            yt_token = YouTubeToken.query.filter_by(is_active=True).order_by(YouTubeToken.created_at.desc()).first()
+            if yt_token:
+                access_token = yt_token.access_token
+                url = 'https://www.googleapis.com/youtube/v3/liveBroadcasts/transition'
+                params = {
+                    'broadcastStatus': 'complete',
+                    'id': stream.stream_key,
+                    'part': 'status'
+                }
+                headers = {
+                    'Authorization': f'Bearer {access_token}',
+                    'Accept': 'application/json'
+                }
+                resp = requests.post(url, headers=headers, params=params)
+                if resp.status_code != 200:
+                    # Check for redundantTransition error (already ended)
+                    try:
+                        err_json = resp.json()
+                        errors = err_json.get('error', {}).get('errors', [])
+                        if any(e.get('reason') == 'redundantTransition' for e in errors):
+                            # Treat as success: already ended
+                            redundant_transition = True
+                        else:
+                            raise Exception(f'YouTube End Stream failed: {resp.text}')
+                    except Exception:
+                        raise Exception(f'YouTube End Stream failed: {resp.text}')
+        # 2. Update local DB
         stream.is_live = False
         stream.status = 'ended'
         stream.end_time = datetime.utcnow()
