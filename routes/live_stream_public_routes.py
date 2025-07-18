@@ -89,3 +89,30 @@ def get_public_live_stream_by_id(stream_id):
     if not stream:
         return jsonify({'error': 'Live stream not found'}), 404
     return jsonify(stream), 200 
+
+@live_stream_public_bp.route('/status/<status>', methods=['GET'])
+@cross_origin()
+def get_public_streams_by_status(status):
+    """
+    Get all public live streams filtered by status ('scheduled', 'live', 'ended').
+    ---
+    tags:
+      - Live Streams
+    parameters:
+      - in: path
+        name: status
+        type: string
+        required: true
+        enum: [scheduled, live, ended]
+        description: Filter by stream status
+    responses:
+      200:
+        description: List of live streams filtered by status
+      400:
+        description: Invalid status
+    """
+    try:
+        streams = LiveStreamPublicController.get_streams_by_status(status)
+        return jsonify(streams), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400 

@@ -102,4 +102,17 @@ class LiveStreamPublicController:
         except Exception as e:
             current_app.logger.error(f"Error fetching product for stream {stream_id}: {e}")
             stream_data['product'] = None
-        return stream_data 
+        return stream_data
+
+    @staticmethod
+    def get_streams_by_status(status):
+        """
+        Get all public live streams filtered by status ('scheduled', 'live', 'ended').
+        Only streams that are not deleted are returned.
+        """
+        from models.live_stream import StreamStatus
+        if status not in [StreamStatus.scheduled.value, StreamStatus.live.value, StreamStatus.ended.value]:
+            raise ValueError(f"Invalid status: {status}. Must be one of: scheduled, live, ended.")
+        query = LiveStream.query.filter_by(deleted_at=None, status=status)
+        streams = query.order_by(LiveStream.scheduled_time.desc()).all()
+        return [s.serialize() for s in streams] 
