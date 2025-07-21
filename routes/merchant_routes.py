@@ -4578,4 +4578,27 @@ def list_merchant_scheduled_live_streams():
     visible_streams = [s.serialize() for s in scheduled_streams if not s.deleted_at]
     return jsonify(visible_streams), 200
 
+@merchant_dashboard_bp.route('/live-streams/all', methods=['GET'])
+@jwt_required()
+def list_all_merchant_live_streams():
+    """
+    Get all live streams (scheduled, live, ended) for the merchant
+    """
+    from models.live_stream import StreamStatus
+    user_id = get_jwt_identity()
+    from auth.models.models import MerchantProfile
+    merchant = MerchantProfile.get_by_user_id(user_id)
+    if not merchant:
+        return jsonify({"error": "Merchant profile not found."}), 404
+    try:
+        streams = MerchantLiveStreamController.get_all_streams_by_merchant(merchant.id)
+        return jsonify({
+            "scheduled": [s.serialize() for s in streams['scheduled']],
+            "live": [s.serialize() for s in streams['live']],
+            "ended": [s.serialize() for s in streams['ended']]
+        }), 200
+    except Exception as e:
+        current_app.logger.error(f"Error fetching all streams: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
 

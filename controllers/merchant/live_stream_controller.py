@@ -11,6 +11,7 @@ import requests
 from dateutil import parser
 import pytz
 import logging
+from models.live_stream import StreamStatus
 
 class MerchantLiveStreamController:
     @staticmethod
@@ -355,4 +356,33 @@ class MerchantLiveStreamController:
         Return all scheduled (not live, ended, or cancelled) live streams for a given merchant from the LiveStream model.
         """
         scheduled_streams = LiveStream.query.filter_by(merchant_id=merchant_id, status='scheduled', deleted_at=None).all()
-        return scheduled_streams 
+        return scheduled_streams
+
+    @staticmethod
+    def get_all_streams_by_merchant(merchant_id):
+        """
+        Return all streams (scheduled, live, and ended) for a merchant, ordered by scheduled_time desc
+        """
+        streams = LiveStream.query.filter_by(
+            merchant_id=merchant_id,
+            deleted_at=None
+        ).order_by(
+            LiveStream.scheduled_time.desc()
+        ).all()
+
+        # Group streams by status
+        result = {
+            'scheduled': [],
+            'live': [],
+            'ended': []
+        }
+
+        for stream in streams:
+            if stream.status == StreamStatus.scheduled:
+                result['scheduled'].append(stream)
+            elif stream.status == StreamStatus.live:
+                result['live'].append(stream)
+            elif stream.status == StreamStatus.ended:
+                result['ended'].append(stream)
+
+        return result 
