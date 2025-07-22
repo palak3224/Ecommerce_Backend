@@ -4601,4 +4601,11 @@ def list_all_merchant_live_streams():
         current_app.logger.error(f"Error fetching all streams: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+@merchant_dashboard_bp.route('/live-streams/available-slots', methods=['GET'])
+@jwt_required()
+def available_slots():
+    date = request.args.get('date')
+    slots = MerchantLiveStreamController.get_available_time_slots(date)
+    return jsonify({"available_slots": slots})
+
 

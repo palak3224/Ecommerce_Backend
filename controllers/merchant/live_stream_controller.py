@@ -4,7 +4,7 @@ from auth.models.models import MerchantProfile
 from models.youtube_token import YouTubeToken
 from common.database import db
 from sqlalchemy.exc import IntegrityError
-from datetime import datetime
+from datetime import datetime, timedelta
 import cloudinary
 import cloudinary.uploader
 import requests
@@ -386,3 +386,34 @@ class MerchantLiveStreamController:
                 result['ended'].append(stream)
 
         return result 
+
+    @staticmethod
+    def get_available_time_slots(date_str, slot_start="09:00", slot_end="22:00"):
+        """
+        Returns a list of available 1-hour time slots for the given date (YYYY-MM-DD).
+        Excludes slots already booked by any merchant.
+        """
+        # 1. Generate all possible 1-hour slots
+        slots = []
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+        start_hour = int(slot_start.split(":")[0])
+        end_hour = int(slot_end.split(":")[0])
+        for hour in range(start_hour, end_hour):
+            slot_time = f"{hour:02d}:00"
+            slots.append(slot_time)
+
+        # 2. Query all booked slots for this date
+        day_start = datetime.combine(date_obj, datetime.min.time())
+        day_end = datetime.combine(date_obj, datetime.max.time())
+        booked_streams = LiveStream.query.filter(
+            LiveStream.scheduled_time >= day_start,
+            LiveStream.scheduled_time <= day_end,
+            LiveStream.deleted_at == None
+        ).all()
+        booked_slots = set()
+        for stream in booked_streams:
+            booked_slots.add(stream.scheduled_time.strftime("%H:%M"))
+
+        # 3. Remove booked slots
+        available_slots = [slot for slot in slots if slot not in booked_slots]
+        return available_slots 
