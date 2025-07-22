@@ -46,6 +46,10 @@ from routes.games_routes import games_bp
 from routes.shiprocket_routes import shiprocket_bp
 from routes.live_stream_public_routes import live_stream_public_bp
 from routes.shop.shop_product_routes import shop_product_bp
+from routes.shop.shop_routes import shop_bp
+from routes.shop.shop_category_routes import shop_category_bp
+from routes.shop.shop_brand_routes import shop_brand_bp
+from routes.shop.shop_attribute_routes import shop_attribute_bp
 
 from flasgger import Swagger
 from cryptography.fernet import Fernet
@@ -184,6 +188,10 @@ def create_app(config_name='default'):
     app.register_blueprint(shiprocket_bp)
     app.register_blueprint(live_stream_public_bp)
     app.register_blueprint(shop_product_bp)
+    app.register_blueprint(shop_bp)
+    app.register_blueprint(shop_category_bp)
+    app.register_blueprint(shop_brand_bp)
+    app.register_blueprint(shop_attribute_bp)
 
     # Add custom headers to every response
     app.after_request(add_headers)
