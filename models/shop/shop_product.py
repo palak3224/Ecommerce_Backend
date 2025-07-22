@@ -3,8 +3,6 @@
 # models/shop/shop_product.py
 from datetime import datetime, timezone
 from common.database import db, BaseModel
-from models.category import Category
-from models.brand import Brand
 from auth.models.models import User  # Assuming superadmins are in the User table
 
 from decimal import Decimal
@@ -14,8 +12,9 @@ class ShopProduct(BaseModel):
     __tablename__ = 'shop_products'
 
     product_id    = db.Column(db.Integer, primary_key=True)
-    category_id   = db.Column(db.Integer, db.ForeignKey('categories.category_id'), nullable=False)
-    brand_id      = db.Column(db.Integer, db.ForeignKey('brands.brand_id'), nullable=True)
+    shop_id       = db.Column(db.Integer, db.ForeignKey('shops.shop_id'), nullable=False)
+    category_id   = db.Column(db.Integer, db.ForeignKey('shop_categories.category_id'), nullable=False)
+    brand_id      = db.Column(db.Integer, db.ForeignKey('shop_brands.brand_id'), nullable=True)
     parent_product_id = db.Column(db.Integer, db.ForeignKey('shop_products.product_id'), nullable=True)
     sku           = db.Column(db.String(50), unique=True, nullable=False)
     product_name  = db.Column(db.String(255), nullable=False)
@@ -41,8 +40,8 @@ class ShopProduct(BaseModel):
     updated_at    = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
     deleted_at    = db.Column(db.DateTime)
 
-    category      = db.relationship('Category', backref='shop_products')
-    brand         = db.relationship('Brand', backref='shop_products')
+    # No longer using the old category and brand relationships
+    # Now using shop-specific relationships
     
     # Updated relationships for shop-specific models
     product_attributes = db.relationship('ShopProductAttribute', backref='product', cascade='all, delete-orphan')
@@ -69,6 +68,8 @@ class ShopProduct(BaseModel):
 
         return {
             "product_id": self.product_id,
+            "shop_id": self.shop_id,
+            "shop_name": self.shop.name if self.shop else None,
             "category_id": self.category_id,
             "category_name": self.category.name if self.category else None,
             "brand_id": self.brand_id,
