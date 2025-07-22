@@ -4,6 +4,9 @@ from flask_jwt_extended import JWTManager
 from flask_migrate import Migrate
 from common.cache import cached
 import os
+import cloudinary
+import cloudinary.uploader
+import cloudinary.api
 from config import get_config
 from common.database import db
 from common.cache import cache
@@ -50,6 +53,7 @@ from routes.shop.shop_routes import shop_bp
 from routes.shop.shop_category_routes import shop_category_bp
 from routes.shop.shop_brand_routes import shop_brand_bp
 from routes.shop.shop_attribute_routes import shop_attribute_bp
+from routes.upload_routes import upload_bp
 
 from flasgger import Swagger
 from cryptography.fernet import Fernet
@@ -84,6 +88,14 @@ def create_app(config_name='default'):
     app = Flask(__name__)
     app.config.from_object(get_config())
     # app.config['CARD_ENCRYPTION_KEY'] = Fernet.generate_key()  
+
+    # Configure Cloudinary
+    cloudinary.config(
+        cloud_name=app.config.get('CLOUDINARY_CLOUD_NAME'),
+        api_key=app.config.get('CLOUDINARY_API_KEY'),
+        api_secret=app.config.get('CLOUDINARY_API_SECRET'),
+        secure=True
+    )
 
     # Configure Swagger
     swagger_config = {
@@ -190,6 +202,7 @@ def create_app(config_name='default'):
     app.register_blueprint(shop_category_bp)
     app.register_blueprint(shop_brand_bp)
     app.register_blueprint(shop_attribute_bp)
+    app.register_blueprint(upload_bp, url_prefix='/api/upload')
 
     # Add custom headers to every response
     app.after_request(add_headers)
