@@ -26,8 +26,8 @@ class ShopProduct(BaseModel):
     discount_pct  = db.Column(db.Numeric(5,2), default=0.00)
     
     special_price = db.Column(db.Numeric(10,2), nullable=True) 
-    special_start = db.Column(db.Date)
-    special_end   = db.Column(db.Date)
+    special_start = db.Column(db.DateTime, nullable=True)
+    special_end   = db.Column(db.DateTime, nullable=True)
     
     active_flag   = db.Column(db.Boolean, default=True, nullable=False)
     
