@@ -32,6 +32,9 @@ class ShopAttribute(BaseModel):
 
     def serialize(self):
         """Return object data in easily serializable format"""
+        # Include both active and inactive values, but filter out hard-deleted ones
+        active_values = [value for value in self.attribute_values if value.deleted_at is None]
+        
         return {
             'attribute_id': self.attribute_id,
             'shop_id': self.shop_id,
@@ -42,6 +45,7 @@ class ShopAttribute(BaseModel):
             'slug': self.slug,
             'description': self.description,
             'attribute_type': self.attribute_type.value if self.attribute_type else None,
+            'type': self.attribute_type.value if self.attribute_type else None,  # Add type field for frontend
             'is_required': self.is_required,
             'is_filterable': self.is_filterable,
             'sort_order': self.sort_order,
@@ -49,7 +53,7 @@ class ShopAttribute(BaseModel):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'deleted_at': self.deleted_at.isoformat() if self.deleted_at else None,
-            'values': [value.serialize() for value in self.attribute_values] if self.attribute_values else []
+            'values': [value.serialize() for value in active_values]
         }
 
 
