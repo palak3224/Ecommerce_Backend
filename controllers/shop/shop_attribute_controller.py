@@ -43,8 +43,7 @@ class ShopAttributeController:
             attributes = ShopAttribute.query.filter(
                 ShopAttribute.shop_id == shop_id,
                 ShopAttribute.category_id == category_id,
-                ShopAttribute.deleted_at.is_(None),
-                ShopAttribute.is_active.is_(True)
+                ShopAttribute.deleted_at.is_(None)
             ).order_by(ShopAttribute.sort_order, ShopAttribute.name).all()
             
             return jsonify({
@@ -291,7 +290,7 @@ class ShopAttributeController:
     @staticmethod
     @superadmin_required
     def delete_attribute(attribute_id):
-        """Soft delete an attribute"""
+        """Hard delete an attribute and all its values"""
         try:
             attribute = ShopAttribute.query.filter(
                 ShopAttribute.attribute_id == attribute_id,
@@ -311,14 +310,12 @@ class ShopAttributeController:
                     'message': 'Cannot delete attribute that is being used by products'
                 }), 400
             
-            attribute.deleted_at = datetime.now(timezone.utc)
-            attribute.is_active = False
-            
-            # Also soft delete all attribute values
+            # Hard delete all attribute values first (due to foreign key constraints)
             for value in attribute.attribute_values:
-                value.deleted_at = datetime.now(timezone.utc)
-                value.is_active = False
+                db.session.delete(value)
             
+            # Hard delete the attribute
+            db.session.delete(attribute)
             db.session.commit()
             
             return jsonify({
@@ -328,6 +325,10 @@ class ShopAttributeController:
             
         except Exception as e:
             db.session.rollback()
+            return jsonify({
+                'status': 'error',
+                'message': f'Error deleting attribute: {str(e)}'
+            }), 500
             return jsonify({
                 'status': 'error',
                 'message': f'Error deleting attribute: {str(e)}'
@@ -458,7 +459,7 @@ class ShopAttributeController:
     @staticmethod
     @superadmin_required
     def delete_attribute_value(value_id):
-        """Soft delete an attribute value"""
+        """Hard delete an attribute value"""
         try:
             attribute_value = ShopAttributeValue.query.filter(
                 ShopAttributeValue.value_id == value_id,
@@ -471,9 +472,8 @@ class ShopAttributeController:
                     'message': 'Attribute value not found'
                 }), 404
             
-            attribute_value.deleted_at = datetime.now(timezone.utc)
-            attribute_value.is_active = False
-            
+            # Hard delete the attribute value
+            db.session.delete(attribute_value)
             db.session.commit()
             
             return jsonify({
