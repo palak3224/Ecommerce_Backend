@@ -59,6 +59,7 @@ import traceback
 from datetime import datetime, timezone, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 import threading
+from controllers.newsletter_public_controller import newsletter_public_bp
 
 
 ALLOWED_ORIGINS = [
@@ -192,6 +193,7 @@ def create_app(config_name='default'):
     app.register_blueprint(shop_category_bp)
     app.register_blueprint(shop_brand_bp)
     app.register_blueprint(shop_attribute_bp)
+    app.register_blueprint(newsletter_public_bp, url_prefix='/api/public')
 
     # Add custom headers to every response
     app.after_request(add_headers)

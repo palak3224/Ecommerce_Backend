@@ -337,12 +337,12 @@ class PerformanceAnalyticsController:
 
     @staticmethod
     def get_merchant_performance(months=12):
-        """Get merchant performance metrics for the last N months"""
+        """Get merchant performance metrics for the last N months (standardized with details endpoint)"""
         try:
             end_date = datetime.now(timezone.utc)
             start_date = end_date - timedelta(days=30 * months)
 
-            # Get merchant performance data
+            # Get merchant performance data (join Product, filter for active/approved products)
             merchant_data = db.session.query(
                 MerchantProfile.id,
                 MerchantProfile.business_name,
@@ -354,10 +354,15 @@ class PerformanceAnalyticsController:
             ).join(
                 Order,
                 Order.order_id == OrderItem.order_id
+            ).join(
+                Product,
+                Product.product_id == OrderItem.product_id
             ).filter(
                 and_(
                     Order.order_date >= start_date,
-                    Order.order_date <= end_date
+                    Order.order_date <= end_date,
+                    Product.active_flag == True,
+                    Product.approval_status == 'approved'
                 )
             ).group_by(
                 MerchantProfile.id,
@@ -409,7 +414,7 @@ class PerformanceAnalyticsController:
             monthly_user_data = db.session.query(
                 extract('year', User.created_at).label('year'),
                 extract('month', User.created_at).label('month'),
-                func.count(User.id).label('users'),
+                func.count(case((User.role == UserRole.USER, 1), else_=None)).label('users'),
                 func.count(case(
                     (User.role == UserRole.MERCHANT, 1),
                     else_=None
@@ -734,12 +739,12 @@ class PerformanceAnalyticsController:
 
     @staticmethod
     def get_merchant_performance_details(months=12):
-        """Get detailed merchant performance metrics including revenue, orders, and ratings"""
+        """Get detailed merchant performance metrics including revenue, orders, and ratings (standardized with get_merchant_performance)"""
         try:
             end_date = datetime.now(timezone.utc)
             start_date = end_date - timedelta(days=30 * months)
 
-            # Get merchant performance data with revenue and orders
+            # Get merchant performance data with revenue and orders (INNER JOIN Product, filter for active/approved products)
             merchant_data = db.session.query(
                 MerchantProfile.id,
                 MerchantProfile.business_name,
@@ -752,16 +757,18 @@ class PerformanceAnalyticsController:
             ).join(
                 Order,
                 Order.order_id == OrderItem.order_id
-            ).outerjoin(
+            ).join(
                 Product,
-                Product.merchant_id == MerchantProfile.id
+                Product.product_id == OrderItem.product_id
             ).outerjoin(
                 Review,
                 Review.product_id == Product.product_id
             ).filter(
                 and_(
                     Order.order_date >= start_date,
-                    Order.order_date <= end_date
+                    Order.order_date <= end_date,
+                    Product.active_flag == True,
+                    Product.approval_status == 'approved'
                 )
             ).group_by(
                 MerchantProfile.id,
@@ -791,7 +798,9 @@ class PerformanceAnalyticsController:
                     Product,
                     Product.product_id == Review.product_id
                 ).filter(
-                    Product.merchant_id == data.id
+                    Product.merchant_id == data.id,
+                    Product.active_flag == True,
+                    Product.approval_status == 'approved'
                 ).scalar() or 0
 
                 merchant_performance.append({
