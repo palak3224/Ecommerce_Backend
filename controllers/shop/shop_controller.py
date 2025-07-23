@@ -10,7 +10,7 @@ import cloudinary.uploader
 from http import HTTPStatus
 
 # Allowed file extensions for image uploads
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'svg', 'webp'}
 
 def allowed_file(filename):
     return '.' in filename and \

@@ -9,7 +9,7 @@ import os
 upload_bp = Blueprint('upload', __name__)
 
 # Configure allowed file extensions
-ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'svg', 'gif', 'webp'}
 ALLOWED_VIDEO_EXTENSIONS = {'mp4', 'mov', 'avi', 'mkv'}
 
 def allowed_file(filename, allowed_extensions):
@@ -76,8 +76,8 @@ def upload_image():
         
         # Validate file type
         if not allowed_file(file.filename, ALLOWED_IMAGE_EXTENSIONS):
-            return jsonify({'error': 'Invalid file type. Allowed types: PNG, JPG, JPEG, GIF, WebP'}), HTTPStatus.BAD_REQUEST
-        
+            return jsonify({'error': 'Invalid file type. Allowed types: PNG, JPG, JPEG, SVG, GIF, WebP'}), HTTPStatus.BAD_REQUEST
+
         # Get folder parameter
         folder = request.form.get('folder', 'products')
         
