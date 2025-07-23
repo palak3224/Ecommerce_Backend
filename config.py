@@ -35,7 +35,7 @@ class Config:
     CLOUDINARY_CLOUD_NAME = os.getenv('CLOUDINARY_CLOUD_NAME')
     CLOUDINARY_API_KEY = os.getenv('CLOUDINARY_API_KEY')
     CLOUDINARY_API_SECRET = os.getenv('CLOUDINARY_API_SECRET')
-    ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'doc', 'docx']
+    ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'svg' 'png', 'gif', 'webp', 'pdf', 'doc', 'docx']
 
     MAIL_SERVER = 'smtp.gmail.com'  # Replace with your SMTP server
     MAIL_PORT = 587  # Common ports: 587 (TLS), 465 (SSL)

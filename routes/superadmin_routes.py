@@ -59,7 +59,7 @@ from controllers.superadmin import youtube_controller
 
 superadmin_bp = Blueprint('superadmin_bp', __name__)
 
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}  # removed extension type .svg and .gif 
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'svg', 'webp'}  # removed extension type .gif
 
 def allowed_file(filename):
     return '.' in filename and \
@@ -530,7 +530,7 @@ def upload_category_icon(cid):
         in: formData
         type: file
         required: true
-        description: "Icon image file to upload (png, jpg, jpeg, webp)."
+        description: "Icon image file to upload (png, jpg, jpeg, svg, webp)."
     responses:
       200:
         description: "Icon uploaded and category updated successfully."
@@ -1091,7 +1091,7 @@ def upload_brand_icon(bid):
         in: formData
         type: file
         required: true
-        description: "Icon image file to upload (png, jpg, jpeg, webp)."
+        description: "Icon image file to upload (png, jpg, jpeg, svg, webp)."
     responses:
       200:
         description: "Brand icon uploaded and updated successfully."

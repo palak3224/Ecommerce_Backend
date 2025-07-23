@@ -36,7 +36,7 @@ from controllers.merchant.live_stream_controller import MerchantLiveStreamContro
 import logging
 
 
-ALLOWED_MEDIA_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'mov', 'avi'} 
+ALLOWED_MEDIA_EXTENSIONS = {'png', 'jpg', 'jpeg', 'svg', 'gif', 'webp', 'mp4', 'mov', 'avi'}
 
 def allowed_media_file(filename):
     """
