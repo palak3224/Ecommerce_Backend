@@ -30,10 +30,15 @@ class ShopAttribute(BaseModel):
     attribute_values = db.relationship('ShopAttributeValue', backref='attribute', cascade='all, delete-orphan')
     product_attributes = db.relationship('ShopProductAttribute', backref='attribute', cascade='all, delete-orphan')
 
-    def serialize(self):
+    def serialize(self, active_values_only=False):
         """Return object data in easily serializable format"""
-        # Include both active and inactive values, but filter out hard-deleted ones
-        active_values = [value for value in self.attribute_values if value.deleted_at is None]
+        # Include both active and inactive values by default, but filter out hard-deleted ones
+        if active_values_only:
+            # For product forms, only show active values
+            available_values = [value for value in self.attribute_values if value.deleted_at is None and value.is_active]
+        else:
+            # For attribute management, show all values (active and inactive)
+            available_values = [value for value in self.attribute_values if value.deleted_at is None]
         
         return {
             'attribute_id': self.attribute_id,
@@ -53,7 +58,7 @@ class ShopAttribute(BaseModel):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'deleted_at': self.deleted_at.isoformat() if self.deleted_at else None,
-            'values': [value.serialize() for value in active_values]
+            'values': [value.serialize() for value in available_values]
         }
 
 
