@@ -7,10 +7,17 @@ from models.product import Product
 import enum
 
 class StreamStatus(str, enum.Enum):
-    SCHEDULED = 'SCHEDULED'
-    LIVE = 'LIVE'
-    ENDED = 'ENDED'
-    CANCELLED = 'CANCELLED'
+    """
+    Enum for live stream status:
+    - scheduled: Stream is scheduled but not started
+    - live: Stream is currently live (including if YouTube returns redundantTransition)
+    - ended: Stream has ended
+    - cancelled: Stream was cancelled
+    """
+    scheduled = 'scheduled'
+    live = 'live'
+    ended = 'ended'
+    cancelled = 'cancelled'
 
 class LiveStream(BaseModel):
     __tablename__ = 'live_streams'
@@ -29,7 +36,7 @@ class LiveStream(BaseModel):
     end_time = Column(DateTime, nullable=True)
     
     is_live = Column(Boolean, default=False, nullable=False)
-    status = Column(SQLAlchemyEnum(StreamStatus), default=StreamStatus.SCHEDULED, nullable=False)
+    status = Column(SQLAlchemyEnum(StreamStatus), default=StreamStatus.scheduled, nullable=False)
     
     viewers_count = Column(Integer, default=0, nullable=False)
     likes_count = Column(Integer, default=0, nullable=False)

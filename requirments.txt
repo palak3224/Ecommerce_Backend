@@ -30,7 +30,6 @@ langchain_groq
 huggingface_hub
 psycopg2-binary
 transformers 
-auto-gptq
 psutil
 scikit-learn
 faiss-cpu

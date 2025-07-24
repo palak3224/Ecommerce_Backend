@@ -4,13 +4,14 @@ from auth.models.models import MerchantProfile
 from models.youtube_token import YouTubeToken
 from common.database import db
 from sqlalchemy.exc import IntegrityError
-from datetime import datetime
+from datetime import datetime, timedelta
 import cloudinary
 import cloudinary.uploader
 import requests
 from dateutil import parser
 import pytz
 import logging
+from models.live_stream import StreamStatus
 
 class MerchantLiveStreamController:
     @staticmethod
@@ -196,6 +197,7 @@ class MerchantLiveStreamController:
         if not stream or stream.merchant_id != merchant_id:
             raise Exception("Live stream not found or not owned by merchant.")
         # 1. Transition YouTube broadcast to live
+        redundant_transition = False
         if stream.stream_key and stream.yt_livestream_id:
             yt_token = YouTubeToken.query.filter_by(is_active=True).order_by(YouTubeToken.created_at.desc()).first()
             if yt_token:
@@ -212,7 +214,17 @@ class MerchantLiveStreamController:
                 }
                 resp = requests.post(url, headers=headers, params=params)
                 if resp.status_code != 200:
-                    raise Exception(f'YouTube Go Live failed: {resp.text}')
+                    # Check for redundantTransition error
+                    try:
+                        err_json = resp.json()
+                        errors = err_json.get('error', {}).get('errors', [])
+                        if any(e.get('reason') == 'redundantTransition' for e in errors):
+                            # Treat as success: already live
+                            redundant_transition = True
+                        else:
+                            raise Exception(f'YouTube Go Live failed: {resp.text}')
+                    except Exception:
+                        raise Exception(f'YouTube Go Live failed: {resp.text}')
         # 2. Update local DB
         stream.is_live = True
         stream.status = 'live'
@@ -224,6 +236,36 @@ class MerchantLiveStreamController:
     def end_stream(stream, merchant_id):
         if not stream or stream.merchant_id != merchant_id:
             raise Exception("Live stream not found or not owned by merchant.")
+        # 1. End YouTube broadcast if possible
+        redundant_transition = False
+        if stream.stream_key and stream.yt_livestream_id:
+            yt_token = YouTubeToken.query.filter_by(is_active=True).order_by(YouTubeToken.created_at.desc()).first()
+            if yt_token:
+                access_token = yt_token.access_token
+                url = 'https://www.googleapis.com/youtube/v3/liveBroadcasts/transition'
+                params = {
+                    'broadcastStatus': 'complete',
+                    'id': stream.stream_key,
+                    'part': 'status'
+                }
+                headers = {
+                    'Authorization': f'Bearer {access_token}',
+                    'Accept': 'application/json'
+                }
+                resp = requests.post(url, headers=headers, params=params)
+                if resp.status_code != 200:
+                    # Check for redundantTransition error (already ended)
+                    try:
+                        err_json = resp.json()
+                        errors = err_json.get('error', {}).get('errors', [])
+                        if any(e.get('reason') == 'redundantTransition' for e in errors):
+                            # Treat as success: already ended
+                            redundant_transition = True
+                        else:
+                            raise Exception(f'YouTube End Stream failed: {resp.text}')
+                    except Exception:
+                        raise Exception(f'YouTube End Stream failed: {resp.text}')
+        # 2. Update local DB
         stream.is_live = False
         stream.status = 'ended'
         stream.end_time = datetime.utcnow()
@@ -306,4 +348,72 @@ class MerchantLiveStreamController:
                 "status": b.get("status", {}).get("lifeCycleStatus"),
                 "stream_info": stream_info
             })
+        return result
+
+    @staticmethod
+    def get_scheduled_streams_by_merchant(merchant_id):
+        """
+        Return all scheduled (not live, ended, or cancelled) live streams for a given merchant from the LiveStream model.
+        """
+        scheduled_streams = LiveStream.query.filter_by(merchant_id=merchant_id, status='scheduled', deleted_at=None).all()
+        return scheduled_streams
+
+    @staticmethod
+    def get_all_streams_by_merchant(merchant_id):
+        """
+        Return all streams (scheduled, live, and ended) for a merchant, ordered by scheduled_time desc
+        """
+        streams = LiveStream.query.filter_by(
+            merchant_id=merchant_id,
+            deleted_at=None
+        ).order_by(
+            LiveStream.scheduled_time.desc()
+        ).all()
+
+        # Group streams by status
+        result = {
+            'scheduled': [],
+            'live': [],
+            'ended': []
+        }
+
+        for stream in streams:
+            if stream.status == StreamStatus.scheduled:
+                result['scheduled'].append(stream)
+            elif stream.status == StreamStatus.live:
+                result['live'].append(stream)
+            elif stream.status == StreamStatus.ended:
+                result['ended'].append(stream)
+
         return result 
+
+    @staticmethod
+    def get_available_time_slots(date_str, slot_start="09:00", slot_end="22:00"):
+        """
+        Returns a list of available 1-hour time slots for the given date (YYYY-MM-DD).
+        Excludes slots already booked by any merchant.
+        """
+        # 1. Generate all possible 1-hour slots
+        slots = []
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+        start_hour = int(slot_start.split(":")[0])
+        end_hour = int(slot_end.split(":")[0])
+        for hour in range(start_hour, end_hour):
+            slot_time = f"{hour:02d}:00"
+            slots.append(slot_time)
+
+        # 2. Query all booked slots for this date
+        day_start = datetime.combine(date_obj, datetime.min.time())
+        day_end = datetime.combine(date_obj, datetime.max.time())
+        booked_streams = LiveStream.query.filter(
+            LiveStream.scheduled_time >= day_start,
+            LiveStream.scheduled_time <= day_end,
+            LiveStream.deleted_at == None
+        ).all()
+        booked_slots = set()
+        for stream in booked_streams:
+            booked_slots.add(stream.scheduled_time.strftime("%H:%M"))
+
+        # 3. Remove booked slots
+        available_slots = [slot for slot in slots if slot not in booked_slots]
+        return available_slots 
