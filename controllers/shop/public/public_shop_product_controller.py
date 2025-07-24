@@ -27,6 +27,51 @@ class PublicShopProductController:
         return primary_media.serialize() if primary_media else None
 
     @staticmethod
+    def get_optimized_media(product_id):
+        """Get optimized media response for frontend (only essential fields)"""
+        media_list = ShopProductMedia.query.filter_by(
+            product_id=product_id,
+            deleted_at=None
+        ).order_by(ShopProductMedia.sort_order).all()
+
+        if not media_list:
+            return {
+                'images': [],
+                'videos': [],
+                'primary_image': None,
+                'total_media': 0
+            }
+
+        images = []
+        videos = []
+        primary_image = None
+
+        for media in media_list:
+            # Only include essential fields
+            media_item = {
+                'url': media.url,
+                'type': media.type.value if hasattr(media.type, 'value') else str(media.type),
+                'is_primary': media.is_primary
+            }
+
+            # Set primary image
+            if media.is_primary and media.type == MediaType.IMAGE:
+                primary_image = media.url
+
+            # Categorize by type
+            if media.type == MediaType.IMAGE:
+                images.append(media_item)
+            elif media.type == MediaType.VIDEO:
+                videos.append(media_item)
+
+        return {
+            'images': images,
+            'videos': videos,
+            'primary_image': primary_image,
+            'total_media': len(media_list)
+        }
+
+    @staticmethod
     def get_all_product_media(product_id):
         """Get all media for a shop product (images, videos, etc.)"""
         all_media = ShopProductMedia.query.filter_by(
@@ -288,16 +333,12 @@ class PublicShopProductController:
                 product_dict, product.product_id
             )
             
-            # Get all media with enhanced data
-            all_media = PublicShopProductController.get_all_product_media(product.product_id)
-            product_dict['media'] = all_media
+            # Get optimized media data
+            media_data = PublicShopProductController.get_optimized_media(product.product_id)
+            product_dict['media'] = media_data
             
-            # Also provide primary image for backward compatibility
-            if all_media:
-                primary = next((m for m in all_media if m.get('is_primary')), all_media[0])
-                product_dict['primary_image'] = primary['url']
-            else:
-                product_dict['primary_image'] = None
+            # Provide primary image for backward compatibility
+            product_dict['primary_image'] = media_data.get('primary_image')
             
             # Get stock information
             stock = ShopProductStock.query.filter_by(
@@ -405,7 +446,7 @@ class PublicShopProductController:
 
     @staticmethod
     def get_product_media_gallery(shop_id, product_id):
-        """Get all media for a specific product (for galleries, zoom views, etc.)"""
+        """Get optimized media gallery for a specific product"""
         try:
             # Verify shop exists and is active
             shop = Shop.query.filter(
@@ -435,37 +476,14 @@ class PublicShopProductController:
                     'message': 'Product not found in this shop'
                 }), 404
 
-            # Get all media with detailed information
-            all_media = PublicShopProductController.get_all_product_media(product_id)
-            
-            # Categorize media by type for better frontend handling
-            media_by_type = {
-                'images': [],
-                'videos': [],
-                'other': []
-            }
-            
-            for media in all_media:
-                media_type = media.get('type', '').lower()
-                if media_type == 'image':
-                    media_by_type['images'].append(media)
-                elif media_type == 'video':
-                    media_by_type['videos'].append(media)
-                else:
-                    media_by_type['other'].append(media)
+            # Get optimized media (only essential fields)
+            media_data = PublicShopProductController.get_optimized_media(product_id)
 
             return jsonify({
                 'success': True,
-                'shop': shop.serialize(),
                 'product_id': product_id,
                 'product_name': product.product_name,
-                'media': {
-                    'all': all_media,
-                    'by_type': media_by_type,
-                    'total_count': len(all_media),
-                    'images_count': len(media_by_type['images']),
-                    'videos_count': len(media_by_type['videos'])
-                }
+                'media': media_data
             }), 200
 
         except Exception as e:

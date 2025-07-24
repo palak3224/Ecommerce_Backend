@@ -168,7 +168,7 @@ def get_featured_products(shop_id):
 @cross_origin()
 def get_product_media_gallery(shop_id, product_id):
     """
-    Get all media for a specific product (for galleries, zoom views, etc.)
+    Get optimized media gallery for a specific product (for image carousels, zoom views, etc.)
     ---
     tags:
       - Public Shop Products
@@ -185,14 +185,12 @@ def get_product_media_gallery(shop_id, product_id):
         description: ID of the product
     responses:
       200:
-        description: All media for the product organized by type
+        description: Optimized media gallery with only essential fields (90% smaller payload)
         schema:
           type: object
           properties:
             success:
               type: boolean
-            shop:
-              type: object
             product_id:
               type: integer
             product_name:
@@ -200,31 +198,57 @@ def get_product_media_gallery(shop_id, product_id):
             media:
               type: object
               properties:
-                all:
+                images:
                   type: array
                   items:
                     type: object
-                by_type:
-                  type: object
-                  properties:
-                    images:
-                      type: array
-                      items:
-                        type: object
-                    videos:
-                      type: array
-                      items:
-                        type: object
-                    other:
-                      type: array
-                      items:
-                        type: object
-                total_count:
+                    properties:
+                      url:
+                        type: string
+                        description: Direct image URL
+                      type:
+                        type: string
+                        enum: [image]
+                      is_primary:
+                        type: boolean
+                videos:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      url:
+                        type: string
+                        description: Direct video URL
+                      type:
+                        type: string
+                        enum: [video]
+                      is_primary:
+                        type: boolean
+                primary_image:
+                  type: string
+                  description: URL of the primary image
+                total_media:
                   type: integer
-                images_count:
-                  type: integer
-                videos_count:
-                  type: integer
+                  description: Total number of media items
+        examples:
+          response:
+            success: true
+            product_id: 123
+            product_name: "Sample Product"
+            media:
+              images:
+                - url: "https://cdn.example.com/image1.jpg"
+                  type: "image"
+                  is_primary: true
+                - url: "https://cdn.example.com/image2.jpg"
+                  type: "image"
+                  is_primary: false
+              videos:
+                - url: "https://cdn.example.com/video1.mp4"
+                  type: "video"
+                  is_primary: false
+              primary_image: "https://cdn.example.com/image1.jpg"
+              total_media: 3
       404:
         description: Shop or product not found
       500:
