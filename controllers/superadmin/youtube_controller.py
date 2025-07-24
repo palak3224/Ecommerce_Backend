@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 from fastapi import Request
 from models.youtube_token import YouTubeToken
 from common.database import db
+from apscheduler.schedulers.background import BackgroundScheduler
+import threading
 
 # You may want to use environment variables for these
 YOUTUBE_CLIENT_ID = os.getenv("YOUTUBE_CLIENT_ID")
@@ -148,4 +150,36 @@ def test_connection():
             }
         }
     else:
-        return {"status": "error", "message": resp.text} 
+        return {"status": "error", "message": resp.text}
+
+
+def auto_refresh_youtube_token():
+    """
+    Checks if the YouTube token is expiring soon (less than 1 day left).
+    If so, refreshes the token automatically.
+    This function is intended to be run by a scheduler.
+    """
+    token = get_token_record()
+    if token and token.is_active:
+        time_left = (token.expires_at - datetime.datetime.utcnow()).total_seconds()
+        if time_left < 24 * 3600:  # less than 1 day
+            print("[YouTube Scheduler] Token is expiring soon. Refreshing...")
+            result = refresh_token()
+            print(f"[YouTube Scheduler] Refresh result: {result}")
+        else:
+            print(f"[YouTube Scheduler] Token is valid for another {time_left/3600:.2f} hours.")
+    else:
+        print("[YouTube Scheduler] No active token found. Skipping refresh.")
+
+# Scheduler instance (to be started from app.py)
+scheduler = BackgroundScheduler()
+
+def start_youtube_token_scheduler():
+    """
+    Call this function ONCE from your app startup (e.g., in app.py) to start the scheduler.
+    """
+    if not scheduler.running:
+        scheduler.add_job(auto_refresh_youtube_token, 'interval', hours=1, id='youtube_token_refresh')
+        # Use a thread to avoid blocking the main app
+        threading.Thread(target=scheduler.start, daemon=True).start()
+        print("[YouTube Scheduler] Started background scheduler for YouTube token refresh.") 

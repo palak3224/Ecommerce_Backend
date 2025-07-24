@@ -4486,6 +4486,7 @@ def start_merchant_live_stream(stream_id):
     stream = MerchantLiveStreamController.get_by_id(stream_id)
     try:
         # --- YouTube Go Live automation ---
+        redundant_transition = False
         if stream and stream.stream_key and stream.yt_livestream_id:
             from models.youtube_token import YouTubeToken
             import requests
@@ -4504,7 +4505,17 @@ def start_merchant_live_stream(stream_id):
                 }
                 resp = requests.post(url, headers=headers, params=params)
                 if resp.status_code != 200:
-                    return jsonify({"error": f'YouTube Go Live failed: {resp.text}'}), 400
+                    # Check for redundantTransition error
+                    try:
+                        err_json = resp.json()
+                        errors = err_json.get('error', {}).get('errors', [])
+                        if any(e.get('reason') == 'redundantTransition' for e in errors):
+                            # Treat as success: already live
+                            redundant_transition = True
+                        else:
+                            return jsonify({"error": f'YouTube Go Live failed: {resp.text}'}), 400
+                    except Exception:
+                        return jsonify({"error": f'YouTube Go Live failed: {resp.text}'}), 400
         # --- End YouTube Go Live automation ---
         stream = MerchantLiveStreamController.start_stream(stream, merchant.id)
         return jsonify({"data": stream.serialize()}), 200
@@ -4521,6 +4532,7 @@ def end_merchant_live_stream(stream_id):
         return jsonify({"error": "Merchant profile not found."}), 404
     stream = MerchantLiveStreamController.get_by_id(stream_id)
     try:
+        # Now handled in controller: end YouTube broadcast and update DB
         stream = MerchantLiveStreamController.end_stream(stream, merchant.id)
         return jsonify({"data": stream.serialize()}), 200
     except Exception as e:
@@ -4554,5 +4566,46 @@ def get_youtube_scheduled_streams():
         return jsonify({"data": streams}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@merchant_dashboard_bp.route('/live-streams/scheduled', methods=['GET'])
+@jwt_required()
+def list_merchant_scheduled_live_streams():
+    user_id = get_jwt_identity()
+    merchant = MerchantProfile.get_by_user_id(user_id)
+    if not merchant:
+        return jsonify({"error": "Merchant profile not found."}), 404
+    scheduled_streams = MerchantLiveStreamController.get_scheduled_streams_by_merchant(merchant.id)
+    visible_streams = [s.serialize() for s in scheduled_streams if not s.deleted_at]
+    return jsonify(visible_streams), 200
+
+@merchant_dashboard_bp.route('/live-streams/all', methods=['GET'])
+@jwt_required()
+def list_all_merchant_live_streams():
+    """
+    Get all live streams (scheduled, live, ended) for the merchant
+    """
+    from models.live_stream import StreamStatus
+    user_id = get_jwt_identity()
+    from auth.models.models import MerchantProfile
+    merchant = MerchantProfile.get_by_user_id(user_id)
+    if not merchant:
+        return jsonify({"error": "Merchant profile not found."}), 404
+    try:
+        streams = MerchantLiveStreamController.get_all_streams_by_merchant(merchant.id)
+        return jsonify({
+            "scheduled": [s.serialize() for s in streams['scheduled']],
+            "live": [s.serialize() for s in streams['live']],
+            "ended": [s.serialize() for s in streams['ended']]
+        }), 200
+    except Exception as e:
+        current_app.logger.error(f"Error fetching all streams: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@merchant_dashboard_bp.route('/live-streams/available-slots', methods=['GET'])
+@jwt_required()
+def available_slots():
+    date = request.args.get('date')
+    slots = MerchantLiveStreamController.get_available_time_slots(date)
+    return jsonify({"available_slots": slots})
 
 

@@ -164,7 +164,7 @@ class ProductPriceConditionType(Enum):
     ANY = "any" # Represents no price condition
 
 class StreamStatus(Enum):
-    SCHEDULED = 'scheduled'
+    scheduled = 'scheduled'
     LIVE = 'live'
     ENDED = 'ended'
     CANCELLED = 'cancelled'

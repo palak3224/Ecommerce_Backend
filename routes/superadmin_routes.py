@@ -56,6 +56,7 @@ from routes.order_routes import get_order as get_order_details_regular
 
 from controllers.superadmin import youtube_controller
 
+from controllers.superadmin.newsletter_controller import NewsletterController
 
 superadmin_bp = Blueprint('superadmin_bp', __name__)
 
@@ -4396,10 +4397,24 @@ def delete_gst_rule_route(rule_id):
 def subscribe_newsletter():
     return newsletter_controller.subscribe_email()
 
+
 @superadmin_bp.route('/newsletter/subscribers', methods=['GET'])
 @super_admin_role_required
-def get_all_subscribers():
-    return newsletter_controller.list_subscribers()
+def get_newsletter_subscribers():
+    """
+    Get a list of all newsletter subscribers
+    """
+    try:
+        subscribers = NewsletterController.list_all()
+        return jsonify([
+            {
+                'id': s.id,
+                'email': s.email,
+                'created_at': s.created_at.isoformat() if s.created_at else None
+            } for s in subscribers
+        ]), 200
+    except Exception as e:
+        return jsonify({'message': f'Failed to retrieve newsletter subscribers: {str(e)}'}), 500
 
 #--- Merchant Transaction Related ----
 @superadmin_bp.route('/merchant-transactions', methods=['GET'])

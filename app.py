@@ -62,12 +62,16 @@ from routes.shop.public.public_shop_brand_routes import public_shop_brand_bp
 
 from routes.upload_routes import upload_bp
 
+
 from flasgger import Swagger
 from cryptography.fernet import Fernet
 import time
 import psutil
 import traceback
 from datetime import datetime, timezone, timedelta
+from apscheduler.schedulers.background import BackgroundScheduler
+import threading
+from controllers.newsletter_public_controller import newsletter_public_bp
 
 
 ALLOWED_ORIGINS = [
@@ -209,6 +213,7 @@ def create_app(config_name='default'):
     app.register_blueprint(shop_category_bp)
     app.register_blueprint(shop_brand_bp)
     app.register_blueprint(shop_attribute_bp)
+
     
     # Register public shop routes
     app.register_blueprint(public_shop_bp)
@@ -216,6 +221,9 @@ def create_app(config_name='default'):
     app.register_blueprint(public_shop_category_bp)
     app.register_blueprint(public_shop_brand_bp)
     
+
+    app.register_blueprint(newsletter_public_bp, url_prefix='/api/public')
+
     app.register_blueprint(upload_bp, url_prefix='/api/upload')
 
     # Add custom headers to every response

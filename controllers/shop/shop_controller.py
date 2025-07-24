@@ -316,3 +316,27 @@ class ShopController:
                 'status': 'error',
                 'message': f'Error deleting shop: {str(e)}'
             }), 500
+
+    @staticmethod
+    @superadmin_required
+    def hard_delete_shop(shop_id):
+        """Hard delete a shop (permanently remove from the database)"""
+        try:
+            shop = Shop.query.filter(Shop.shop_id == shop_id).first()
+            if not shop:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Shop not found'
+                }), 404
+            db.session.delete(shop)
+            db.session.commit()
+            return jsonify({
+                'status': 'success',
+                'message': 'Shop permanently deleted'
+            }), 200
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({
+                'status': 'error',
+                'message': f'Error hard deleting shop: {str(e)}'
+            }), 500
