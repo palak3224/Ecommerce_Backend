@@ -1,0 +1,1 @@
+# Public shop routes

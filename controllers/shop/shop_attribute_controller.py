@@ -15,6 +15,9 @@ class ShopAttributeController:
     def get_attributes_by_shop_category(shop_id, category_id):
         """Get all attributes for a specific shop category"""
         try:
+            # Check if only active attributes are requested
+            active_only = request.args.get('active_only', 'false').lower() == 'true'
+            
             # Verify shop exists
             shop = Shop.query.filter(
                 Shop.shop_id == shop_id,
@@ -40,15 +43,22 @@ class ShopAttributeController:
                     'message': 'Category not found in this shop'
                 }), 404
             
-            attributes = ShopAttribute.query.filter(
+            # Build query based on active_only parameter
+            query = ShopAttribute.query.filter(
                 ShopAttribute.shop_id == shop_id,
                 ShopAttribute.category_id == category_id,
                 ShopAttribute.deleted_at.is_(None)
-            ).order_by(ShopAttribute.sort_order, ShopAttribute.name).all()
+            )
+            
+            # Add active filter if requested
+            if active_only:
+                query = query.filter(ShopAttribute.is_active.is_(True))
+                
+            attributes = query.order_by(ShopAttribute.sort_order, ShopAttribute.name).all()
             
             return jsonify({
                 'status': 'success',
-                'data': [attribute.serialize() for attribute in attributes]
+                'data': [attribute.serialize(active_values_only=active_only) for attribute in attributes]
             }), 200
             
         except Exception as e:
