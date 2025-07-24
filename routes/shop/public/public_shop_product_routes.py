@@ -163,3 +163,71 @@ def get_featured_products(shop_id):
         description: Internal server error
     """
     return PublicShopProductController.get_featured_products(shop_id)
+
+@public_shop_product_bp.route('/api/public/shops/<int:shop_id>/products/<int:product_id>/media', methods=['GET'])
+@cross_origin()
+def get_product_media_gallery(shop_id, product_id):
+    """
+    Get all media for a specific product (for galleries, zoom views, etc.)
+    ---
+    tags:
+      - Public Shop Products
+    parameters:
+      - in: path
+        name: shop_id
+        type: integer
+        required: true
+        description: ID of the shop
+      - in: path
+        name: product_id
+        type: integer
+        required: true
+        description: ID of the product
+    responses:
+      200:
+        description: All media for the product organized by type
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            shop:
+              type: object
+            product_id:
+              type: integer
+            product_name:
+              type: string
+            media:
+              type: object
+              properties:
+                all:
+                  type: array
+                  items:
+                    type: object
+                by_type:
+                  type: object
+                  properties:
+                    images:
+                      type: array
+                      items:
+                        type: object
+                    videos:
+                      type: array
+                      items:
+                        type: object
+                    other:
+                      type: array
+                      items:
+                        type: object
+                total_count:
+                  type: integer
+                images_count:
+                  type: integer
+                videos_count:
+                  type: integer
+      404:
+        description: Shop or product not found
+      500:
+        description: Internal server error
+    """
+    return PublicShopProductController.get_product_media_gallery(shop_id, product_id)
