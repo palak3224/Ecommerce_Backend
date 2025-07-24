@@ -7,6 +7,7 @@ from models.shop.shop import Shop
 from models.shop.shop_product_media import ShopProductMedia
 from models.shop.shop_product_attribute import ShopProductAttribute
 from models.shop.shop_product_stock import ShopProductStock
+from models.shop.shop_product_meta import ShopProductMeta
 from models.enums import MediaType
 from sqlalchemy import desc, or_, func, and_
 from datetime import datetime, timezone
@@ -24,6 +25,30 @@ class PublicShopProductController:
         ).first()
 
         return primary_media.serialize() if primary_media else None
+
+    @staticmethod
+    def enhance_product_with_meta(product_dict, product_id):
+        """Enhance product data with meta information"""
+        # Get product meta information
+        meta = ShopProductMeta.query.filter_by(product_id=product_id).first()
+        
+        if meta:
+            # Override product_description with short_desc for better UX
+            product_dict['product_description'] = meta.short_desc or product_dict.get('product_description', '')
+            product_dict['short_description'] = meta.short_desc
+            product_dict['full_description'] = meta.full_desc
+            product_dict['meta_title'] = meta.meta_title
+            product_dict['meta_description'] = meta.meta_desc
+            product_dict['meta_keywords'] = meta.meta_keywords
+        else:
+            # Fallback if meta doesn't exist (though it should always exist)
+            product_dict['short_description'] = product_dict.get('product_description', '')
+            product_dict['full_description'] = product_dict.get('product_description', '')
+            product_dict['meta_title'] = None
+            product_dict['meta_description'] = None
+            product_dict['meta_keywords'] = None
+        
+        return product_dict
 
     @staticmethod
     def get_products_by_shop(shop_id):
@@ -151,6 +176,11 @@ class PublicShopProductController:
             for product in products:
                 product_dict = product.serialize()
                 
+                # Enhance with meta information
+                product_dict = PublicShopProductController.enhance_product_with_meta(
+                    product_dict, product.product_id
+                )
+                
                 # Get primary image
                 media = PublicShopProductController.get_product_media(product.product_id)
                 if media:
@@ -233,6 +263,11 @@ class PublicShopProductController:
             # Get product details
             product_dict = product.serialize()
             
+            # Enhance with meta information
+            product_dict = PublicShopProductController.enhance_product_with_meta(
+                product_dict, product.product_id
+            )
+            
             # Get all media
             media_list = ShopProductMedia.query.filter_by(
                 product_id=product.product_id,
@@ -265,6 +300,12 @@ class PublicShopProductController:
             related_data = []
             for related in related_products:
                 related_dict = related.serialize()
+                
+                # Enhance with meta information
+                related_dict = PublicShopProductController.enhance_product_with_meta(
+                    related_dict, related.product_id
+                )
+                
                 media = PublicShopProductController.get_product_media(related.product_id)
                 if media:
                     related_dict['primary_image'] = media['url']
@@ -313,6 +354,11 @@ class PublicShopProductController:
             product_data = []
             for product in products:
                 product_dict = product.serialize()
+                
+                # Enhance with meta information
+                product_dict = PublicShopProductController.enhance_product_with_meta(
+                    product_dict, product.product_id
+                )
                 
                 # Get primary image
                 media = PublicShopProductController.get_product_media(product.product_id)
