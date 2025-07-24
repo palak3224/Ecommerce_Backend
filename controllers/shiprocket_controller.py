@@ -161,31 +161,7 @@ class ShipRocketController:
                         response['data']['available_courier_companies'] = cleaned_couriers
                     else:
                         current_app.logger.info("ShipRocket serviceability response: No couriers available")
-                    
-                    # Check if response indicates order doesn't exist (which is expected during serviceability check)
-                    if response.get('status') == 404 and "Order doesn't exist" in response.get('message', ''):
-                        current_app.logger.info("Order doesn't exist in ShipRocket (expected during serviceability check), proceeding with serviceability data")
-                        # Return a mock response with available couriers for testing
-                        return {
-                            'data': {
-                                'available_courier_companies': [
-                                    {
-                                        'courier_company_id': 1,
-                                        'courier_name': 'DTDC',
-                                        'rate': 150,
-                                        'estimated_delivery_days': '3-5 days',
-                                        'rating': '4.5'
-                                    },
-                                    {
-                                        'courier_company_id': 2,
-                                        'courier_name': 'Blue Dart',
-                                        'rate': 200,
-                                        'estimated_delivery_days': '2-4 days',
-                                        'rating': '4.8'
-                                    }
-                                ]
-                            }
-                        }
+                        response['data']['available_courier_companies'] = []
                     
                     return response
                 except Exception as first_error:
@@ -220,31 +196,7 @@ class ShipRocketController:
                     response['data']['available_courier_companies'] = cleaned_couriers
                 else:
                     current_app.logger.info("ShipRocket serviceability response: No couriers available")
-                
-                # Check if response indicates order doesn't exist (which is expected during serviceability check)
-                if response.get('status') == 404 and "Order doesn't exist" in response.get('message', ''):
-                    current_app.logger.info("Order doesn't exist in ShipRocket (expected during serviceability check), proceeding with serviceability data")
-                    # Return a mock response with available couriers for testing
-                    return {
-                        'data': {
-                            'available_courier_companies': [
-                                {
-                                    'courier_company_id': 1,
-                                    'courier_name': 'DTDC',
-                                    'rate': 150,
-                                    'estimated_delivery_days': '3-5 days',
-                                    'rating': '4.5'
-                                },
-                                {
-                                    'courier_company_id': 2,
-                                    'courier_name': 'Blue Dart',
-                                    'rate': 200,
-                                    'estimated_delivery_days': '2-4 days',
-                                    'rating': '4.8'
-                                }
-                            ]
-                        }
-                    }
+                    response['data']['available_courier_companies'] = []
                 
                 return response
             except Exception as second_error:
@@ -278,50 +230,13 @@ class ShipRocketController:
                     response['data']['available_courier_companies'] = cleaned_couriers
                 else:
                     current_app.logger.info("ShipRocket serviceability response: No couriers available")
-                
-                # Check if response indicates order doesn't exist (which is expected during serviceability check)
-                if response.get('status') == 404 and "Order doesn't exist" in response.get('message', ''):
-                    current_app.logger.info("Order doesn't exist in ShipRocket (expected during serviceability check), proceeding with serviceability data")
-                    # Return a mock response with available couriers for testing
-                    return {
-                        'data': {
-                            'available_courier_companies': [
-                                {
-                                    'courier_company_id': 1,
-                                    'courier_name': 'DTDC',
-                                    'rate': 150,
-                                    'estimated_delivery_days': '3-5 days',
-                                    'rating': '4.5'
-                                },
-                                {
-                                    'courier_company_id': 2,
-                                    'courier_name': 'Blue Dart',
-                                    'rate': 200,
-                                    'estimated_delivery_days': '2-4 days',
-                                    'rating': '4.8'
-                                }
-                            ]
-                        }
-                    }
+                    response['data']['available_courier_companies'] = []
                 
                 return response
             
         except Exception as e:
             current_app.logger.error(f"Serviceability check failed: {str(e)}")
-            # Return a fallback response with default couriers
-            return {
-                'data': {
-                    'available_courier_companies': [
-                        {
-                            'courier_company_id': 1,
-                            'courier_name': 'Standard Delivery',
-                            'rate': 100,
-                            'estimated_delivery_days': '5-7 days',
-                            'rating': '4.0'
-                        }
-                    ]
-                }
-            }
+            return {'data': {'available_courier_companies': []}, 'message': str(e)}
     
     def create_order(self, order_data):
         """

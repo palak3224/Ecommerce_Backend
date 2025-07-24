@@ -112,44 +112,14 @@ def check_serviceability():
             cod=shiprocket_cod  # Pass the calculated COD amount
         )
         
-        # Ensure the response has the expected structure
-        if not response or 'data' not in response:
-            # Return a fallback response if the structure is unexpected
-            response = {
-                'data': {
-                    'available_courier_companies': [
-                        {
-                            'courier_company_id': 1,
-                            'courier_name': 'Standard Delivery',
-                            'rate': 100,
-                            'estimated_delivery_days': '5-7 days',
-                            'rating': '4.0'
-                        }
-                    ]
-                }
-            }
-        
+        # Just return the controller's response (may have empty list and/or message)
         return success_response("Serviceability check successful", response)
         
     except ValueError as e:
         return error_response(f"Invalid data format: {str(e)}", 400)
     except Exception as e:
-        # Return a fallback response instead of error
         current_app.logger.error(f"Serviceability check failed: {str(e)}")
-        fallback_response = {
-            'data': {
-                'available_courier_companies': [
-                    {
-                        'courier_company_id': 1,
-                        'courier_name': 'Standard Delivery',
-                        'rate': 100,
-                        'estimated_delivery_days': '5-7 days',
-                        'rating': '4.0'
-                    }
-                ]
-            }
-        }
-        return success_response("Serviceability check successful (using fallback)", fallback_response)
+        return error_response(f"Serviceability check failed: {str(e)}", 500)
 
 @shiprocket_bp.route('/create-order', methods=['POST'])
 @jwt_required()
