@@ -9,3 +9,4 @@ shop_bp.add_url_rule('/<int:shop_id>', methods=['GET'], view_func=ShopController
 shop_bp.add_url_rule('', methods=['POST'], view_func=ShopController.create_shop)
 shop_bp.add_url_rule('/<int:shop_id>', methods=['PUT'], view_func=ShopController.update_shop)
 shop_bp.add_url_rule('/<int:shop_id>', methods=['DELETE'], view_func=ShopController.delete_shop)
+shop_bp.add_url_rule('/<int:shop_id>/hard', methods=['DELETE'], view_func=ShopController.hard_delete_shop)
