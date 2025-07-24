@@ -45,17 +45,34 @@ class PublicShopProductController:
         images = []
         videos = []
         primary_image = None
+        
+        # Find the minimum sort_order to determine primary image
+        min_sort_order = None
+        if media_list:
+            min_sort_order = min(media.sort_order for media in media_list if media.sort_order is not None)
 
-        for media in media_list:
+        for index, media in enumerate(media_list):
+            # Determine if this is primary based on sort_order logic
+            is_primary = False
+            if media.type == MediaType.IMAGE:
+                if min_sort_order is not None and media.sort_order == min_sort_order:
+                    is_primary = True
+                elif min_sort_order is None and media.is_primary:
+                    # Fallback to is_primary field if sort_order is not available
+                    is_primary = True
+                elif min_sort_order is None and not any(m.is_primary for m in media_list if m.type == MediaType.IMAGE) and index == 0:
+                    # Final fallback: first image if nothing else is marked as primary
+                    is_primary = True
+            
             # Only include essential fields
             media_item = {
                 'url': media.url,
                 'type': media.type.value if hasattr(media.type, 'value') else str(media.type),
-                'is_primary': media.is_primary
+                'is_primary': is_primary
             }
 
-            # Set primary image
-            if media.is_primary and media.type == MediaType.IMAGE:
+            # Set primary image URL
+            if is_primary and media.type == MediaType.IMAGE:
                 primary_image = media.url
 
             # Categorize by type
@@ -82,12 +99,35 @@ class PublicShopProductController:
             ShopProductMedia.media_id
         ).all()
 
+        if not all_media:
+            return []
+
+        # Find the minimum sort_order to determine primary image
+        min_sort_order = None
+        if all_media:
+            min_sort_order = min(media.sort_order for media in all_media if media.sort_order is not None)
+
         media_data = []
-        for media in all_media:
-            media_dict = media.serialize()
-            # Add additional metadata for better frontend handling
-            media_dict['is_primary'] = (media.sort_order == 0 or len(media_data) == 0)
-            media_data.append(media_dict)
+        for index, media in enumerate(all_media):
+            # Determine if this is primary based on sort_order logic
+            is_primary = False
+            if media.type == MediaType.IMAGE:
+                if min_sort_order is not None and media.sort_order == min_sort_order:
+                    is_primary = True
+                elif min_sort_order is None and media.is_primary:
+                    # Fallback to is_primary field if sort_order is not available
+                    is_primary = True
+                elif min_sort_order is None and not any(m.is_primary for m in all_media if m.type == MediaType.IMAGE) and index == 0:
+                    # Final fallback: first image if nothing else is marked as primary
+                    is_primary = True
+
+            # Only include essential fields for optimized response
+            media_item = {
+                'url': media.url,
+                'type': media.type.value if hasattr(media.type, 'value') else str(media.type),
+                'is_primary': is_primary
+            }
+            media_data.append(media_item)
 
         return media_data
 
