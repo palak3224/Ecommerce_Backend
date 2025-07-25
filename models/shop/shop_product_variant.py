@@ -76,8 +76,27 @@ class ShopProductVariant(BaseModel):
             return self.cost_override
         return self.variant_product.cost_price if self.variant_product else 0
     
-    def serialize(self):
-        return {
+    def get_variant_media(self, include_parent_fallback=True):
+        """Get variant media with optional parent fallback"""
+        variant_media = []
+        if self.variant_product and hasattr(self.variant_product, 'media'):
+            variant_media = [media for media in self.variant_product.media if not media.deleted_at]
+        
+        # If no variant media and fallback enabled, use parent media
+        if not variant_media and include_parent_fallback:
+            if self.parent_product and hasattr(self.parent_product, 'media'):
+                variant_media = [media for media in self.parent_product.media if not media.deleted_at]
+        
+        return sorted(variant_media, key=lambda x: (x.sort_order, x.media_id))
+    
+    def get_primary_media(self):
+        """Get the primary media for this variant"""
+        media_list = self.get_variant_media()
+        primary_media = next((media for media in media_list if media.is_primary), None)
+        return primary_media or (media_list[0] if media_list else None)
+
+    def serialize(self, include_media=True, include_parent_fallback=True):
+        data = {
             "variant_id": self.variant_id,
             "parent_product_id": self.parent_product_id,
             "variant_product_id": self.variant_product_id,
@@ -89,10 +108,21 @@ class ShopProductVariant(BaseModel):
             "sort_order": self.sort_order,
             "is_active": self.is_active,
             "is_default": self.is_default,
-            "stock": self.variant_product.stock.serialize() if self.variant_product and hasattr(self.variant_product, 'stock') else None,
-            "media": [media.serialize() for media in self.variant_product.media] if self.variant_product else [],
+            "stock": self.variant_product.stock.serialize() if self.variant_product and hasattr(self.variant_product, 'stock') and self.variant_product.stock else None,
             "created_at": self.created_at.isoformat() if self.created_at else None
         }
+        
+        if include_media:
+            media_list = self.get_variant_media(include_parent_fallback)
+            data.update({
+                "media": [media.serialize() for media in media_list],
+                "primary_media": self.get_primary_media().serialize() if self.get_primary_media() else None,
+                "media_count": len(media_list),
+                "has_variant_specific_media": bool(self.variant_product and hasattr(self.variant_product, 'media') and 
+                                                  any(not media.deleted_at for media in self.variant_product.media))
+            })
+        
+        return data
 
 
 class ShopVariantAttributeValue(BaseModel):
