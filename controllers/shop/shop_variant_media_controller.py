@@ -39,24 +39,41 @@ class ShopVariantMediaController:
                 return error_response("No valid files provided", 400)
             
             # Get additional form data
-            media_type = request.form.get('type', 'IMAGE')
             is_primary = request.form.get('is_primary', 'false').lower() == 'true'
             
-            # Validate media type
-            try:
-                media_type_enum = MediaType(media_type.upper())
-            except ValueError:
-                return error_response("Invalid media type", 400)
-            
-            # Check current media count (limit per variant)
-            current_media_count = ShopProductMedia.query.filter_by(
+            # Check current media count (limit per variant: 4 images + 1 video)
+            current_images = ShopProductMedia.query.filter_by(
                 product_id=variant_product.product_id,
+                type=MediaType.IMAGE,
                 deleted_at=None
             ).count()
             
-            max_media_per_variant = 10  # Configurable limit
-            if current_media_count + len(files) > max_media_per_variant:
-                return error_response(f"Maximum {max_media_per_variant} media files allowed per variant", 400)
+            current_videos = ShopProductMedia.query.filter_by(
+                product_id=variant_product.product_id,
+                type=MediaType.VIDEO,
+                deleted_at=None
+            ).count()
+            
+            # Count new media files by type (detect from file content)
+            new_images = 0
+            new_videos = 0
+            
+            for file in files:
+                if file.filename == '':
+                    continue
+                    
+                # Detect media type from file
+                if file.content_type and file.content_type.startswith('image/'):
+                    new_images += 1
+                elif file.content_type and file.content_type.startswith('video/'):
+                    new_videos += 1
+            
+            # Validate media limits for variants
+            if current_images + new_images > 4:
+                return error_response("Maximum 4 images allowed per variant", 400)
+                
+            if current_videos + new_videos > 1:
+                return error_response("Maximum 1 video allowed per variant", 400)
             
             uploaded_media = []
             
@@ -78,6 +95,11 @@ class ShopVariantMediaController:
                     
                     # Secure filename
                     filename = secure_filename(file.filename)
+                    
+                    # Determine media type from file content
+                    file_media_type = MediaType.IMAGE
+                    if file.content_type and file.content_type.startswith('video/'):
+                        file_media_type = MediaType.VIDEO
                     
                     # Upload to Cloudinary
                     try:
@@ -104,7 +126,7 @@ class ShopVariantMediaController:
                         # Create media record
                         media = ShopProductMedia(
                             product_id=variant_product.product_id,
-                            type=media_type_enum,
+                            type=file_media_type,
                             url=upload_result['secure_url'],
                             public_id=upload_result['public_id'],
                             sort_order=max_sort_order + i + 1,
