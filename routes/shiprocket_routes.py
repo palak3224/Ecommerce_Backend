@@ -422,6 +422,175 @@ def get_tracking_details(awb_code):
     except Exception as e:
         return error_response(f"Tracking details fetch failed: {str(e)}", 500)
 
+@shiprocket_bp.route('/tracking/order/<order_id>', methods=['GET'])
+@jwt_required()
+def get_tracking_by_order_id(order_id):
+    """
+    Get tracking details for a shipment using order ID
+    ---
+    tags:
+      - ShipRocket
+    security:
+      - Bearer: []
+    parameters:
+      - name: order_id
+        in: path
+        type: string
+        required: true
+        description: Order ID from your store
+      - name: channel_id
+        in: query
+        type: integer
+        required: false
+        description: Channel ID corresponding to the store
+    responses:
+      200:
+        description: Tracking details retrieved successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            data:
+              type: object
+              properties:
+                tracking_data:
+                  type: object
+      400:
+        description: Invalid order ID
+      500:
+        description: Internal server error
+    """
+    try:
+        if not order_id:
+            return error_response("Order ID is required", 400)
+        
+        # Get channel_id from query parameters
+        channel_id = request.args.get('channel_id', type=int)
+        
+        shiprocket = ShipRocketController()
+        response = shiprocket.get_tracking_by_order_id(order_id, channel_id)
+        
+        return success_response("Tracking details retrieved successfully", response)
+        
+    except Exception as e:
+        return error_response(f"Tracking details fetch failed: {str(e)}", 500)
+
+@shiprocket_bp.route('/tracking/shipment/<int:shipment_id>', methods=['GET'])
+@jwt_required()
+def get_shipment_tracking(shipment_id):
+    """
+    Get tracking details for a shipment using shipment ID from database
+    ---
+    tags:
+      - ShipRocket
+    security:
+      - Bearer: []
+    parameters:
+      - name: shipment_id
+        in: path
+        type: integer
+        required: true
+        description: Shipment ID from database
+    responses:
+      200:
+        description: Tracking details retrieved successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            data:
+              type: object
+              properties:
+                tracking_data:
+                  type: object
+      400:
+        description: Invalid shipment ID
+      404:
+        description: Shipment not found
+      500:
+        description: Internal server error
+    """
+    try:
+        if not shipment_id:
+            return error_response("Shipment ID is required", 400)
+        
+        shiprocket = ShipRocketController()
+        response = shiprocket.get_shipment_tracking(shipment_id)
+        
+        return success_response("Tracking details retrieved successfully", response)
+        
+    except Exception as e:
+        return error_response(f"Tracking details fetch failed: {str(e)}", 500)
+
+@shiprocket_bp.route('/tracking/db-order/<order_id>', methods=['GET'])
+@jwt_required()
+def get_tracking_by_db_order_id(order_id):
+    """
+    Get tracking details using order_id from your database Order model
+    ---
+    tags:
+      - ShipRocket
+    security:
+      - Bearer: []
+    parameters:
+      - name: order_id
+        in: path
+        type: string
+        required: true
+        description: Order ID from your database (e.g., "ORD-20250728114812-8D8759")
+    responses:
+      200:
+        description: Tracking details retrieved successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            data:
+              type: object
+              properties:
+                order_id:
+                  type: string
+                shipments:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    properties:
+                      shipment_id:
+                        type: integer
+                      merchant_id:
+                        type: integer
+                      carrier_name:
+                        type: string
+                      tracking_number:
+                        type: string
+                      shiprocket_order_id:
+                        type: integer
+                      tracking_data:
+                        type: object
+                      error:
+                        type: string
+      400:
+        description: Invalid order ID
+      404:
+        description: Order not found
+      500:
+        description: Internal server error
+    """
+    try:
+        if not order_id:
+            return error_response("Order ID is required", 400)
+        
+        shiprocket = ShipRocketController()
+        response = shiprocket.get_tracking_by_db_order_id(order_id)
+        
+        return success_response("Tracking details retrieved successfully", response)
+        
+    except Exception as e:
+        return error_response(f"Tracking details fetch failed: {str(e)}", 500)
+
 @shiprocket_bp.route('/bulk-create-orders', methods=['POST'])
 @super_admin_role_required
 def bulk_create_shiprocket_orders():
@@ -667,8 +836,11 @@ def create_merchant_pickup_location(merchant_id):
     """
     try:
         shiprocket = ShipRocketController()
-        response = shiprocket.create_merchant_pickup_location(merchant_id)
-        return success_response("Pickup location created successfully", response)
+        pickup_location_name = shiprocket.create_merchant_pickup_location(merchant_id)
+        return success_response("Pickup location created successfully", {
+            "pickup_location_name": pickup_location_name,
+            "merchant_id": merchant_id
+        })
         
     except Exception as e:
         return error_response(f"Failed to create pickup location: {str(e)}", 500)

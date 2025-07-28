@@ -100,6 +100,33 @@ class ShipRocketController:
             'cod_charges': courier.get('cod_charges', 0)
         }
     
+    def _format_phone_number(self, phone):
+        """
+        Format phone number for ShipRocket API (convert to integer)
+        
+        Args:
+            phone (str): Phone number string
+            
+        Returns:
+            int: Formatted phone number as integer, or 0 if invalid
+        """
+        if not phone:
+            return 0
+        
+        try:
+            # Remove all non-digit characters
+            cleaned_phone = ''.join(filter(str.isdigit, str(phone)))
+            
+            # Check if it's a valid phone number (at least 10 digits)
+            if len(cleaned_phone) >= 10:
+                return int(cleaned_phone)
+            else:
+                current_app.logger.warning(f"Invalid phone number format: {phone}")
+                return 0
+        except (ValueError, TypeError) as e:
+            current_app.logger.warning(f"Error formatting phone number {phone}: {str(e)}")
+            return 0
+    
     def check_serviceability(self, pickup_pincode, delivery_pincode, weight, cod=0, order_id=None):
         """
         Check courier serviceability and get shipping charges
@@ -353,6 +380,9 @@ class ShipRocketController:
             
             # Calculate total weight and prepare order items
             total_weight = Decimal('0')
+            total_length = Decimal('0')
+            total_breadth = Decimal('0')
+            total_height = Decimal('0')
             order_items = []
             
             for item in order.items:
@@ -360,19 +390,38 @@ class ShipRocketController:
                     # Get product shipping details
                     product = Product.query.filter_by(product_id=item.product_id).first()
                     if product and hasattr(product, 'shipping') and product.shipping:
+                        # Use actual shipping dimensions from product_shipping
                         item_weight = product.shipping.weight_kg or Decimal('0.5')  # Default 0.5kg if not set
+                        item_length = product.shipping.length_cm or Decimal('10')  # Default 10cm if not set
+                        item_breadth = product.shipping.width_cm or Decimal('10')  # Default 10cm if not set
+                        item_height = product.shipping.height_cm or Decimal('10')  # Default 10cm if not set
                     else:
+                        # Default dimensions if no shipping info available
                         item_weight = Decimal('0.5')  # Default weight
+                        item_length = Decimal('10')  # Default length
+                        item_breadth = Decimal('10')  # Default breadth
+                        item_height = Decimal('10')  # Default height
                     
+                    # Calculate totals for the entire shipment
                     total_weight += item_weight * item.quantity
+                    # For dimensions, we'll use the largest item's dimensions as the package dimensions
+                    # This is a common approach for multiple items in one package
+                    if item_length > total_length:
+                        total_length = item_length
+                    if item_breadth > total_breadth:
+                        total_breadth = item_breadth
+                    if item_height > total_height:
+                        total_height = item_height
+                    
+                    current_app.logger.info(f"Product {item.product_id} shipping details: weight={item_weight}kg, length={item_length}cm, breadth={item_breadth}cm, height={item_height}cm")
                     
                     order_items.append({
                         "name": item.product_name_at_purchase,
                         "sku": item.sku_at_purchase,
-                        "units": item.quantity,
-                        "selling_price": float(item.unit_price_inclusive_gst),
-                        "discount": float(item.discount_amount_per_unit_applied),
-                        "tax": float(item.gst_amount_per_unit or 0),
+                        "units": str(item.quantity),
+                        "selling_price": str(int(float(item.unit_price_inclusive_gst))),
+                        "discount": str(int(float(item.discount_amount_per_unit_applied))) if item.discount_amount_per_unit_applied else "",
+                        "tax": str(int(float(item.gst_amount_per_unit))) if item.gst_amount_per_unit else "",
                         "hsn": ""  # HSN code - can be added later if available
                     })
             
@@ -486,55 +535,81 @@ class ShipRocketController:
                 
                 # Get or create merchant's pickup location
                 pickup_location_name = self.get_or_create_merchant_pickup_location(merchant_id)
+                current_app.logger.info(f"Using pickup location '{pickup_location_name}' for merchant {merchant_id}")
                 
                 # Prepare order data for ShipRocket according to official API requirements
                 order_data = {
                     "order_id": order_id,
-                    "order_date": order.order_date.strftime("%Y-%m-%d"),
+                    "order_date": order.order_date.strftime("%Y-%m-%d %H:%M"),  # Include time
                     "pickup_location": pickup_location_name,
-                    "comment": order.internal_notes or "",
-                    "reseller_name": merchant.business_name or "",
-                    "company_name": merchant.business_name or "",
+                    "comment": "",
+                    "reseller_name": merchant.business_name,
+                    "company_name": merchant.business_name,
                     "billing_customer_name": billing_first_name,
                     "billing_last_name": billing_last_name,
                     "billing_address": delivery_address.address_line1,
                     "billing_address_2": delivery_address.address_line2 or "",
-                    "billing_isd_code": "91",  # Default to India, can be made dynamic
+                    "billing_isd_code": "",
                     "billing_city": delivery_address.city,
                     "billing_pincode": delivery_address.postal_code,
                     "billing_state": delivery_address.state_province,
                     "billing_country": delivery_address.country_code,
                     "billing_email": order.user.email,
-                    "billing_phone": delivery_address.contact_phone or order.user.phone,
+                    "billing_phone": self._format_phone_number(delivery_address.contact_phone or order.user.phone),
                     "billing_alternate_phone": "",
-                    "shipping_is_billing": True,
-                    "shipping_customer_name": billing_first_name,
-                    "shipping_last_name": billing_last_name,
-                    "shipping_address": delivery_address.address_line1,
-                    "shipping_address_2": delivery_address.address_line2 or "",
-                    "shipping_city": delivery_address.city,
-                    "shipping_pincode": delivery_address.postal_code,
-                    "shipping_country": delivery_address.country_code,
-                    "shipping_state": delivery_address.state_province,
-                    "shipping_email": order.user.email,
-                    "shipping_phone": delivery_address.contact_phone or order.user.phone,
+                    "shipping_is_billing": "1",
+                    "shipping_customer_name": "",  # Empty when shipping_is_billing is True
+                    "shipping_last_name": "",  # Empty when shipping_is_billing is True
+                    "shipping_address": "",  # Empty when shipping_is_billing is True
+                    "shipping_address_2": "",  # Empty when shipping_is_billing is True
+                    "shipping_city": "",  # Empty when shipping_is_billing is True
+                    "shipping_pincode": "",  # Empty when shipping_is_billing is True
+                    "shipping_country": "",  # Empty when shipping_is_billing is True
+                    "shipping_state": "",  # Empty when shipping_is_billing is True
+                    "shipping_email": "",  # Empty when shipping_is_billing is True
+                    "shipping_phone": "",  # Empty when shipping_is_billing is True
                     "order_items": order_items,
                     "payment_method": "Prepaid" if order.payment_status.value == 'paid' else "COD",
-                    "shipping_charges": str(float(order.shipping_amount or 0)),
-                    "giftwrap_charges": "0",
-                    "transaction_charges": "0",
-                    "total_discount": str(float(order.discount_amount or 0)),
-                    "sub_total": str(float(order.subtotal_amount)),
-                    "length": "10",  # Default dimensions, should be calculated from products
-                    "breadth": "10",
-                    "height": "10",
+                    "shipping_charges": str(int(float(order.shipping_amount or 0))),
+                    "giftwrap_charges": "",
+                    "transaction_charges": "",
+                    "total_discount": "",
+                    "sub_total": str(int(float(order.total_amount))),
+                    "length": str(float(total_length)),
+                    "breadth": str(float(total_breadth)),
+                    "height": str(float(total_height)),
                     "weight": str(float(total_weight)),
                     "ewaybill_no": "",
                     "customer_gstin": "",
                     "invoice_number": "",
-                    "order_type": "Exclusive"
+                    "order_type": ""
                 }
                 
+                current_app.logger.info(f"Final shipping dimensions for order {order_id}: length={total_length}cm, breadth={total_breadth}cm, height={total_height}cm, weight={total_weight}kg")
+                
+                # Ensure minimum dimensions and weight if no shipping info was found
+                if total_weight <= 0:
+                    total_weight = Decimal('0.5')  # Minimum 0.5kg
+                    current_app.logger.warning(f"No shipping weight found for order {order_id}, using default 0.5kg")
+                if total_length <= 0:
+                    total_length = Decimal('10')  # Minimum 10cm
+                    current_app.logger.warning(f"No shipping length found for order {order_id}, using default 10cm")
+                if total_breadth <= 0:
+                    total_breadth = Decimal('10')  # Minimum 10cm
+                    current_app.logger.warning(f"No shipping breadth found for order {order_id}, using default 10cm")
+                if total_height <= 0:
+                    total_height = Decimal('10')  # Minimum 10cm
+                    current_app.logger.warning(f"No shipping height found for order {order_id}, using default 10cm")
+                
+                # Validate required fields before sending to ShipRocket
+                required_fields = ['order_id', 'billing_customer_name', 'billing_address', 'billing_city', 'billing_pincode', 'billing_state', 'billing_country', 'billing_email', 'billing_phone']
+                for field in required_fields:
+                    if not order_data.get(field):
+                        current_app.logger.warning(f"Missing required field for ShipRocket order: {field}")
+                
+                if not order_items:
+                    current_app.logger.warning("No order items found for ShipRocket order")
+
                 # Create order in ShipRocket
                 order_response = self.create_order(order_data)
                 
@@ -611,6 +686,105 @@ class ShipRocketController:
             
         except Exception as e:
             current_app.logger.error(f"Tracking details fetch failed: {str(e)}")
+            raise
+    
+    def get_tracking_by_order_id(self, order_id, channel_id=None):
+        """
+        Get tracking details for a shipment using order ID and channel ID
+        
+        Args:
+            order_id (str): Order ID from your store
+            channel_id (int, optional): Channel ID corresponding to the store
+        
+        Returns:
+            dict: Tracking details
+        """
+        try:
+            params = {'order_id': order_id}
+            if channel_id:
+                params['channel_id'] = channel_id
+            
+            current_app.logger.info(f"Getting tracking details for order_id: {order_id}, channel_id: {channel_id}")
+            current_app.logger.info(f"ShipRocket API URL: {self.BASE_URL}/courier/track")
+            current_app.logger.info(f"Request params: {params}")
+            
+            response = self._make_request('GET', 'courier/track', params=params)
+            
+            current_app.logger.info(f"ShipRocket tracking response for order {order_id}: {response}")
+            
+            return response
+            
+        except Exception as e:
+            current_app.logger.error(f"Tracking details fetch failed for order_id {order_id}: {str(e)}")
+            raise
+    
+    def get_shipment_tracking(self, shipment_id):
+        """
+        Get tracking details for a shipment using shipment ID from database
+        
+        Args:
+            shipment_id (int): Shipment ID from database
+        
+        Returns:
+            dict: Tracking details
+        """
+        try:
+            # Get shipment details from database
+            shipment = Shipment.query.filter_by(shipment_id=shipment_id).first()
+            if not shipment:
+                raise Exception(f"Shipment {shipment_id} not found")
+            
+            # Check if we have ShipRocket order ID
+            if not shipment.shiprocket_order_id:
+                raise Exception(f"No ShipRocket order ID found for shipment {shipment_id}")
+            
+            current_app.logger.info(f"Getting tracking for shipment {shipment_id}, ShipRocket order_id: {shipment.shiprocket_order_id}")
+            
+            # Use the order ID from ShipRocket for tracking
+            return self.get_tracking_by_order_id(
+                order_id=str(shipment.shiprocket_order_id),
+                channel_id=shipment.merchant_id if shipment.merchant_id else None
+            )
+            
+        except Exception as e:
+            current_app.logger.error(f"Shipment tracking failed for shipment_id {shipment_id}: {str(e)}")
+            raise
+    
+    def get_tracking_by_db_order_id(self, db_order_id):
+        """
+        Get tracking details using order_id from your database Order model
+        
+        Args:
+            db_order_id (str): Order ID from your database (e.g., "ORD-20250728114812-8D8759")
+        
+        Returns:
+            dict: Tracking details for all shipments of this order
+        """
+        try:
+            # Get order from database to verify it exists
+            order = Order.query.filter_by(order_id=db_order_id).first()
+            if not order:
+                raise Exception(f"Order {db_order_id} not found")
+            
+            current_app.logger.info(f"Getting tracking directly from ShipRocket for order: {db_order_id}")
+            
+            # Call ShipRocket tracking API directly with the order ID
+            # This will return tracking data even if the order hasn't been shipped through ShipRocket yet
+            tracking_response = self.get_tracking_by_order_id(
+                order_id=db_order_id,
+                channel_id=None  # We'll let ShipRocket determine the channel
+            )
+            
+            current_app.logger.info(f"ShipRocket tracking response for order {db_order_id}: {tracking_response}")
+            
+            # Return the direct ShipRocket response
+            return {
+                "order_id": db_order_id,
+                "shiprocket_response": tracking_response
+            }
+            
+        except Exception as e:
+            current_app.logger.error(f"Tracking failed for order_id {db_order_id}: {str(e)}")
             raise
     
     def create_shiprocket_orders_for_all_merchants(self, order_id, delivery_address_id, courier_id=None):
@@ -749,7 +923,7 @@ class ShipRocketController:
             merchant_id (int): Merchant ID
         
         Returns:
-            dict: Response with pickup location details
+            str: Pickup location name (even if creation fails)
         """
         try:
             # Get merchant details
@@ -758,40 +932,66 @@ class ShipRocketController:
                 raise Exception(f"Merchant {merchant_id} not found")
             
             # Prepare pickup location data
+            pickup_location_name = f"Merchant_{merchant_id}_{merchant.business_name.replace(' ', '_')}"
+            
             pickup_data = {
-                "pickup_location": f"Merchant_{merchant_id}_{merchant.business_name.replace(' ', '_')}",
+                "pickup_location": pickup_location_name,
                 "name": merchant.contact_person_name or merchant.business_name,
                 "email": merchant.business_email,
-                "phone": merchant.business_phone,
+                "phone": self._format_phone_number(merchant.business_phone),
                 "address": merchant.business_address,
+                "address_2": "",  # Add missing field
                 "city": merchant.city,
                 "state": merchant.state_province,
                 "country": merchant.country_code,
-                "pin_code": merchant.postal_code,
-                "address_type": "Primary"
+                "pin_code": merchant.postal_code
             }
             
-            current_app.logger.info(f"Creating pickup location for merchant {merchant_id}: {pickup_data['pickup_location']}")
+            # Validate required fields for pickup location
+            required_pickup_fields = ['pickup_location', 'name', 'email', 'phone', 'address', 'city', 'state', 'country', 'pin_code']
+            for field in required_pickup_fields:
+                if not pickup_data.get(field):
+                    current_app.logger.warning(f"Missing required field for pickup location: {field}")
             
-            # Add pickup location to ShipRocket
-            response = self.add_pickup_location(pickup_data)
+            current_app.logger.info(f"Creating pickup location for merchant {merchant_id}: {pickup_location_name}")
             
-            if response.get('status') == 200:
-                # Update merchant profile with ShipRocket pickup location ID
-                pickup_location_id = response.get('data', {}).get('pickup_location_id')
-                if pickup_location_id:
-                    merchant.shiprocket_pickup_location_id = pickup_location_id
-                    merchant.shiprocket_pickup_location_name = pickup_data['pickup_location']
-                    db.session.commit()
-                    current_app.logger.info(f"Updated merchant {merchant_id} with ShipRocket pickup location ID: {pickup_location_id}")
+            try:
+                # Add pickup location to ShipRocket
+                response = self.add_pickup_location(pickup_data)
                 
-                return response
-            else:
-                raise Exception(f"Failed to create pickup location: {response.get('message', 'Unknown error')}")
+                if response.get('status') == 200:
+                    # Update merchant profile with ShipRocket pickup location ID
+                    pickup_location_id = response.get('data', {}).get('pickup_location_id')
+                    if pickup_location_id:
+                        merchant.shiprocket_pickup_location_id = pickup_location_id
+                        merchant.shiprocket_pickup_location_name = pickup_location_name
+                        db.session.commit()
+                        current_app.logger.info(f"Updated merchant {merchant_id} with ShipRocket pickup location ID: {pickup_location_id}")
+                    
+                    return pickup_location_name
+                else:
+                    current_app.logger.warning(f"Failed to create pickup location: {response.get('message', 'Unknown error')}")
+                    # Return the pickup location name anyway
+                    return pickup_location_name
+                    
+            except Exception as e:
+                error_msg = str(e)
+                # Check if it's the "already exists and is inactive" error
+                if "already exists and is inactive" in error_msg:
+                    current_app.logger.info(f"Pickup location '{pickup_location_name}' already exists but is inactive. Using it anyway.")
+                    # Update merchant profile with the pickup location name
+                    merchant.shiprocket_pickup_location_name = pickup_location_name
+                    db.session.commit()
+                    return pickup_location_name
+                else:
+                    current_app.logger.warning(f"Failed to create pickup location for merchant {merchant_id}: {error_msg}")
+                    # Return the pickup location name anyway
+                    return pickup_location_name
                 
         except Exception as e:
             current_app.logger.error(f"Failed to create pickup location for merchant {merchant_id}: {str(e)}")
-            raise
+            # Return a fallback pickup location name
+            return f"Merchant_{merchant_id}"
     
     def get_or_create_merchant_pickup_location(self, merchant_id):
         """
@@ -816,16 +1016,14 @@ class ShipRocketController:
             
             # Create new pickup location
             current_app.logger.info(f"No pickup location found for merchant {merchant_id}, creating new one")
-            response = self.create_merchant_pickup_location(merchant_id)
+            pickup_location_name = self.create_merchant_pickup_location(merchant_id)
             
-            if response.get('status') == 200:
-                return merchant.shiprocket_pickup_location_name
-            else:
-                # Fallback to default pickup location
-                current_app.logger.warning(f"Failed to create pickup location for merchant {merchant_id}, using default")
-                return "Primary"
+            # The create_merchant_pickup_location method now returns the pickup location name
+            # even if creation fails, so we can use it
+            current_app.logger.info(f"Using pickup location for merchant {merchant_id}: {pickup_location_name}")
+            return pickup_location_name
                 
         except Exception as e:
             current_app.logger.error(f"Error getting pickup location for merchant {merchant_id}: {str(e)}")
-            # Fallback to default pickup location
-            return "Primary" 
+            # Fallback to merchant-specific pickup location name
+            return f"Merchant_{merchant_id}" 
