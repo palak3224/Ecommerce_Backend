@@ -36,7 +36,7 @@ class ShopProductVariant(BaseModel):
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # Relationships
-    parent_product = db.relationship('ShopProduct', foreign_keys=[parent_product_id], backref='variant_relations')
+    parent_product = db.relationship('ShopProduct', foreign_keys=[parent_product_id], back_populates='variant_relations')
     variant_product = db.relationship('ShopProduct', foreign_keys=[variant_product_id], backref='variant_info')
     
     # Indexes for performance

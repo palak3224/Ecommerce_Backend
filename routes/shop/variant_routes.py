@@ -1,5 +1,5 @@
 # routes/shop/variant_routes.py
-from flask import Blueprint
+from flask import Blueprint, request
 from controllers.shop.shop_variant_controller import ShopVariantController
 
 variant_bp = Blueprint('shop_variants', __name__)
@@ -25,9 +25,16 @@ def delete_variant(variant_id):
     """Delete a specific variant"""
     return ShopVariantController.delete_variant(variant_id)
 
-@variant_bp.route('/products/<int:parent_id>/variants/bulk', methods=['POST'])
+@variant_bp.route('/variants/<int:variant_id>/attributes', methods=['PUT'])
+def update_variant_attributes(variant_id):
+    """Update variant attributes only"""
+    return ShopVariantController.update_variant_attributes(variant_id)
+
+@variant_bp.route('/products/<int:parent_id>/variants/bulk', methods=['POST', 'OPTIONS'])
 def bulk_create_variants(parent_id):
     """Create multiple variants from attribute combinations"""
+    if request.method == 'OPTIONS':
+        return '', 200
     return ShopVariantController.bulk_create_variants(parent_id)
 
 # Variant utility routes
