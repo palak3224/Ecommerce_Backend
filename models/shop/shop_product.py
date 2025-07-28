@@ -47,6 +47,9 @@ class ShopProduct(BaseModel):
     product_attributes = db.relationship('ShopProductAttribute', backref='product', cascade='all, delete-orphan')
     
     parent = db.relationship('ShopProduct', remote_side=[product_id], backref='variants')
+    
+    # Relationship to get variant relationships for this product as parent
+    variant_relations = db.relationship('ShopProductVariant', foreign_keys='ShopProductVariant.parent_product_id', back_populates='parent_product')
 
     def get_current_listed_inclusive_price(self):
         """Returns the current GST-inclusive price (special or regular)."""
@@ -75,29 +78,39 @@ class ShopProduct(BaseModel):
     
     def get_all_variants(self, include_inactive=False):
         """Get all variants with optional filtering"""
+        if not hasattr(self, 'variant_relations') or not self.variant_relations:
+            return []
+        
         if include_inactive:
-            return self.variants
-        return [v for v in self.variants if v.active_flag]
+            return [rel.variant_product for rel in self.variant_relations if rel.variant_product]
+        return [rel.variant_product for rel in self.variant_relations if rel.variant_product and rel.variant_product.active_flag]
     
     def get_default_variant(self):
         """Get the default variant for display"""
-        if not self.variants:
+        if not hasattr(self, 'variant_relations') or not self.variant_relations:
             return None
+        
         # Look for explicitly marked default variant
-        for variant in self.variants:
-            if hasattr(variant, 'variant_info') and variant.variant_info and variant.variant_info[0].is_default:
-                return variant
+        for relation in self.variant_relations:
+            if relation.is_default and relation.variant_product and relation.variant_product.active_flag:
+                return relation.variant_product
+        
         # Return first active variant as fallback
-        return next((v for v in self.variants if v.active_flag), None)
+        for relation in self.variant_relations:
+            if relation.variant_product and relation.variant_product.active_flag:
+                return relation.variant_product
+        
+        return None
     
     def get_price_range(self):
         """Get min/max price range for products with variants"""
-        if not self.variants:
+        variants = self.get_all_variants()
+        if not variants:
             current_price, _ = self.get_current_listed_inclusive_price()
             return {"min": float(current_price), "max": float(current_price)}
         
         prices = []
-        for variant in self.variants:
+        for variant in variants:
             if variant.active_flag:
                 variant_price, _ = variant.get_current_listed_inclusive_price()
                 prices.append(float(variant_price))
@@ -110,22 +123,18 @@ class ShopProduct(BaseModel):
     
     def get_available_attributes(self):
         """Get all possible attribute combinations from variants"""
-        if not self.variants:
+        if not hasattr(self, 'variant_relations') or not self.variant_relations:
             return {}
         
         attributes = {}
-        for variant in self.variants:
-            if variant.active_flag:
-                for attr in variant.product_attributes:
-                    attr_name = attr.attribute.name
-                    if attr_name not in attributes:
-                        attributes[attr_name] = set()
-                    
-                    # Add the value to the set
-                    if attr.value_text:
-                        attributes[attr_name].add(attr.value_text)
-                    elif attr.attribute_value:
-                        attributes[attr_name].add(attr.attribute_value.value)
+        for relation in self.variant_relations:
+            if relation.variant_product and relation.variant_product.active_flag:
+                # Get attributes from the variant relation's attribute_combination
+                if relation.attribute_combination:
+                    for attr_name, attr_value in relation.attribute_combination.items():
+                        if attr_name not in attributes:
+                            attributes[attr_name] = set()
+                        attributes[attr_name].add(str(attr_value))
         
         # Convert sets to sorted lists
         return {k: sorted(list(v)) for k, v in attributes.items()}
@@ -170,11 +179,12 @@ class ShopProduct(BaseModel):
         }
         
         # Add variant-specific data
-        if include_variants and self.variants:
+        variants = self.get_all_variants()
+        if include_variants and variants:
             if variant_summary_only:
                 # For listing pages - just count and price range
                 data.update({
-                    "variant_count": len([v for v in self.variants if v.active_flag]),
+                    "variant_count": len([v for v in variants if v.active_flag]),
                     "price_range": self.get_price_range(),
                     "available_attributes": self.get_available_attributes(),
                     "default_variant": self.get_default_variant().serialize(include_variants=False) if self.get_default_variant() else None
@@ -182,8 +192,8 @@ class ShopProduct(BaseModel):
             else:
                 # For detail pages - full variant data
                 data.update({
-                    "variants": [variant.serialize(include_variants=False) for variant in self.variants] if self.variants else [],
-                    "variant_count": len([v for v in self.variants if v.active_flag]),
+                    "variants": [variant.serialize(include_variants=False) for variant in variants] if variants else [],
+                    "variant_count": len([v for v in variants if v.active_flag]),
                     "price_range": self.get_price_range(),
                     "available_attributes": self.get_available_attributes()
                 })
