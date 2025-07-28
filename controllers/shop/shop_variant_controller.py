@@ -4,7 +4,9 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from models.shop.shop_product import ShopProduct
 from models.shop.shop_product_variant import ShopProductVariant, ShopVariantAttributeValue
 from models.shop.shop_product_stock import ShopProductStock
+from models.shop.shop_product_media import ShopProductMedia
 from models.shop.shop_attribute import ShopAttribute, ShopAttributeValue
+from models.enums import MediaType
 from common.database import db
 from common.response import success_response, error_response
 import json
@@ -43,9 +45,6 @@ class ShopVariantController:
             attributes = data['attributes']
             if not isinstance(attributes, dict) or not attributes:
                 return error_response("Attributes must be a non-empty object", 400)
-            
-            # Start transaction
-            db.session.begin()
             
             try:
                 # Create variant product (inherits most from parent)
@@ -195,9 +194,6 @@ class ShopVariantController:
             if not variant_product:
                 return error_response("Variant product not found", 404)
             
-            # Start transaction
-            db.session.begin()
-            
             try:
                 # Update variant product fields
                 if 'sku' in data and data['sku'] != variant_product.sku:
@@ -321,9 +317,6 @@ class ShopVariantController:
             
             variant_product = variant_relation.variant_product
             
-            # Start transaction
-            db.session.begin()
-            
             try:
                 # Soft delete the variant product
                 variant_product.deleted_at = datetime.now(timezone.utc)
@@ -385,11 +378,12 @@ class ShopVariantController:
         return f"{parent_sku}-{variant_suffix}"
     
     @staticmethod
-    @jwt_required()
+    @jwt_required()  
     def bulk_create_variants(parent_id):
         """Create multiple variants from attribute combinations"""
         try:
             data = request.get_json()
+            print(f"Received data for bulk variant creation: {data}")
             
             # Validate parent product
             parent_product = ShopProduct.query.filter_by(
@@ -401,22 +395,25 @@ class ShopVariantController:
                 return error_response("Parent product not found", 404)
             
             attribute_combinations = data.get('combinations', [])
+            print(f"Found {len(attribute_combinations)} combinations to process")
             if not attribute_combinations:
                 return error_response("No attribute combinations provided", 400)
             
             created_variants = []
             errors = []
             
-            db.session.begin()
-            
             try:
                 for i, combination in enumerate(attribute_combinations):
                     try:
-                        # Generate SKU for this combination
-                        variant_sku = ShopVariantController.generate_variant_sku(
-                            parent_product.sku, 
-                            combination.get('attributes', {})
-                        )
+                        # Use provided SKU or generate one
+                        if 'sku' in combination and combination['sku']:
+                            variant_sku = combination['sku']
+                        else:
+                            # Generate SKU for this combination
+                            variant_sku = ShopVariantController.generate_variant_sku(
+                                parent_product.sku, 
+                                combination.get('attributes', {})
+                            )
                         
                         # Ensure uniqueness
                         counter = 1
@@ -466,9 +463,26 @@ class ShopVariantController:
                         
                         db.session.add(stock)
                         
+                        # Handle media if provided
+                        if 'media' in combination and combination['media']:
+                            for media_item in combination['media']:
+                                if media_item.get('url'):  # Only process if URL exists
+                                    variant_media = ShopProductMedia(
+                                        product_id=variant_product.product_id,
+                                        type=MediaType(media_item.get('type', 'IMAGE').upper()),
+                                        url=media_item['url'],
+                                        public_id=media_item.get('public_id'),
+                                        sort_order=media_item.get('sort_order', 0),
+                                        is_primary=media_item.get('is_primary', False),
+                                        file_name=media_item.get('file_name'),
+                                        file_size=media_item.get('file_size')
+                                    )
+                                    db.session.add(variant_media)
+                        
                         created_variants.append(variant_relation.serialize())
                         
                     except Exception as e:
+                        print(f"Error creating variant {i+1}: {str(e)}")
                         errors.append(f"Combination {i+1}: {str(e)}")
                         continue
                 
@@ -496,3 +510,74 @@ class ShopVariantController:
                 
         except Exception as e:
             return error_response(f"Failed to create variants: {str(e)}", 500)
+    
+    @staticmethod
+    @jwt_required()
+    def update_variant_attributes(variant_id):
+        """Update only the attributes of a variant"""
+        try:
+            data = request.get_json()
+            
+            # Find variant relation
+            variant_relation = ShopProductVariant.query.get(variant_id)
+            if not variant_relation:
+                return error_response("Variant not found", 404)
+            
+            # Get the variant product
+            variant_product = variant_relation.variant_product
+            if not variant_product:
+                return error_response("Variant product not found", 404)
+            
+            attribute_combination = data.get('attribute_combination', {})
+            if not attribute_combination:
+                return error_response("No attributes provided", 400)
+            
+            try:
+                # Delete existing variant attributes
+                ShopVariantAttributeValue.query.filter_by(
+                    variant_id=variant_id
+                ).delete()
+                
+                # Update the JSON field
+                variant_relation.attribute_combination = attribute_combination
+                
+                # Recreate variant attribute values
+                for attr_name, attr_value in attribute_combination.items():
+                    attribute = ShopAttribute.query.filter_by(
+                        shop_id=variant_product.shop_id,
+                        category_id=variant_product.category_id,
+                        name=attr_name,
+                        deleted_at=None
+                    ).first()
+                    
+                    if attribute:
+                        attr_value_obj = ShopAttributeValue.query.filter_by(
+                            attribute_id=attribute.attribute_id,
+                            value=attr_value,
+                            deleted_at=None
+                        ).first()
+                        
+                        variant_attr = ShopVariantAttributeValue(
+                            variant_id=variant_id,
+                            attribute_id=attribute.attribute_id,
+                            value_id=attr_value_obj.value_id if attr_value_obj else None,
+                            value_text=attr_value if not attr_value_obj else None
+                        )
+                        
+                        db.session.add(variant_attr)
+                
+                variant_relation.updated_at = datetime.now(timezone.utc)
+                
+                db.session.commit()
+                
+                return success_response({
+                    "variant": variant_relation.serialize(),
+                    "message": "Variant attributes updated successfully"
+                })
+                
+            except Exception as e:
+                db.session.rollback()
+                raise e
+                
+        except Exception as e:
+            return error_response(f"Failed to update variant attributes: {str(e)}", 500)
