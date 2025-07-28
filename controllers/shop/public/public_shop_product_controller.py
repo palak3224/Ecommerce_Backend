@@ -7,6 +7,7 @@ from models.shop.shop import Shop
 from models.shop.shop_product_media import ShopProductMedia
 from models.shop.shop_product_attribute import ShopProductAttribute
 from models.shop.shop_product_stock import ShopProductStock
+from models.shop.shop_product_meta import ShopProductMeta
 from models.enums import MediaType
 from sqlalchemy import desc, or_, func, and_
 from datetime import datetime, timezone
@@ -24,6 +25,135 @@ class PublicShopProductController:
         ).first()
 
         return primary_media.serialize() if primary_media else None
+
+    @staticmethod
+    def get_optimized_media(product_id):
+        """Get optimized media response for frontend (only essential fields)"""
+        media_list = ShopProductMedia.query.filter_by(
+            product_id=product_id,
+            deleted_at=None
+        ).order_by(ShopProductMedia.sort_order).all()
+
+        if not media_list:
+            return {
+                'images': [],
+                'videos': [],
+                'primary_image': None,
+                'total_media': 0
+            }
+
+        images = []
+        videos = []
+        primary_image = None
+        
+        # Find the minimum sort_order to determine primary image
+        min_sort_order = None
+        if media_list:
+            min_sort_order = min(media.sort_order for media in media_list if media.sort_order is not None)
+
+        for index, media in enumerate(media_list):
+            # Determine if this is primary based on sort_order logic
+            is_primary = False
+            if media.type == MediaType.IMAGE:
+                if min_sort_order is not None and media.sort_order == min_sort_order:
+                    is_primary = True
+                elif min_sort_order is None and media.is_primary:
+                    # Fallback to is_primary field if sort_order is not available
+                    is_primary = True
+                elif min_sort_order is None and not any(m.is_primary for m in media_list if m.type == MediaType.IMAGE) and index == 0:
+                    # Final fallback: first image if nothing else is marked as primary
+                    is_primary = True
+            
+            # Only include essential fields
+            media_item = {
+                'url': media.url,
+                'type': media.type.value if hasattr(media.type, 'value') else str(media.type),
+                'is_primary': is_primary
+            }
+
+            # Set primary image URL
+            if is_primary and media.type == MediaType.IMAGE:
+                primary_image = media.url
+
+            # Categorize by type
+            if media.type == MediaType.IMAGE:
+                images.append(media_item)
+            elif media.type == MediaType.VIDEO:
+                videos.append(media_item)
+
+        return {
+            'images': images,
+            'videos': videos,
+            'primary_image': primary_image,
+            'total_media': len(media_list)
+        }
+
+    @staticmethod
+    def get_all_product_media(product_id):
+        """Get all media for a shop product (images, videos, etc.)"""
+        all_media = ShopProductMedia.query.filter_by(
+            product_id=product_id,
+            deleted_at=None
+        ).order_by(
+            ShopProductMedia.sort_order,
+            ShopProductMedia.media_id
+        ).all()
+
+        if not all_media:
+            return []
+
+        # Find the minimum sort_order to determine primary image
+        min_sort_order = None
+        if all_media:
+            min_sort_order = min(media.sort_order for media in all_media if media.sort_order is not None)
+
+        media_data = []
+        for index, media in enumerate(all_media):
+            # Determine if this is primary based on sort_order logic
+            is_primary = False
+            if media.type == MediaType.IMAGE:
+                if min_sort_order is not None and media.sort_order == min_sort_order:
+                    is_primary = True
+                elif min_sort_order is None and media.is_primary:
+                    # Fallback to is_primary field if sort_order is not available
+                    is_primary = True
+                elif min_sort_order is None and not any(m.is_primary for m in all_media if m.type == MediaType.IMAGE) and index == 0:
+                    # Final fallback: first image if nothing else is marked as primary
+                    is_primary = True
+
+            # Only include essential fields for optimized response
+            media_item = {
+                'url': media.url,
+                'type': media.type.value if hasattr(media.type, 'value') else str(media.type),
+                'is_primary': is_primary
+            }
+            media_data.append(media_item)
+
+        return media_data
+
+    @staticmethod
+    def enhance_product_with_meta(product_dict, product_id):
+        """Enhance product data with meta information"""
+        # Get product meta information
+        meta = ShopProductMeta.query.filter_by(product_id=product_id).first()
+        
+        if meta:
+            # Override product_description with short_desc for better UX
+            product_dict['product_description'] = meta.short_desc or product_dict.get('product_description', '')
+            product_dict['short_description'] = meta.short_desc
+            product_dict['full_description'] = meta.full_desc
+            product_dict['meta_title'] = meta.meta_title
+            product_dict['meta_description'] = meta.meta_desc
+            product_dict['meta_keywords'] = meta.meta_keywords
+        else:
+            # Fallback if meta doesn't exist (though it should always exist)
+            product_dict['short_description'] = product_dict.get('product_description', '')
+            product_dict['full_description'] = product_dict.get('product_description', '')
+            product_dict['meta_title'] = None
+            product_dict['meta_description'] = None
+            product_dict['meta_keywords'] = None
+        
+        return product_dict
 
     @staticmethod
     def get_products_by_shop(shop_id):
@@ -151,6 +281,11 @@ class PublicShopProductController:
             for product in products:
                 product_dict = product.serialize()
                 
+                # Enhance with meta information
+                product_dict = PublicShopProductController.enhance_product_with_meta(
+                    product_dict, product.product_id
+                )
+                
                 # Get primary image
                 media = PublicShopProductController.get_product_media(product.product_id)
                 if media:
@@ -233,13 +368,17 @@ class PublicShopProductController:
             # Get product details
             product_dict = product.serialize()
             
-            # Get all media
-            media_list = ShopProductMedia.query.filter_by(
-                product_id=product.product_id,
-                deleted_at=None
-            ).order_by(ShopProductMedia.sort_order).all()
+            # Enhance with meta information
+            product_dict = PublicShopProductController.enhance_product_with_meta(
+                product_dict, product.product_id
+            )
             
-            product_dict['media'] = [media.serialize() for media in media_list]
+            # Get optimized media data
+            media_data = PublicShopProductController.get_optimized_media(product.product_id)
+            product_dict['media'] = media_data
+            
+            # Provide primary image for backward compatibility
+            product_dict['primary_image'] = media_data.get('primary_image')
             
             # Get stock information
             stock = ShopProductStock.query.filter_by(
@@ -265,6 +404,12 @@ class PublicShopProductController:
             related_data = []
             for related in related_products:
                 related_dict = related.serialize()
+                
+                # Enhance with meta information
+                related_dict = PublicShopProductController.enhance_product_with_meta(
+                    related_dict, related.product_id
+                )
+                
                 media = PublicShopProductController.get_product_media(related.product_id)
                 if media:
                     related_dict['primary_image'] = media['url']
@@ -314,6 +459,11 @@ class PublicShopProductController:
             for product in products:
                 product_dict = product.serialize()
                 
+                # Enhance with meta information
+                product_dict = PublicShopProductController.enhance_product_with_meta(
+                    product_dict, product.product_id
+                )
+                
                 # Get primary image
                 media = PublicShopProductController.get_product_media(product.product_id)
                 if media:
@@ -332,4 +482,52 @@ class PublicShopProductController:
             return jsonify({
                 'success': False,
                 'message': f'Error fetching featured products: {str(e)}'
+            }), 500
+
+    @staticmethod
+    def get_product_media_gallery(shop_id, product_id):
+        """Get optimized media gallery for a specific product"""
+        try:
+            # Verify shop exists and is active
+            shop = Shop.query.filter(
+                Shop.shop_id == shop_id,
+                Shop.deleted_at.is_(None),
+                Shop.is_active.is_(True)
+            ).first()
+
+            if not shop:
+                return jsonify({
+                    'success': False,
+                    'message': 'Shop not found or not active'
+                }), 404
+
+            # Verify product exists in this shop
+            product = ShopProduct.query.filter(
+                ShopProduct.product_id == product_id,
+                ShopProduct.shop_id == shop_id,
+                ShopProduct.deleted_at.is_(None),
+                ShopProduct.active_flag.is_(True),
+                ShopProduct.is_published.is_(True)
+            ).first()
+
+            if not product:
+                return jsonify({
+                    'success': False,
+                    'message': 'Product not found in this shop'
+                }), 404
+
+            # Get optimized media (only essential fields)
+            media_data = PublicShopProductController.get_optimized_media(product_id)
+
+            return jsonify({
+                'success': True,
+                'product_id': product_id,
+                'product_name': product.product_name,
+                'media': media_data
+            }), 200
+
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'message': f'Error fetching product media: {str(e)}'
             }), 500
