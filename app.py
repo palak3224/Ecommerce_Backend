@@ -53,6 +53,7 @@ from routes.shop.shop_routes import shop_bp
 from routes.shop.shop_category_routes import shop_category_bp
 from routes.shop.shop_brand_routes import shop_brand_bp
 from routes.shop.shop_attribute_routes import shop_attribute_bp
+from routes.shop.variant_routes import variant_bp
 
 # Public shop routes
 from routes.shop.public.public_shop_routes import public_shop_bp
@@ -213,6 +214,7 @@ def create_app(config_name='default'):
     app.register_blueprint(shop_category_bp)
     app.register_blueprint(shop_brand_bp)
     app.register_blueprint(shop_attribute_bp)
+    app.register_blueprint(variant_bp, url_prefix='/api/shop')
 
     
     # Register public shop routes

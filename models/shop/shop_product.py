@@ -47,6 +47,9 @@ class ShopProduct(BaseModel):
     product_attributes = db.relationship('ShopProductAttribute', backref='product', cascade='all, delete-orphan')
     
     parent = db.relationship('ShopProduct', remote_side=[product_id], backref='variants')
+    
+    # Relationship to get variant relationships for this product as parent
+    variant_relations = db.relationship('ShopProductVariant', foreign_keys='ShopProductVariant.parent_product_id', back_populates='parent_product')
 
     def get_current_listed_inclusive_price(self):
         """Returns the current GST-inclusive price (special or regular)."""
@@ -61,12 +64,88 @@ class ShopProduct(BaseModel):
             is_on_special = True
         return current_price, is_on_special
 
-    def serialize(self):
+    def is_parent_product(self):
+        """Check if this product is a parent (has variants)"""
+        return self.parent_product_id is None and len(self.variants) > 0
+    
+    def is_variant_product(self):
+        """Check if this product is a variant"""
+        return self.parent_product_id is not None
+    
+    def is_simple_product(self):
+        """Check if this product is a simple product (no variants)"""
+        return self.parent_product_id is None and len(self.variants) == 0
+    
+    def get_all_variants(self, include_inactive=False):
+        """Get all variants with optional filtering"""
+        if not hasattr(self, 'variant_relations') or not self.variant_relations:
+            return []
+        
+        if include_inactive:
+            return [rel.variant_product for rel in self.variant_relations if rel.variant_product]
+        return [rel.variant_product for rel in self.variant_relations if rel.variant_product and rel.variant_product.active_flag]
+    
+    def get_default_variant(self):
+        """Get the default variant for display"""
+        if not hasattr(self, 'variant_relations') or not self.variant_relations:
+            return None
+        
+        # Look for explicitly marked default variant
+        for relation in self.variant_relations:
+            if relation.is_default and relation.variant_product and relation.variant_product.active_flag:
+                return relation.variant_product
+        
+        # Return first active variant as fallback
+        for relation in self.variant_relations:
+            if relation.variant_product and relation.variant_product.active_flag:
+                return relation.variant_product
+        
+        return None
+    
+    def get_price_range(self):
+        """Get min/max price range for products with variants"""
+        variants = self.get_all_variants()
+        if not variants:
+            current_price, _ = self.get_current_listed_inclusive_price()
+            return {"min": float(current_price), "max": float(current_price)}
+        
+        prices = []
+        for variant in variants:
+            if variant.active_flag:
+                variant_price, _ = variant.get_current_listed_inclusive_price()
+                prices.append(float(variant_price))
+        
+        if not prices:
+            current_price, _ = self.get_current_listed_inclusive_price()
+            return {"min": float(current_price), "max": float(current_price)}
+        
+        return {"min": min(prices), "max": max(prices)}
+    
+    def get_available_attributes(self):
+        """Get all possible attribute combinations from variants"""
+        if not hasattr(self, 'variant_relations') or not self.variant_relations:
+            return {}
+        
+        attributes = {}
+        for relation in self.variant_relations:
+            if relation.variant_product and relation.variant_product.active_flag:
+                # Get attributes from the variant relation's attribute_combination
+                if relation.attribute_combination:
+                    for attr_name, attr_value in relation.attribute_combination.items():
+                        if attr_name not in attributes:
+                            attributes[attr_name] = set()
+                        attributes[attr_name].add(str(attr_value))
+        
+        # Convert sets to sorted lists
+        return {k: sorted(list(v)) for k, v in attributes.items()}
+
+    def serialize(self, include_variants=True, variant_summary_only=False):
         current_listed_inclusive_price, is_on_special = self.get_current_listed_inclusive_price()
         display_price = current_listed_inclusive_price
         original_display_price = self.selling_price if is_on_special and self.selling_price != display_price else None
-
-        return {
+        
+        # Basic product data
+        data = {
             "product_id": self.product_id,
             "shop_id": self.shop_id,
             "shop_name": self.shop.name if self.shop else None,
@@ -92,7 +171,34 @@ class ShopProduct(BaseModel):
             "price": float(display_price) if display_price is not None else 0.0,
             "originalPrice": float(original_display_price) if original_display_price is not None else None,
             "attributes": [attr.serialize() for attr in self.product_attributes] if self.product_attributes else [],
-            "variants": [variant.serialize() for variant in self.variants] if self.variants else [],
-            "stock": self.stock.serialize() if hasattr(self, 'stock') and self.stock else None
+            "stock": self.stock.serialize() if hasattr(self, 'stock') and self.stock else None,
+            # Product type indicators
+            "is_parent_product": self.is_parent_product(),
+            "is_variant_product": self.is_variant_product(),
+            "is_simple_product": self.is_simple_product(),
         }
+        
+        # Add variant-specific data
+        variants = self.get_all_variants()
+        if include_variants and variants:
+            if variant_summary_only:
+                # For listing pages - just count and price range
+                data.update({
+                    "variant_count": len([v for v in variants if v.active_flag]),
+                    "price_range": self.get_price_range(),
+                    "available_attributes": self.get_available_attributes(),
+                    "default_variant": self.get_default_variant().serialize(include_variants=False) if self.get_default_variant() else None
+                })
+            else:
+                # For detail pages - full variant data
+                data.update({
+                    "variants": [variant.serialize(include_variants=False) for variant in variants] if variants else [],
+                    "variant_count": len([v for v in variants if v.active_flag]),
+                    "price_range": self.get_price_range(),
+                    "available_attributes": self.get_available_attributes()
+                })
+        else:
+            data["variants"] = []
+        
+        return data
 

@@ -21,7 +21,8 @@ import string
 class ShopProductController:
     @staticmethod
     def get_product_media(product_id):
-        """Get primary media for a shop product"""
+        """Get primary media for a shop product with fallback to parent for variants"""
+        # First try to get media for the product itself
         primary_media = ShopProductMedia.query.filter_by(
             product_id=product_id,
             deleted_at=None,
@@ -30,7 +31,23 @@ class ShopProductController:
             ShopProductMedia.sort_order
         ).first()
 
-        return primary_media.serialize() if primary_media else None
+        if primary_media:
+            return primary_media.serialize()
+        
+        # If no media found and this is a variant, try parent's media
+        product = ShopProduct.query.get(product_id)
+        if product and product.parent_product_id:
+            parent_media = ShopProductMedia.query.filter_by(
+                product_id=product.parent_product_id,
+                deleted_at=None,
+                type=MediaType.IMAGE
+            ).order_by(
+                ShopProductMedia.sort_order
+            ).first()
+            
+            return parent_media.serialize() if parent_media else None
+        
+        return None
 
     @staticmethod
     def get_all_products():
@@ -89,7 +106,8 @@ class ShopProductController:
             products = pagination.items
             product_data = []
             for product in products:
-                product_dict = product.serialize()
+                # Use variant_summary_only=True for listing to include variant counts and price ranges
+                product_dict = product.serialize(include_variants=True, variant_summary_only=True)
                 media = ShopProductController.get_product_media(product.product_id)
                 if media:
                     product_dict['primary_image'] = media['url']
@@ -742,6 +760,28 @@ class ShopProductController:
                     'status': 'error',
                     'message': 'Product not found'
                 }), 404
+            
+            # Check if this is a variant product and validate media limits
+            is_variant = product.parent_product_id is not None
+            
+            if is_variant:
+                # Count media types for variants (limit: 4 images + 1 video)
+                # This validation happens BEFORE any deletions, so we count the final state
+                
+                total_image_count = sum(1 for media in media_items if media.get('type', 'image').lower() == 'image')
+                total_video_count = sum(1 for media in media_items if media.get('type', 'video').lower() == 'video')
+                
+                if total_image_count > 4:
+                    return jsonify({
+                        'status': 'error',
+                        'message': f'Variant products can have maximum 4 images. Trying to set {total_image_count} images.'
+                    }), 400
+                    
+                if total_video_count > 1:
+                    return jsonify({
+                        'status': 'error',
+                        'message': f'Variant products can have maximum 1 video. Trying to set {total_video_count} videos.'
+                    }), 400
             
             # Separate existing and new media items
             existing_media_ids = []
