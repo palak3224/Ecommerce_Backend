@@ -59,6 +59,9 @@ from models.review import Review
 from models.product_attribute import ProductAttribute
 from models.recently_viewed import RecentlyViewed
 
+# --- Shop models ---
+from models.shop.shop import Shop
+
 # --- Live Streaming models ---
 from models.live_stream import LiveStream, LiveStreamComment, LiveStreamViewer, StreamStatus
 
@@ -401,6 +404,54 @@ def init_live_streaming():
     
     print("Live streaming tables initialized successfully.")
 
+def init_shops():
+    """Initialize default shops."""
+    print("\nInitializing Shops:")
+    print("------------------")
+    
+    shops_data = [
+        {
+            'name': 'shop1',
+            'slug': 'shop1',
+            'description': 'First shop in the ecommerce platform',
+            'logo_url': None,
+            'is_active': True
+        },
+        {
+            'name': 'shop2',
+            'slug': 'shop2',
+            'description': 'Second shop in the ecommerce platform',
+            'logo_url': None,
+            'is_active': True
+        },
+        {
+            'name': 'shop3',
+            'slug': 'shop3',
+            'description': 'Third shop in the ecommerce platform',
+            'logo_url': None,
+            'is_active': True
+        },
+        {
+            'name': 'shop4',
+            'slug': 'shop4',
+            'description': 'Fourth shop in the ecommerce platform',
+            'logo_url': None,
+            'is_active': True
+        }
+    ]
+    
+    for shop_data in shops_data:
+        existing_shop = Shop.query.filter_by(name=shop_data['name']).first()
+        if not existing_shop:
+            shop = Shop(**shop_data)
+            db.session.add(shop)
+            print(f"Created shop: {shop_data['name']}")
+        else:
+            print(f"Shop {shop_data['name']} already exists")
+    
+    db.session.commit()
+    print("Shops initialized successfully.")
+
 def migrate_profile_img_column():
     """Add profile_img column to users table if it doesn't exist."""
     print("\nMigrating profile_img column:")
@@ -454,6 +505,7 @@ def init_database():
         init_payment_cards()
         init_system_monitoring()
         init_live_streaming()
+        init_shops()  # Add shops initialization
         
         # Create super admin user if not exists
         admin_email = os.getenv("SUPER_ADMIN_EMAIL")
