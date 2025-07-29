@@ -213,12 +213,49 @@ class ShopProduct(BaseModel):
             }
         else:
             # Fallback to parent media if no variant-specific media
-            return self.media if hasattr(self, 'media') else {
-                'images': [],
-                'videos': [],
-                'primary_image': None,
-                'total_media': 0
-            }
+            # Get parent product media directly
+            parent_media = ShopProductMedia.query.filter_by(
+                product_id=self.product_id,
+                deleted_at=None
+            ).order_by(ShopProductMedia.sort_order).all()
+            
+            if parent_media:
+                images = []
+                videos = []
+                primary_image = None
+                
+                for media in parent_media:
+                    media_item = {
+                        'url': media.url,
+                        'type': media.type.value if hasattr(media.type, 'value') else str(media.type),
+                        'is_primary': media.is_primary
+                    }
+                    
+                    if media.type == MediaType.IMAGE:
+                        images.append(media_item)
+                        if media.is_primary:
+                            primary_image = media.url
+                    elif media.type == MediaType.VIDEO:
+                        videos.append(media_item)
+                
+                # If no primary image set, use first image
+                if not primary_image and images:
+                    primary_image = images[0]['url']
+                    images[0]['is_primary'] = True
+                
+                return {
+                    'images': images,
+                    'videos': videos,
+                    'primary_image': primary_image,
+                    'total_media': len(parent_media)
+                }
+            else:
+                return {
+                    'images': [],
+                    'videos': [],
+                    'primary_image': None,
+                    'total_media': 0
+                }
 
     def serialize(self, include_variants=True, variant_summary_only=False):
         current_listed_inclusive_price, is_on_special = self.get_current_listed_inclusive_price()
