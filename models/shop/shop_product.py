@@ -139,6 +139,87 @@ class ShopProduct(BaseModel):
         # Convert sets to sorted lists
         return {k: sorted(list(v)) for k, v in attributes.items()}
 
+    def get_variant_attributes_for_frontend(self):
+        """Get variant attributes formatted for frontend Hero component"""
+        variant_attributes = {}
+        
+        # For parent products, get available attributes from variants
+        if self.is_parent_product():
+            available_attrs = self.get_available_attributes()
+            
+            # Get parent product attributes to set as default selection
+            parent_attrs = {}
+            if self.product_attributes:
+                for attr in self.product_attributes:
+                    if attr.attribute and attr.attribute.name:
+                        # Get the display value
+                        if attr.value_id and attr.attribute_value:
+                            parent_attrs[attr.attribute.name] = attr.attribute_value.value
+                        elif attr.value_text:
+                            parent_attrs[attr.attribute.name] = attr.value_text
+                        elif attr.value_number is not None:
+                            parent_attrs[attr.attribute.name] = str(attr.value_number)
+            
+            # Combine available variant options with parent defaults
+            for attr_name, options in available_attrs.items():
+                variant_attributes[attr_name] = {
+                    'options': options,
+                    'selected': parent_attrs.get(attr_name, options[0] if options else '')
+                }
+        
+        return variant_attributes
+
+    def get_variant_media_for_product(self, variant_product_id):
+        """Get media for a specific variant product with fallback to parent media"""
+        from models.shop.shop_product_media import ShopProductMedia
+        from models.enums import MediaType
+        
+        # First, try to get variant-specific media
+        variant_media = ShopProductMedia.query.filter_by(
+            product_id=variant_product_id,
+            deleted_at=None
+        ).order_by(ShopProductMedia.sort_order).all()
+        
+        if variant_media:
+            # Convert to the same format as parent media
+            images = []
+            videos = []
+            primary_image = None
+            
+            for media in variant_media:
+                media_item = {
+                    'url': media.url,
+                    'type': media.type.value if hasattr(media.type, 'value') else str(media.type),
+                    'is_primary': media.is_primary
+                }
+                
+                if media.type == MediaType.IMAGE:
+                    images.append(media_item)
+                    if media.is_primary:
+                        primary_image = media.url
+                elif media.type == MediaType.VIDEO:
+                    videos.append(media_item)
+            
+            # If no primary image set, use first image
+            if not primary_image and images:
+                primary_image = images[0]['url']
+                images[0]['is_primary'] = True
+            
+            return {
+                'images': images,
+                'videos': videos,
+                'primary_image': primary_image,
+                'total_media': len(variant_media)
+            }
+        else:
+            # Fallback to parent media if no variant-specific media
+            return self.media if hasattr(self, 'media') else {
+                'images': [],
+                'videos': [],
+                'primary_image': None,
+                'total_media': 0
+            }
+
     def serialize(self, include_variants=True, variant_summary_only=False):
         current_listed_inclusive_price, is_on_special = self.get_current_listed_inclusive_price()
         display_price = current_listed_inclusive_price
@@ -187,15 +268,27 @@ class ShopProduct(BaseModel):
                     "variant_count": len([v for v in variants if v.active_flag]),
                     "price_range": self.get_price_range(),
                     "available_attributes": self.get_available_attributes(),
+                    "variant_attributes": self.get_variant_attributes_for_frontend(),  # Frontend-formatted attributes
                     "default_variant": self.get_default_variant().serialize(include_variants=False) if self.get_default_variant() else None
                 })
             else:
                 # For detail pages - full variant data
+                variants_data = []
+                for variant in variants:
+                    variant_data = variant.serialize(include_variants=False)
+                    # Add media for variant products
+                    if variant.is_variant_product():
+                        # Get variant-specific media or fallback to parent media
+                        variant_media = self.get_variant_media_for_product(variant.product_id)
+                        variant_data['media'] = variant_media
+                    variants_data.append(variant_data)
+                
                 data.update({
-                    "variants": [variant.serialize(include_variants=False) for variant in variants] if variants else [],
+                    "variants": variants_data,
                     "variant_count": len([v for v in variants if v.active_flag]),
                     "price_range": self.get_price_range(),
-                    "available_attributes": self.get_available_attributes()
+                    "available_attributes": self.get_available_attributes(),
+                    "variant_attributes": self.get_variant_attributes_for_frontend()  # Frontend-formatted attributes
                 })
         else:
             data["variants"] = []
