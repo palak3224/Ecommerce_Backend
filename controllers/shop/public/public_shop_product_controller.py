@@ -8,6 +8,7 @@ from models.shop.shop_product_media import ShopProductMedia
 from models.shop.shop_product_attribute import ShopProductAttribute
 from models.shop.shop_product_stock import ShopProductStock
 from models.shop.shop_product_meta import ShopProductMeta
+from models.shop.shop_product_variant import ShopProductVariant, ShopVariantAttributeValue
 from models.enums import MediaType
 from sqlalchemy import desc, or_, func, and_
 from datetime import datetime, timezone
@@ -183,12 +184,13 @@ class PublicShopProductController:
             max_price = request.args.get('max_price', type=float)
             search = request.args.get('search', '').strip()
 
-            # Build base query for shop products
+            # Build base query for shop products (exclude variant products)
             query = ShopProduct.query.filter(
                 ShopProduct.shop_id == shop_id,
                 ShopProduct.deleted_at.is_(None),
                 ShopProduct.active_flag.is_(True),
-                ShopProduct.is_published.is_(True)  # Only show published products
+                ShopProduct.is_published.is_(True),  # Only show published products
+                ShopProduct.parent_product_id.is_(None)  # Exclude variant products - only show parent products
             )
 
             # Apply filters
@@ -391,11 +393,62 @@ class PublicShopProductController:
             else:
                 product_dict['is_in_stock'] = False
 
-            # Get related products (same category, different product)
+            # Get variant information if this product has variants or is a variant
+            parent_id = product.parent_product_id if product.parent_product_id else product_id
+            
+            # Check if this product has variants
+            variants = ShopProductVariant.query.filter(
+                ShopProductVariant.parent_product_id == parent_id,
+                ShopProductVariant.is_active.is_(True)
+            ).join(
+                ShopProduct, ShopProductVariant.variant_product_id == ShopProduct.product_id
+            ).filter(
+                ShopProduct.shop_id == shop_id,
+                ShopProduct.deleted_at.is_(None),
+                ShopProduct.active_flag.is_(True),
+                ShopProduct.is_published.is_(True)
+            ).order_by(ShopProductVariant.sort_order, ShopProductVariant.created_at).all()
+
+            # Add variant information to product response
+            if variants:
+                # Get available attributes for variant selection
+                attributes_map = {}
+                for variant in variants:
+                    if variant.attribute_combination:
+                        for attr_name, attr_value in variant.attribute_combination.items():
+                            if attr_name not in attributes_map:
+                                attributes_map[attr_name] = set()
+                            attributes_map[attr_name].add(attr_value)
+
+                attributes_list = []
+                for attr_name, values in attributes_map.items():
+                    attributes_list.append({
+                        'name': attr_name,
+                        'values': sorted(list(values))
+                    })
+
+                product_dict['has_variants'] = True
+                product_dict['variant_attributes'] = attributes_list
+                product_dict['total_variants'] = len(variants)
+                product_dict['is_parent_product'] = parent_id == product_id
+                
+                # If this is a variant, include the current variant's attributes
+                if product.parent_product_id:
+                    current_variant = next((v for v in variants if v.variant_product_id == product_id), None)
+                    if current_variant:
+                        product_dict['current_variant_attributes'] = current_variant.attribute_combination
+            else:
+                product_dict['has_variants'] = False
+                product_dict['variant_attributes'] = []
+                product_dict['total_variants'] = 0
+                product_dict['is_parent_product'] = True
+
+            # Get related products (same category, different product, exclude variant products)
             related_products = ShopProduct.query.filter(
                 ShopProduct.shop_id == shop_id,
                 ShopProduct.category_id == product.category_id,
                 ShopProduct.product_id != product_id,
+                ShopProduct.parent_product_id.is_(None),  # Exclude variant products
                 ShopProduct.deleted_at.is_(None),
                 ShopProduct.active_flag.is_(True),
                 ShopProduct.is_published.is_(True)
@@ -530,4 +583,278 @@ class PublicShopProductController:
             return jsonify({
                 'success': False,
                 'message': f'Error fetching product media: {str(e)}'
+            }), 500
+
+    @staticmethod
+    def get_product_variants(shop_id, product_id):
+        """Get all variants for a specific product"""
+        try:
+            # Verify shop exists and is active
+            shop = Shop.query.filter(
+                Shop.shop_id == shop_id,
+                Shop.deleted_at.is_(None),
+                Shop.is_active.is_(True)
+            ).first()
+
+            if not shop:
+                return jsonify({
+                    'success': False,
+                    'message': 'Shop not found or not active'
+                }), 404
+
+            # Verify product exists in this shop (can be parent or variant)
+            product = ShopProduct.query.filter(
+                ShopProduct.product_id == product_id,
+                ShopProduct.shop_id == shop_id,
+                ShopProduct.deleted_at.is_(None),
+                ShopProduct.active_flag.is_(True),
+                ShopProduct.is_published.is_(True)
+            ).first()
+
+            if not product:
+                return jsonify({
+                    'success': False,
+                    'message': 'Product not found in this shop'
+                }), 404
+
+            # Find the parent product ID
+            parent_id = product.parent_product_id if product.parent_product_id else product_id
+
+            # Get all variants for this parent product
+            variants = ShopProductVariant.query.filter(
+                ShopProductVariant.parent_product_id == parent_id,
+                ShopProductVariant.is_active.is_(True)
+            ).join(
+                ShopProduct, ShopProductVariant.variant_product_id == ShopProduct.product_id
+            ).filter(
+                ShopProduct.shop_id == shop_id,
+                ShopProduct.deleted_at.is_(None),
+                ShopProduct.active_flag.is_(True),
+                ShopProduct.is_published.is_(True)
+            ).order_by(ShopProductVariant.sort_order, ShopProductVariant.created_at).all()
+
+            variant_data = []
+            for variant in variants:
+                variant_dict = variant.serialize(include_media=True, include_parent_fallback=True)
+                
+                # Get stock information for the variant
+                stock = ShopProductStock.query.filter_by(
+                    product_id=variant.variant_product_id
+                ).first()
+                
+                if stock:
+                    variant_dict['stock'] = stock.serialize()
+                    variant_dict['is_in_stock'] = stock.stock_qty > 0
+                    variant_dict['stock_qty'] = stock.stock_qty
+                else:
+                    variant_dict['is_in_stock'] = False
+                    variant_dict['stock_qty'] = 0
+
+                # Get optimized media data for the variant
+                media_data = PublicShopProductController.get_optimized_media(variant.variant_product_id)
+                variant_dict['media'] = media_data
+                variant_dict['primary_image'] = media_data.get('primary_image')
+
+                variant_data.append(variant_dict)
+
+            # Get parent product info
+            parent_product = ShopProduct.query.filter_by(
+                product_id=parent_id,
+                shop_id=shop_id,
+                deleted_at=None
+            ).first()
+
+            return jsonify({
+                'success': True,
+                'parent_product_id': parent_id,
+                'parent_product_name': parent_product.product_name if parent_product else None,
+                'variants': variant_data,
+                'total_variants': len(variant_data)
+            }), 200
+
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'message': f'Error fetching product variants: {str(e)}'
+            }), 500
+
+    @staticmethod
+    def get_variant_by_attributes(shop_id, product_id):
+        """Get a specific variant by attribute combination"""
+        try:
+            data = request.get_json() or {}
+            attributes = data.get('attributes', {})
+
+            if not attributes:
+                return jsonify({
+                    'success': False,
+                    'message': 'Attributes are required'
+                }), 400
+
+            # Verify shop exists and is active
+            shop = Shop.query.filter(
+                Shop.shop_id == shop_id,
+                Shop.deleted_at.is_(None),
+                Shop.is_active.is_(True)
+            ).first()
+
+            if not shop:
+                return jsonify({
+                    'success': False,
+                    'message': 'Shop not found or not active'
+                }), 404
+
+            # Verify product exists in this shop
+            product = ShopProduct.query.filter(
+                ShopProduct.product_id == product_id,
+                ShopProduct.shop_id == shop_id,
+                ShopProduct.deleted_at.is_(None),
+                ShopProduct.active_flag.is_(True),
+                ShopProduct.is_published.is_(True)
+            ).first()
+
+            if not product:
+                return jsonify({
+                    'success': False,
+                    'message': 'Product not found in this shop'
+                }), 404
+
+            # Find the parent product ID
+            parent_id = product.parent_product_id if product.parent_product_id else product_id
+
+            # Find variant by exact attribute combination
+            # First get all variants for this parent, then filter in Python for more flexible matching
+            variants = ShopProductVariant.query.filter(
+                ShopProductVariant.parent_product_id == parent_id,
+                ShopProductVariant.is_active.is_(True)
+            ).join(
+                ShopProduct, ShopProductVariant.variant_product_id == ShopProduct.product_id
+            ).filter(
+                ShopProduct.shop_id == shop_id,
+                ShopProduct.deleted_at.is_(None),
+                ShopProduct.active_flag.is_(True),
+                ShopProduct.is_published.is_(True)
+            ).all()
+
+            # Find matching variant by comparing attributes in Python
+            variant = None
+            for v in variants:
+                if v.attribute_combination and set(v.attribute_combination.items()) == set(attributes.items()):
+                    variant = v
+                    break
+
+            if not variant:
+                return jsonify({
+                    'success': False,
+                    'message': 'Variant not found for the specified attributes'
+                }), 404
+
+            # Serialize variant data
+            variant_dict = variant.serialize(include_media=True, include_parent_fallback=True)
+            
+            # Get stock information
+            stock = ShopProductStock.query.filter_by(
+                product_id=variant.variant_product_id
+            ).first()
+            
+            if stock:
+                variant_dict['stock'] = stock.serialize()
+                variant_dict['is_in_stock'] = stock.stock_qty > 0
+                variant_dict['stock_qty'] = stock.stock_qty
+            else:
+                variant_dict['is_in_stock'] = False
+                variant_dict['stock_qty'] = 0
+
+            # Get optimized media data
+            media_data = PublicShopProductController.get_optimized_media(variant.variant_product_id)
+            variant_dict['media'] = media_data
+            variant_dict['primary_image'] = media_data.get('primary_image')
+
+            return jsonify({
+                'success': True,
+                'variant': variant_dict
+            }), 200
+
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'message': f'Error fetching variant: {str(e)}'
+            }), 500
+
+    @staticmethod
+    def get_available_attributes(shop_id, product_id):
+        """Get all available attributes and their values for a product's variants"""
+        try:
+            # Verify shop exists and is active
+            shop = Shop.query.filter(
+                Shop.shop_id == shop_id,
+                Shop.deleted_at.is_(None),
+                Shop.is_active.is_(True)
+            ).first()
+
+            if not shop:
+                return jsonify({
+                    'success': False,
+                    'message': 'Shop not found or not active'
+                }), 404
+
+            # Verify product exists in this shop
+            product = ShopProduct.query.filter(
+                ShopProduct.product_id == product_id,
+                ShopProduct.shop_id == shop_id,
+                ShopProduct.deleted_at.is_(None),
+                ShopProduct.active_flag.is_(True),
+                ShopProduct.is_published.is_(True)
+            ).first()
+
+            if not product:
+                return jsonify({
+                    'success': False,
+                    'message': 'Product not found in this shop'
+                }), 404
+
+            # Find the parent product ID
+            parent_id = product.parent_product_id if product.parent_product_id else product_id
+
+            # Get all variants for this parent product
+            variants = ShopProductVariant.query.filter(
+                ShopProductVariant.parent_product_id == parent_id,
+                ShopProductVariant.is_active.is_(True)
+            ).join(
+                ShopProduct, ShopProductVariant.variant_product_id == ShopProduct.product_id
+            ).filter(
+                ShopProduct.shop_id == shop_id,
+                ShopProduct.deleted_at.is_(None),
+                ShopProduct.active_flag.is_(True),
+                ShopProduct.is_published.is_(True)
+            ).all()
+
+            # Aggregate all available attributes and their values
+            attributes_map = {}
+            for variant in variants:
+                if variant.attribute_combination:
+                    for attr_name, attr_value in variant.attribute_combination.items():
+                        if attr_name not in attributes_map:
+                            attributes_map[attr_name] = set()
+                        attributes_map[attr_name].add(attr_value)
+
+            # Convert to list format
+            attributes_list = []
+            for attr_name, values in attributes_map.items():
+                attributes_list.append({
+                    'name': attr_name,
+                    'values': sorted(list(values))
+                })
+
+            return jsonify({
+                'success': True,
+                'parent_product_id': parent_id,
+                'attributes': attributes_list,
+                'total_variants': len(variants)
+            }), 200
+
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'message': f'Error fetching available attributes: {str(e)}'
             }), 500

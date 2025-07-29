@@ -255,3 +255,196 @@ def get_product_media_gallery(shop_id, product_id):
         description: Internal server error
     """
     return PublicShopProductController.get_product_media_gallery(shop_id, product_id)
+
+@public_shop_product_bp.route('/api/public/shops/<int:shop_id>/products/<int:product_id>/variants', methods=['GET'])
+@cross_origin()
+def get_product_variants(shop_id, product_id):
+    """
+    Get all variants for a specific product
+    ---
+    tags:
+      - Public Shop Product Variants
+    parameters:
+      - in: path
+        name: shop_id
+        type: integer
+        required: true
+        description: ID of the shop
+      - in: path
+        name: product_id
+        type: integer
+        required: true
+        description: ID of the product (can be parent or variant)
+    responses:
+      200:
+        description: List of product variants
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            parent_product_id:
+              type: integer
+            parent_product_name:
+              type: string
+            variants:
+              type: array
+              items:
+                type: object
+                properties:
+                  variant_id:
+                    type: integer
+                  variant_sku:
+                    type: string
+                  variant_name:
+                    type: string
+                  attribute_combination:
+                    type: object
+                  effective_price:
+                    type: number
+                  stock_qty:
+                    type: integer
+                  is_in_stock:
+                    type: boolean
+                  media:
+                    type: object
+                  primary_image:
+                    type: string
+            total_variants:
+              type: integer
+      404:
+        description: Shop or product not found
+      500:
+        description: Internal server error
+    """
+    return PublicShopProductController.get_product_variants(shop_id, product_id)
+
+@public_shop_product_bp.route('/api/public/shops/<int:shop_id>/products/<int:product_id>/variants/by-attributes', methods=['POST'])
+@cross_origin()
+def get_variant_by_attributes(shop_id, product_id):
+    """
+    Get a specific variant by attribute combination
+    ---
+    tags:
+      - Public Shop Product Variants
+    parameters:
+      - in: path
+        name: shop_id
+        type: integer
+        required: true
+        description: ID of the shop
+      - in: path
+        name: product_id
+        type: integer
+        required: true
+        description: ID of the product (can be parent or variant)
+      - in: body
+        name: attributes
+        required: true
+        schema:
+          type: object
+          properties:
+            attributes:
+              type: object
+              description: Key-value pairs of attribute names and values
+              example:
+                color: "red"
+                size: "L"
+    responses:
+      200:
+        description: Variant details for the specified attributes
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            variant:
+              type: object
+              properties:
+                variant_id:
+                  type: integer
+                variant_sku:
+                  type: string
+                variant_name:
+                  type: string
+                attribute_combination:
+                  type: object
+                effective_price:
+                  type: number
+                stock_qty:
+                  type: integer
+                is_in_stock:
+                  type: boolean
+                media:
+                  type: object
+                primary_image:
+                  type: string
+      400:
+        description: Invalid attributes provided
+      404:
+        description: Shop, product, or variant not found
+      500:
+        description: Internal server error
+    """
+    return PublicShopProductController.get_variant_by_attributes(shop_id, product_id)
+
+@public_shop_product_bp.route('/api/public/shops/<int:shop_id>/products/<int:product_id>/attributes', methods=['GET'])
+@cross_origin()
+def get_available_attributes(shop_id, product_id):
+    """
+    Get all available attributes and their values for a product's variants
+    ---
+    tags:
+      - Public Shop Product Variants
+    parameters:
+      - in: path
+        name: shop_id
+        type: integer
+        required: true
+        description: ID of the shop
+      - in: path
+        name: product_id
+        type: integer
+        required: true
+        description: ID of the product (can be parent or variant)
+    responses:
+      200:
+        description: Available attributes and values for the product
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            parent_product_id:
+              type: integer
+            attributes:
+              type: array
+              items:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    description: Attribute name (e.g., "color", "size")
+                  values:
+                    type: array
+                    items:
+                      type: string
+                    description: Available values for this attribute
+            total_variants:
+              type: integer
+        examples:
+          response:
+            success: true
+            parent_product_id: 123
+            attributes:
+              - name: "color"
+                values: ["red", "blue", "green"]
+              - name: "size"
+                values: ["S", "M", "L", "XL"]
+            total_variants: 12
+      404:
+        description: Shop or product not found
+      500:
+        description: Internal server error
+    """
+    return PublicShopProductController.get_available_attributes(shop_id, product_id)
