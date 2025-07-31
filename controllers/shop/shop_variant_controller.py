@@ -467,9 +467,18 @@ class ShopVariantController:
                         if 'media' in combination and combination['media']:
                             for media_item in combination['media']:
                                 if media_item.get('url'):  # Only process if URL exists
+                                    # Convert media type string to MediaType enum
+                                    media_type_str = media_item.get('type', 'IMAGE').lower()
+                                    if media_type_str == 'image':
+                                        media_type = MediaType.IMAGE
+                                    elif media_type_str == 'video':
+                                        media_type = MediaType.VIDEO
+                                    else:
+                                        media_type = MediaType.IMAGE  # Default fallback
+                                    
                                     variant_media = ShopProductMedia(
                                         product_id=variant_product.product_id,
-                                        type=MediaType(media_item.get('type', 'IMAGE').upper()),
+                                        type=media_type,
                                         url=media_item['url'],
                                         public_id=media_item.get('public_id'),
                                         sort_order=media_item.get('sort_order', 0),
