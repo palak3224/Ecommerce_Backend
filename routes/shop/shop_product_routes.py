@@ -360,6 +360,15 @@ def create_product_step1():
     """
     return ShopProductController.create_product_step1()
 
+@shop_product_bp.route('/api/shop/products/step1/<int:product_id>', methods=['PUT'])
+@cross_origin()
+@superadmin_required
+def update_product_step1(product_id):
+    """
+    Update basic product information (Step 1) for an existing product
+    """
+    return ShopProductController.update_product_step1(product_id)
+
 @shop_product_bp.route('/api/shop/products/step2', methods=['POST'])
 @cross_origin()
 @superadmin_required

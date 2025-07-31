@@ -1134,3 +1134,59 @@ class ShopProductController:
                 'status': 'error',
                 'message': f'Error updating product status: {str(e)}'
             }), 500
+
+    @staticmethod
+    @superadmin_required
+    def update_product_step1(product_id):
+        """Update basic product information for an existing product (Step 1)"""
+        try:
+            data = request.get_json()
+            product = ShopProduct.query.filter(
+                ShopProduct.product_id == product_id,
+                ShopProduct.deleted_at.is_(None)
+            ).first()
+            if not product:
+                return jsonify({'status': 'error', 'message': 'Product not found'}), 404
+
+            # Check SKU uniqueness if changed
+            if 'sku' in data and data['sku'] != product.sku:
+                existing_product = ShopProduct.query.filter(
+                    ShopProduct.sku == data['sku'],
+                    ShopProduct.product_id != product_id,
+                    ShopProduct.deleted_at.is_(None)
+                ).first()
+                if existing_product:
+                    return jsonify({'status': 'error', 'message': f'SKU \"{data['sku']}\" already exists'}), 400
+
+            # Update fields
+            for field in ['shop_id', 'category_id', 'brand_id', 'sku', 'product_name', 'product_description', 'cost_price', 'selling_price', 'special_price', 'special_start', 'special_end']:
+                if field in data:
+                    setattr(product, field, data[field])
+
+            # Recalculate discount_pct if cost_price or selling_price changed
+            if 'cost_price' in data or 'selling_price' in data:
+                cost = data.get('cost_price', product.cost_price)
+                sell = data.get('selling_price', product.selling_price)
+                if cost > 0 and sell > 0:
+                    product.discount_pct = round(((sell - cost) / cost) * 100, 2)
+                else:
+                    product.discount_pct = 0.0
+
+            product.updated_at = datetime.now(timezone.utc)
+            db.session.commit()
+
+            return jsonify({
+                'status': 'success',
+                'message': 'Product basic information updated successfully',
+                'data': {
+                    'product_id': product.product_id,
+                    'sku': product.sku,
+                    'product_name': product.product_name,
+                    'discount_pct': product.discount_pct,
+                    'next_step': 2
+                }
+            }), 200
+
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'message': f'Error updating product: {str(e)}'}), 500
