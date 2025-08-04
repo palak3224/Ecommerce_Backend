@@ -12,6 +12,9 @@ from .shop_product_promotion import ShopProductPromotion
 from .shop_product_shipping import ShopProductShipping
 from .shop_product_stock import ShopProductStock
 from .shop_product_tax import ShopProductTax
+from .shop_cart import ShopCart, ShopCartItem
+from .shop_wishlist import ShopWishlistItem
+
 
 __all__ = [
     'Shop',
@@ -27,5 +30,8 @@ __all__ = [
     'ShopProductPromotion',
     'ShopProductShipping',
     'ShopProductStock',
-    'ShopProductTax'
+    'ShopProductTax',
+    'ShopCart',
+    'ShopCartItem',
+    'ShopWishlistItem'
 ]
