@@ -74,12 +74,6 @@ class PublicShopCartController:
             
             if not product_stock or product_stock.stock_qty < quantity:
                 raise ValueError("Insufficient stock")
-            
-            # Get product image URL
-            product_image = ShopProductMedia.query.filter_by(
-                product_id=shop_product_id,
-                type='image'
-            ).first()
 
             # Check if product already exists in cart with the same attributes
             existing_cart_item = None
@@ -107,12 +101,14 @@ class PublicShopCartController:
                 cart_item = existing_cart_item
             else:
                 # Create new cart item if product doesn't exist or has different attributes
+                print(f"Creating new cart item for product: {shop_product.product_name} (ID: {shop_product.product_id})")
                 cart_item = ShopCartItem.create_from_shop_product(
                     cart_id=cart.cart_id,
                     shop_product=shop_product,
                     quantity=quantity,
                     selected_attributes=selected_attributes
                 )
+                print(f"Cart item created with image_url: {cart_item.product_image_url}")
                 db.session.add(cart_item)
             
             db.session.commit()

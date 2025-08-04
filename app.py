@@ -60,6 +60,7 @@ from routes.shop.public.public_shop_routes import public_shop_bp
 from routes.shop.public.public_shop_product_routes import public_shop_product_bp
 from routes.shop.public.public_shop_category_routes import public_shop_category_bp
 from routes.shop.public.public_shop_brand_routes import public_shop_brand_bp
+from routes.shop.public.public_shop_cart_routes import public_shop_cart_bp
 
 from routes.upload_routes import upload_bp
 
@@ -222,7 +223,7 @@ def create_app(config_name='default'):
     app.register_blueprint(public_shop_product_bp)
     app.register_blueprint(public_shop_category_bp)
     app.register_blueprint(public_shop_brand_bp)
-    
+    app.register_blueprint(public_shop_cart_bp, url_prefix='/api/shop-cart')
 
     app.register_blueprint(newsletter_public_bp, url_prefix='/api/public')
 

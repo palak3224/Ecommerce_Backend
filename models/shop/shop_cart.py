@@ -61,12 +61,63 @@ class ShopCartItem(BaseModel):
 
     @classmethod
     def create_from_shop_product(cls, cart_id, shop_product, quantity, selected_attributes=None):
-        # Get the first product image (if media relationship exists)
+        # Get the primary product image
         main_image = None
-        if hasattr(shop_product, 'media') and shop_product.media:
-            main_image = next((media.url for media in shop_product.media if getattr(media, 'type', None) == 'image'), None)
-        # Get stock quantity (if stock relationship exists)
-        stock_qty = getattr(shop_product, 'stock', None).stock_qty if hasattr(shop_product, 'stock') and shop_product.stock else 0
+        try:
+            from models.shop.shop_product_media import ShopProductMedia
+            from models.enums import MediaType
+            
+            print(f"Looking for images for product_id: {shop_product.product_id}")
+            
+            # Get primary image for the product
+            primary_media = ShopProductMedia.query.filter_by(
+                product_id=shop_product.product_id,
+                type=MediaType.IMAGE,
+                is_primary=True,
+                deleted_at=None
+            ).first()
+            
+            print(f"Primary media found: {primary_media}")
+            
+            if primary_media:
+                main_image = primary_media.url
+                print(f"Using primary image: {main_image}")
+            else:
+                # If no primary image, get the first image
+                first_image = ShopProductMedia.query.filter_by(
+                    product_id=shop_product.product_id,
+                    type=MediaType.IMAGE,
+                    deleted_at=None
+                ).order_by(ShopProductMedia.sort_order).first()
+                
+                print(f"First image found: {first_image}")
+                
+                if first_image:
+                    main_image = first_image.url
+                    print(f"Using first image: {main_image}")
+                else:
+                    print(f"No images found for product_id: {shop_product.product_id}")
+                    
+                    # Let's check what media exists for this product
+                    all_media = ShopProductMedia.query.filter_by(
+                        product_id=shop_product.product_id,
+                        deleted_at=None
+                    ).all()
+                    print(f"All media for product {shop_product.product_id}: {[m.url for m in all_media]}")
+        except Exception as e:
+            # Log the error but don't fail the cart creation
+            print(f"Error getting product image: {e}")
+            main_image = None
+        
+        # Get stock quantity
+        stock_qty = 0
+        try:
+            if hasattr(shop_product, 'stock') and shop_product.stock:
+                stock_qty = shop_product.stock.stock_qty
+        except Exception as e:
+            print(f"Error getting stock quantity: {e}")
+            stock_qty = 0
+        
         product_data = shop_product.serialize(include_variants=False)
         return cls(
             cart_id=cart_id,
