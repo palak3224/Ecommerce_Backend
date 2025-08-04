@@ -478,7 +478,9 @@ class ShopVariantController:
                                     
                                     variant_media = ShopProductMedia(
                                         product_id=variant_product.product_id,
+
                                         type=media_type,
+
                                         url=media_item['url'],
                                         public_id=media_item.get('public_id'),
                                         sort_order=media_item.get('sort_order', 0),
