@@ -8,6 +8,7 @@ from models.shop.shop_order import ShopOrder, ShopOrderItem, ShopOrderStatusHist
 from models.shop.shop_product import ShopProduct
 from models.shop.shop_product_stock import ShopProductStock
 from models.shop.shop_cart import ShopCartItem
+from models.shop.shop_gst_rule import ShopGSTRule
 from models.enums import OrderStatusEnum, PaymentStatusEnum, OrderItemStatusEnum
 from models.user_address import UserAddress
 from models.shop.shop import Shop
@@ -75,10 +76,33 @@ class PublicShopOrderController:
                         400
                     )
 
-                # Calculate pricing (using product's selling price)
+                # Calculate pricing with GST
                 unit_price = product.selling_price or product.cost_price or Decimal('0.00')
-                line_total = unit_price * cart_item.quantity
-                subtotal += line_total
+                
+                # Find applicable GST rule for this product
+                applicable_gst_rule = ShopGSTRule.find_applicable_rule(
+                    db_session=db.session,
+                    shop_id=shop_id,
+                    product_category_id=product.category_id,
+                    product_inclusive_price=unit_price
+                )
+                
+                item_gst_rate_percentage = Decimal("0.00")
+                if applicable_gst_rule:
+                    item_gst_rate_percentage = Decimal(applicable_gst_rule.gst_rate_percentage)
+                
+                # Back-calculate base price and GST amount from unit price (assuming unit price is inclusive)
+                denominator = Decimal("1.00") + (item_gst_rate_percentage / Decimal("100.00"))
+                final_base_price_for_gst_calc = unit_price / denominator
+                gst_amount_per_unit = unit_price - final_base_price_for_gst_calc
+                
+                # Calculate totals for this line item
+                line_gst_amount = gst_amount_per_unit * cart_item.quantity
+                line_total_base = final_base_price_for_gst_calc * cart_item.quantity
+                line_total_inclusive = unit_price * cart_item.quantity
+                
+                subtotal += line_total_base  # Base amount without GST
+                tax_amount += line_gst_amount  # Total GST amount
 
                 # Prepare order item data
                 order_item_data = {
@@ -86,19 +110,22 @@ class PublicShopOrderController:
                     'product_name_at_purchase': product.name,
                     'sku_at_purchase': product.sku,
                     'quantity': cart_item.quantity,
-                    'final_base_price_for_gst_calc': unit_price,
+                    'final_base_price_for_gst_calc': final_base_price_for_gst_calc,
                     'unit_price_inclusive_gst': unit_price,
-                    'line_item_total_inclusive_gst': line_total,
+                    'line_item_total_inclusive_gst': line_total_inclusive,
                     'original_listed_inclusive_price_per_unit': unit_price,
+                    'gst_rate_percentage': item_gst_rate_percentage,
+                    'line_gst_amount': line_gst_amount,
                     'selected_attributes': cart_item.selected_attributes,
                     'shop_id': shop_id
                 }
                 order_items.append(order_item_data)
 
-            # Calculate totals (simplified for now, can be enhanced with tax/shipping logic)
+            # Calculate totals
             discount_amount = Decimal('0.00')
-            tax_amount = Decimal('0.00')
             shipping_amount = Decimal('0.00')  # Global shipping rules
+            # subtotal already contains base amount without GST
+            # tax_amount already contains total GST amount
             total_amount = subtotal + tax_amount + shipping_amount - discount_amount
 
             # Create the shop order
