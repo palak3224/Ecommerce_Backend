@@ -53,6 +53,7 @@ from routes.shop.shop_routes import shop_bp
 from routes.shop.shop_category_routes import shop_category_bp
 from routes.shop.shop_brand_routes import shop_brand_bp
 from routes.shop.shop_attribute_routes import shop_attribute_bp
+from routes.shop.shop_stock_routes import shop_stock_bp
 from routes.shop.variant_routes import variant_bp
 
 # Public shop routes
@@ -60,6 +61,7 @@ from routes.shop.public.public_shop_routes import public_shop_bp
 from routes.shop.public.public_shop_product_routes import public_shop_product_bp
 from routes.shop.public.public_shop_category_routes import public_shop_category_bp
 from routes.shop.public.public_shop_brand_routes import public_shop_brand_bp
+from routes.shop.public.public_shop_cart_routes import public_shop_cart_bp
 
 from routes.upload_routes import upload_bp
 
@@ -214,6 +216,7 @@ def create_app(config_name='default'):
     app.register_blueprint(shop_category_bp)
     app.register_blueprint(shop_brand_bp)
     app.register_blueprint(shop_attribute_bp)
+    app.register_blueprint(shop_stock_bp)
     app.register_blueprint(variant_bp, url_prefix='/api/shop')
 
     
@@ -222,7 +225,7 @@ def create_app(config_name='default'):
     app.register_blueprint(public_shop_product_bp)
     app.register_blueprint(public_shop_category_bp)
     app.register_blueprint(public_shop_brand_bp)
-    
+    app.register_blueprint(public_shop_cart_bp, url_prefix='/api/shop-cart')
 
     app.register_blueprint(newsletter_public_bp, url_prefix='/api/public')
 
