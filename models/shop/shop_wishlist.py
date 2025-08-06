@@ -8,6 +8,7 @@ class ShopWishlistItem(BaseModel):
 
     wishlist_item_id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    shop_id = db.Column(db.Integer, db.ForeignKey('shops.shop_id', ondelete='CASCADE'), nullable=False)
     shop_product_id = db.Column(db.Integer, db.ForeignKey('shop_products.product_id', ondelete='CASCADE'), nullable=False)
     
     # Store product details at time of adding to wishlist
@@ -28,16 +29,32 @@ class ShopWishlistItem(BaseModel):
     shop_product = db.relationship('ShopProduct', backref='wishlist_items')
 
     __table_args__ = (
-        db.UniqueConstraint('user_id', 'shop_product_id', name='uq_user_shop_product_wishlist'),
+        db.UniqueConstraint('user_id', 'shop_id', 'shop_product_id', name='uq_user_shop_product_wishlist'),
     )
 
     @classmethod
     def create_from_shop_product(cls, user_id, shop_product):
         """Create a wishlist item from a shop product, storing all relevant details"""
-        # Get the first product image (if media relationship exists)
+        # Get the primary image from shop product media
         main_image = None
         if hasattr(shop_product, 'media') and shop_product.media:
-            main_image = next((media.url for media in shop_product.media if getattr(media, 'type', None) == 'image'), None)
+            # First, try to get the primary image
+            primary_image = next(
+                (media for media in shop_product.media 
+                 if media.type.value == 'image' and media.is_primary and media.deleted_at is None), 
+                None
+            )
+            
+            if primary_image:
+                main_image = primary_image.url
+            else:
+                # If no primary image, get the first available image
+                first_image = next(
+                    (media for media in shop_product.media 
+                     if media.type.value == 'image' and media.deleted_at is None), 
+                    None
+                )
+                main_image = first_image.url if first_image else None
         
         # Get stock quantity (if stock relationship exists)
         stock_qty = getattr(shop_product, 'stock', None).stock_qty if hasattr(shop_product, 'stock') and shop_product.stock else 0
@@ -47,6 +64,7 @@ class ShopWishlistItem(BaseModel):
         
         return cls(
             user_id=user_id,
+            shop_id=shop_product.shop_id,
             shop_product_id=shop_product.product_id,
             product_name=shop_product.product_name,
             product_sku=shop_product.sku,
@@ -57,6 +75,35 @@ class ShopWishlistItem(BaseModel):
             product_stock_qty=stock_qty
         )
 
+    @classmethod
+    def get_user_shop_wishlist(cls, user_id, shop_id):
+        """Get all wishlist items for a specific user and shop"""
+        return cls.query.filter_by(
+            user_id=user_id,
+            shop_id=shop_id,
+            is_deleted=False
+        ).order_by(cls.added_at.desc()).all()
+
+    @classmethod
+    def check_item_in_wishlist(cls, user_id, shop_id, shop_product_id):
+        """Check if a product is already in user's wishlist for a specific shop"""
+        return cls.query.filter_by(
+            user_id=user_id,
+            shop_id=shop_id,
+            shop_product_id=shop_product_id,
+            is_deleted=False
+        ).first() is not None
+
+    @classmethod
+    def get_wishlist_item(cls, user_id, shop_id, wishlist_item_id):
+        """Get a specific wishlist item for a user in a shop"""
+        return cls.query.filter_by(
+            wishlist_item_id=wishlist_item_id,
+            user_id=user_id,
+            shop_id=shop_id,
+            is_deleted=False
+        ).first()
+
     def __repr__(self):
         return f"<ShopWishlistItem id={self.wishlist_item_id} user={self.user_id} shop_product={self.shop_product_id}>"
 
@@ -64,6 +111,7 @@ class ShopWishlistItem(BaseModel):
         return {
             "wishlist_item_id": self.wishlist_item_id,
             "user_id": self.user_id,
+            "shop_id": self.shop_id,
             "shop_product_id": self.shop_product_id,
             "product": {
                 "name": self.product_name,
