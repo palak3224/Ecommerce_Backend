@@ -39,9 +39,9 @@ class CreateShopGSTRuleSchema(Schema):
 
     @validates('start_date')
     def validate_start_date(self, value):
-        """Validate start date is not in the past"""
-        if value and value < date.today():
-            raise ValidationError("Start date cannot be in the past.")
+        """Validate start date - allow past dates for flexibility"""
+        # Allow any date including past dates for flexibility in GST rule management
+        pass
 
     @validates('end_date')
     def validate_end_date(self, value):
