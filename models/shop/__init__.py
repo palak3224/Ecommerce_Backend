@@ -14,6 +14,8 @@ from .shop_product_stock import ShopProductStock
 from .shop_product_tax import ShopProductTax
 from .shop_cart import ShopCart, ShopCartItem
 from .shop_wishlist import ShopWishlistItem
+from .shop_order import ShopOrder, ShopOrderItem, ShopOrderStatusHistory
+from .shop_gst_rule import ShopGSTRule
 
 
 __all__ = [
@@ -33,5 +35,9 @@ __all__ = [
     'ShopProductTax',
     'ShopCart',
     'ShopCartItem',
-    'ShopWishlistItem'
+    'ShopWishlistItem',
+    'ShopOrder',
+    'ShopOrderItem',
+    'ShopOrderStatusHistory',
+    'ShopGSTRule'
 ]

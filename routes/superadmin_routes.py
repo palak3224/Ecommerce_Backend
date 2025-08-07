@@ -33,6 +33,8 @@ from controllers.superadmin.merchant_subscription_controller import MerchantSubs
 
 from controllers.superadmin.gst_controller import GSTManagementController
 from schemas.superadmin_gst_schemas import CreateGSTRuleSchema, UpdateGSTRuleSchema 
+from controllers.superadmin.shop_gst_controller import ShopGSTManagementController
+from schemas.superadmin_shop_gst_schemas import CreateShopGSTRuleSchema, UpdateShopGSTRuleSchema, ShopGSTRuleFilterSchema
 
 from werkzeug.exceptions import NotFound, BadRequest
 
@@ -4389,6 +4391,352 @@ def delete_gst_rule_route(rule_id):
     except Exception as e:
         current_app.logger.error(f"API Error deleting GST rule {rule_id}: {e}")
         return jsonify({"message": "Failed to delete GST rule."}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+# --- Shop GST Rule Management Routes ---
+@superadmin_bp.route('/shop-gst/shops', methods=['GET'])
+@super_admin_role_required
+def list_shops_for_gst():
+    """
+    Get all active shops for GST rule management
+    ---
+    tags:
+      - Shop GST Management
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of active shops
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              shop_id:
+                type: integer
+              name:
+                type: string
+      500:
+        description: Internal server error
+    """
+    try:
+        shops = ShopGSTManagementController.list_shops()
+        return jsonify(shops), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"API Error listing shops: {e}")
+        return jsonify({"message": "Failed to retrieve shops."}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/shop-gst/shops/<int:shop_id>/categories', methods=['GET'])
+@super_admin_role_required
+def get_shop_categories_for_gst(shop_id):
+    """
+    Get categories for a specific shop
+    ---
+    tags:
+      - Shop GST Management
+    security:
+      - Bearer: []
+    parameters:
+      - name: shop_id
+        in: path
+        type: integer
+        required: true
+        description: Shop ID
+    responses:
+      200:
+        description: List of categories for the shop
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              category_id:
+                type: integer
+              name:
+                type: string
+              parent_id:
+                type: integer
+      400:
+        description: Shop not found
+      500:
+        description: Internal server error
+    """
+    try:
+        categories = ShopGSTManagementController.get_shop_categories(shop_id)
+        return jsonify(categories), HTTPStatus.OK
+    except BadRequest as e:
+        return jsonify({"message": str(e)}), HTTPStatus.BAD_REQUEST
+    except Exception as e:
+        current_app.logger.error(f"API Error getting shop categories: {e}")
+        return jsonify({"message": "Failed to retrieve shop categories."}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/shop-gst-rules', methods=['GET'])
+@super_admin_role_required
+def list_shop_gst_rules_route():
+    """
+    Get all shop GST rules
+    ---
+    tags:
+      - Shop GST Management
+    security:
+      - Bearer: []
+    parameters:
+      - name: shop_id
+        in: query
+        type: integer
+        description: Filter by shop ID
+      - name: page
+        in: query
+        type: integer
+        default: 1
+        description: Page number
+      - name: per_page
+        in: query
+        type: integer
+        default: 20
+        description: Items per page
+    responses:
+      200:
+        description: List of shop GST rules
+        schema:
+          type: array
+          items:
+            type: object
+      500:
+        description: Internal server error
+    """
+    try:
+        shop_id = request.args.get('shop_id', type=int)
+        if shop_id:
+            rules = ShopGSTManagementController.list_rules_by_shop(shop_id)
+        else:
+            rules = ShopGSTManagementController.list_all_rules()
+        return jsonify(rules), HTTPStatus.OK
+    except BadRequest as e:
+        return jsonify({"message": str(e)}), HTTPStatus.BAD_REQUEST
+    except Exception as e:
+        current_app.logger.error(f"API Error listing shop GST rules: {e}")
+        return jsonify({"message": "Failed to retrieve shop GST rules."}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/shop-gst-rules/<int:rule_id>', methods=['GET'])
+@super_admin_role_required
+def get_shop_gst_rule_route(rule_id):
+    """
+    Get a specific shop GST rule
+    ---
+    tags:
+      - Shop GST Management
+    security:
+      - Bearer: []
+    parameters:
+      - name: rule_id
+        in: path
+        type: integer
+        required: true
+        description: Rule ID
+    responses:
+      200:
+        description: Shop GST rule details
+        schema:
+          type: object
+      404:
+        description: Rule not found
+      500:
+        description: Internal server error
+    """
+    try:
+        rule = ShopGSTManagementController.get_rule(rule_id)
+        return jsonify(rule), HTTPStatus.OK
+    except NotFound as e:
+        return jsonify({"message": str(e)}), HTTPStatus.NOT_FOUND
+    except Exception as e:
+        current_app.logger.error(f"API Error getting shop GST rule {rule_id}: {e}")
+        return jsonify({"message": "Failed to retrieve shop GST rule."}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/shop-gst-rules', methods=['POST'])
+@super_admin_role_required
+def create_shop_gst_rule_route():
+    """
+    Create a new shop GST rule
+    ---
+    tags:
+      - Shop GST Management
+    security:
+      - Bearer: []
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - name
+            - shop_id
+            - category_id
+            - price_condition_type
+            - gst_rate_percentage
+          properties:
+            name:
+              type: string
+              description: Rule name
+            shop_id:
+              type: integer
+              description: Shop ID
+            category_id:
+              type: integer
+              description: Category ID
+            price_condition_type:
+              type: string
+              enum: [ANY, LESS_THAN, LESS_THAN_OR_EQUAL, GREATER_THAN, GREATER_THAN_OR_EQUAL, EQUAL]
+            price_condition_value:
+              type: number
+              description: Price condition value
+            gst_rate_percentage:
+              type: number
+              description: GST rate percentage
+            is_active:
+              type: boolean
+              default: true
+            start_date:
+              type: string
+              format: date
+            end_date:
+              type: string
+              format: date
+    responses:
+      201:
+        description: Shop GST rule created successfully
+      400:
+        description: Validation error
+      500:
+        description: Internal server error
+    """
+    try:
+        admin_id = get_jwt_identity()
+        data = request.get_json()
+        
+        schema = CreateShopGSTRuleSchema()
+        validated_data = schema.load(data)
+        
+        created_rule = ShopGSTManagementController.create_rule(validated_data, admin_id)
+        return jsonify(created_rule), HTTPStatus.CREATED
+    except ValidationError as err:
+        return jsonify({"message": "Validation failed", "errors": err.messages}), HTTPStatus.BAD_REQUEST
+    except BadRequest as e:
+        return jsonify({"message": str(e)}), HTTPStatus.BAD_REQUEST
+    except Exception as e:
+        current_app.logger.error(f"API Error creating shop GST rule: {e}")
+        return jsonify({"message": "Failed to create shop GST rule."}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/shop-gst-rules/<int:rule_id>', methods=['PUT'])
+@super_admin_role_required
+def update_shop_gst_rule_route(rule_id):
+    """
+    Update a shop GST rule
+    ---
+    tags:
+      - Shop GST Management
+    security:
+      - Bearer: []
+    parameters:
+      - name: rule_id
+        in: path
+        type: integer
+        required: true
+        description: Rule ID
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            name:
+              type: string
+            shop_id:
+              type: integer
+            category_id:
+              type: integer
+            price_condition_type:
+              type: string
+              enum: [ANY, LESS_THAN, LESS_THAN_OR_EQUAL, GREATER_THAN, GREATER_THAN_OR_EQUAL, EQUAL]
+            price_condition_value:
+              type: number
+            gst_rate_percentage:
+              type: number
+            is_active:
+              type: boolean
+            start_date:
+              type: string
+              format: date
+            end_date:
+              type: string
+              format: date
+    responses:
+      200:
+        description: Shop GST rule updated successfully
+      400:
+        description: Validation error
+      404:
+        description: Rule not found
+      500:
+        description: Internal server error
+    """
+    try:
+        admin_id = get_jwt_identity()
+        data = request.get_json()
+        
+        schema = UpdateShopGSTRuleSchema()
+        validated_data = schema.load(data)
+        
+        updated_rule = ShopGSTManagementController.update_rule(rule_id, validated_data, admin_id)
+        return jsonify(updated_rule), HTTPStatus.OK
+    except ValidationError as err:
+        return jsonify({"message": "Validation failed", "errors": err.messages}), HTTPStatus.BAD_REQUEST
+    except NotFound as e:
+        return jsonify({"message": str(e)}), HTTPStatus.NOT_FOUND
+    except BadRequest as e:
+        return jsonify({"message": str(e)}), HTTPStatus.BAD_REQUEST
+    except Exception as e:
+        current_app.logger.error(f"API Error updating shop GST rule {rule_id}: {e}")
+        return jsonify({"message": "Failed to update shop GST rule."}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/shop-gst-rules/<int:rule_id>', methods=['DELETE'])
+@super_admin_role_required
+def delete_shop_gst_rule_route(rule_id):
+    """
+    Delete a shop GST rule
+    ---
+    tags:
+      - Shop GST Management
+    security:
+      - Bearer: []
+    parameters:
+      - name: rule_id
+        in: path
+        type: integer
+        required: true
+        description: Rule ID
+    responses:
+      204:
+        description: Rule deleted successfully
+      404:
+        description: Rule not found
+      400:
+        description: Cannot delete rule (referenced by other records)
+      500:
+        description: Internal server error
+    """
+    try:
+        admin_id = get_jwt_identity()
+        ShopGSTManagementController.delete_rule(rule_id, admin_id)
+        return '', HTTPStatus.NO_CONTENT
+    except NotFound as e:
+        return jsonify({"message": str(e)}), HTTPStatus.NOT_FOUND
+    except BadRequest as e:
+        return jsonify({"message": str(e)}), HTTPStatus.BAD_REQUEST
+    except Exception as e:
+        current_app.logger.error(f"API Error deleting shop GST rule {rule_id}: {e}")
+        return jsonify({"message": "Failed to delete shop GST rule."}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 
 #---Newletter------    
