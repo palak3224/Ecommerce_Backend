@@ -50,34 +50,55 @@ class PublicShopOrderController:
             if not shipping_address:
                 return error_response("Invalid shipping address", 400)
 
-            # Get cart items for this shop
-            cart_items = ShopCartItem.query.options(
-                joinedload(ShopCartItem.product).joinedload(ShopProduct.stock)
-            ).filter_by(user_id=user_id, shop_id=shop_id).all()
+            # Get cart items for this shop (join with cart to filter by user_id and shop_id)
+            from models.shop.shop_cart import ShopCart, ShopCartItem
+            cart_items = (
+                db.session.query(ShopCartItem)
+                .join(ShopCart, ShopCartItem.cart_id == ShopCart.cart_id)
+                .options(
+                    joinedload(ShopCartItem.shop_product).joinedload(ShopProduct.stock)
+                )
+                .filter(
+                    ShopCart.user_id == user_id,
+                    ShopCart.shop_id == shop_id,
+                    ShopCartItem.is_deleted == False
+                )
+                .all()
+            )
 
             if not cart_items:
                 return error_response("No items in cart for this shop", 400)
 
+            # Validate payment method
+            from models.enums import PaymentMethodEnum
+            try:
+                payment_method_enum = PaymentMethodEnum(str(order_data['payment_method']))
+            except Exception:
+                return error_response("Invalid payment method", 400)
+
             # Validate stock availability and calculate totals
             order_items = []
             subtotal = Decimal('0.00')
+            tax_amount = Decimal('0.00')  # Initialize tax_amount
             
             for cart_item in cart_items:
-                product = cart_item.product
+                product = cart_item.shop_product
                 if not product or not product.active_flag or not product.is_published:
-                    return error_response(f"Product '{product.name if product else 'Unknown'}' is not available", 400)
+                    return error_response(f"Product '{product.product_name if product else 'Unknown'}' is not available", 400)
 
                 # Check stock availability
                 stock = product.stock
                 if not stock or stock.stock_qty < cart_item.quantity:
                     available_qty = stock.stock_qty if stock else 0
                     return error_response(
-                        f"Insufficient stock for '{product.name}'. Available: {available_qty}, Requested: {cart_item.quantity}", 
+                        f"Insufficient stock for '{product.product_name}'. Available: {available_qty}, Requested: {cart_item.quantity}", 
                         400
                     )
 
                 # Calculate pricing with GST
-                unit_price = product.selling_price or product.cost_price or Decimal('0.00')
+                # Use current listed inclusive price (special or regular)
+                unit_price, _is_special = product.get_current_listed_inclusive_price()
+                unit_price = Decimal(unit_price)
                 
                 # Find applicable GST rule for this product
                 applicable_gst_rule = ShopGSTRule.find_applicable_rule(
@@ -93,8 +114,8 @@ class PublicShopOrderController:
                 
                 # Back-calculate base price and GST amount from unit price (assuming unit price is inclusive)
                 denominator = Decimal("1.00") + (item_gst_rate_percentage / Decimal("100.00"))
-                final_base_price_for_gst_calc = unit_price / denominator
-                gst_amount_per_unit = unit_price - final_base_price_for_gst_calc
+                final_base_price_for_gst_calc = (unit_price / denominator).quantize(Decimal('0.01'))
+                gst_amount_per_unit = (unit_price - final_base_price_for_gst_calc).quantize(Decimal('0.01'))
                 
                 # Calculate totals for this line item
                 line_gst_amount = gst_amount_per_unit * cart_item.quantity
@@ -104,28 +125,26 @@ class PublicShopOrderController:
                 subtotal += line_total_base  # Base amount without GST
                 tax_amount += line_gst_amount  # Total GST amount
 
-                # Prepare order item data
+                # Prepare order item data (align with ShopOrderItem columns)
                 order_item_data = {
                     'product_id': product.product_id,
-                    'product_name_at_purchase': product.name,
+                    'shop_id': shop_id,
+                    'product_name_at_purchase': product.product_name,
                     'sku_at_purchase': product.sku,
                     'quantity': cart_item.quantity,
                     'final_base_price_for_gst_calc': final_base_price_for_gst_calc,
                     'unit_price_inclusive_gst': unit_price,
                     'line_item_total_inclusive_gst': line_total_inclusive,
                     'original_listed_inclusive_price_per_unit': unit_price,
-                    'gst_rate_percentage': item_gst_rate_percentage,
-                    'line_gst_amount': line_gst_amount,
+                    'gst_rate_applied_at_purchase': item_gst_rate_percentage,
+                    'gst_amount_per_unit': gst_amount_per_unit,
                     'selected_attributes': cart_item.selected_attributes,
-                    'shop_id': shop_id
                 }
                 order_items.append(order_item_data)
 
             # Calculate totals
             discount_amount = Decimal('0.00')
             shipping_amount = Decimal('0.00')  # Global shipping rules
-            # subtotal already contains base amount without GST
-            # tax_amount already contains total GST amount
             total_amount = subtotal + tax_amount + shipping_amount - discount_amount
 
             # Create the shop order
@@ -137,8 +156,8 @@ class PublicShopOrderController:
                 tax_amount=tax_amount,
                 shipping_amount=shipping_amount,
                 total_amount=total_amount,
-                currency=order_data.get('currency', 'USD'),
-                payment_method=order_data['payment_method'],
+                currency=order_data.get('currency', 'INR'),
+                payment_method=payment_method_enum,
                 payment_status=PaymentStatusEnum.PENDING,
                 shipping_address_id=order_data['shipping_address_id'],
                 billing_address_id=order_data.get('billing_address_id', order_data['shipping_address_id']),
@@ -180,7 +199,8 @@ class PublicShopOrderController:
 
             return success_response(
                 "Order created successfully",
-                shop_order.serialize(include_items=True)
+                shop_order.serialize(include_items=True),
+                status_code=201
             )
 
         except Exception as e:

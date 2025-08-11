@@ -72,8 +72,24 @@ class PublicShopCartController:
             # Get product stock first
             product_stock = ShopProductStock.query.filter_by(product_id=shop_product_id).first()
             
-            if not product_stock or product_stock.stock_qty < quantity:
-                raise ValueError("Insufficient stock")
+            if not product_stock:
+                raise ValueError("Product stock not found")
+
+            # Calculate existing total quantity for this product in the user's cart (all attribute variants)
+            existing_items_for_product = ShopCartItem.query.filter_by(
+                cart_id=cart.cart_id,
+                shop_product_id=shop_product_id
+            ).filter(ShopCartItem.is_deleted == False).all()
+            existing_total_qty = sum(item.quantity for item in existing_items_for_product)
+
+            # Remaining stock available to add
+            remaining_stock = (product_stock.stock_qty or 0) - existing_total_qty
+
+            if remaining_stock <= 0:
+                raise ValueError("Product out of stock")
+
+            if quantity > remaining_stock:
+                raise ValueError(f"Only {remaining_stock} unit(s) left in stock")
 
             # Check if product already exists in cart with the same attributes
             existing_cart_item = None
@@ -101,14 +117,12 @@ class PublicShopCartController:
                 cart_item = existing_cart_item
             else:
                 # Create new cart item if product doesn't exist or has different attributes
-                print(f"Creating new cart item for product: {shop_product.product_name} (ID: {shop_product.product_id})")
                 cart_item = ShopCartItem.create_from_shop_product(
                     cart_id=cart.cart_id,
                     shop_product=shop_product,
                     quantity=quantity,
                     selected_attributes=selected_attributes
                 )
-                print(f"Cart item created with image_url: {cart_item.product_image_url}")
                 db.session.add(cart_item)
             
             db.session.commit()

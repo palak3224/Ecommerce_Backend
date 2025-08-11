@@ -54,6 +54,9 @@ class ShopOrder(BaseModel):
     def __init__(self, shop_id=None, **kwargs):
         if shop_id and 'order_id' not in kwargs:
             kwargs['order_id'] = generate_shop_order_id_string(shop_id)
+        # Ensure the DB column shop_id is set on the instance
+        if shop_id is not None and 'shop_id' not in kwargs:
+            kwargs['shop_id'] = shop_id
         super().__init__(**kwargs)
 
     def __repr__(self):
