@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, send_file
 from auth.utils import super_admin_role_required
 from flask_jwt_extended import get_jwt_identity
 import cloudinary
@@ -59,6 +59,7 @@ from routes.order_routes import get_order as get_order_details_regular
 from controllers.superadmin import youtube_controller
 
 from controllers.superadmin.newsletter_controller import NewsletterController
+from controllers.superadmin.shop_analytics_controller import ShopAnalyticsController
 
 superadmin_bp = Blueprint('superadmin_bp', __name__)
 
@@ -5772,3 +5773,91 @@ def youtube_test_connection():
     """Test connection to YouTube with current token."""
     result = youtube_controller.test_connection()
     return jsonify({"data": result}), 200
+
+# ── SHOP ANALYTICS (Superadmin) ────────────────────────────────────────────────
+@superadmin_bp.route('/shop-analytics/summary', methods=['GET'])
+@super_admin_role_required
+def shop_analytics_summary():
+  """Summary metrics for a shop (revenue, total sold, top product/category, AOV)."""
+  try:
+    shop_id = request.args.get('shop_id', type=int)
+    months = request.args.get('months', default=6, type=int)
+    if not shop_id:
+      return jsonify({'message': 'shop_id is required'}), HTTPStatus.BAD_REQUEST
+    res = ShopAnalyticsController.summary(shop_id, months)
+    return jsonify(res), HTTPStatus.OK
+  except Exception as e:
+    current_app.logger.error(f"Shop analytics summary error: {e}")
+    return jsonify({'status': 'error', 'message': 'Failed to get summary'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+@superadmin_bp.route('/shop-analytics/revenue-trend', methods=['GET'])
+@super_admin_role_required
+def shop_analytics_revenue_trend():
+  try:
+    shop_id = request.args.get('shop_id', type=int)
+    months = request.args.get('months', default=6, type=int)
+    if not shop_id:
+      return jsonify({'message': 'shop_id is required'}), HTTPStatus.BAD_REQUEST
+    res = ShopAnalyticsController.revenue_trend(shop_id, months)
+    return jsonify(res), HTTPStatus.OK
+  except Exception as e:
+    current_app.logger.error(f"Shop analytics trend error: {e}")
+    return jsonify({'status': 'error', 'message': 'Failed to get revenue trend'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+@superadmin_bp.route('/shop-analytics/product-sales', methods=['GET'])
+@super_admin_role_required
+def shop_analytics_product_sales():
+  try:
+    shop_id = request.args.get('shop_id', type=int)
+    year = request.args.get('year', type=int)
+    month = request.args.get('month', type=int)
+    limit = request.args.get('limit', default=10, type=int)
+    if not shop_id:
+      return jsonify({'message': 'shop_id is required'}), HTTPStatus.BAD_REQUEST
+    res = ShopAnalyticsController.product_sales(shop_id, year, month, limit)
+    return jsonify(res), HTTPStatus.OK
+  except Exception as e:
+    current_app.logger.error(f"Shop analytics product sales error: {e}")
+    return jsonify({'status': 'error', 'message': 'Failed to get product sales'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+@superadmin_bp.route('/shop-analytics/category-distribution', methods=['GET'])
+@super_admin_role_required
+def shop_analytics_category_distribution():
+  try:
+    shop_id = request.args.get('shop_id', type=int)
+    months = request.args.get('months', default=6, type=int)
+    if not shop_id:
+      return jsonify({'message': 'shop_id is required'}), HTTPStatus.BAD_REQUEST
+    res = ShopAnalyticsController.category_distribution(shop_id, months)
+    return jsonify(res), HTTPStatus.OK
+  except Exception as e:
+    current_app.logger.error(f"Shop analytics category distribution error: {e}")
+    return jsonify({'status': 'error', 'message': 'Failed to get category distribution'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+@superadmin_bp.route('/shop-analytics/export', methods=['GET'])
+@super_admin_role_required
+def shop_analytics_export():
+  try:
+    shop_id = request.args.get('shop_id', type=int)
+    year = request.args.get('year', type=int)
+    month = request.args.get('month', type=int)
+    export_format = (request.args.get('format', 'csv') or 'csv').lower()
+    if export_format not in ['csv', 'excel', 'pdf']:
+      return jsonify({'status': 'error', 'message': f'Invalid format: {export_format}'}), HTTPStatus.BAD_REQUEST
+    if not shop_id:
+      return jsonify({'message': 'shop_id is required'}), HTTPStatus.BAD_REQUEST
+
+    data, mime_type, filename = ShopAnalyticsController.export(shop_id, year, month, export_format)
+    if data is None:
+      return jsonify({'status': 'error', 'message': 'Failed to generate export'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+    from io import BytesIO
+    response = send_file(BytesIO(data) if isinstance(data, bytes) else data, mimetype=mime_type, as_attachment=True, download_name=filename)
+    return response
+  except Exception as e:
+    current_app.logger.error(f"Shop analytics export error: {e}")
+    return jsonify({'status': 'error', 'message': 'Failed to export report'}), HTTPStatus.INTERNAL_SERVER_ERROR
