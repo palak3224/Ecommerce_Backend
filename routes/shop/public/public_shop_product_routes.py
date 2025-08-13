@@ -53,6 +53,14 @@ def get_products_by_shop(shop_id):
         type: number
         description: Maximum price filter
       - in: query
+        name: discount_min
+        type: number
+        description: Minimum discount percentage (0-100). NULL treated as 0. Inclusive.
+      - in: query
+        name: discount_max
+        type: number
+        description: Maximum discount percentage (0-100). NULL treated as 0. Inclusive.
+      - in: query
         name: search
         type: string
         description: Search term for product name, description, SKU, category, or brand
