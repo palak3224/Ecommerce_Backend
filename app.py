@@ -233,7 +233,7 @@ def create_app(config_name='default'):
     app.register_blueprint(public_shop_wishlist_bp)
     app.register_blueprint(public_shop_order_bp, url_prefix='/api')
 
-    app.register_blueprint(newsletter_public_bp, url_prefix='/api/public')
+    app.register_blueprint(newsletter_public_bp, url_prefix='/api')
 
     app.register_blueprint(upload_bp, url_prefix='/api/upload')
 
