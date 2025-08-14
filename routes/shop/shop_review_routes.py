@@ -63,7 +63,7 @@ def create_shop_review():
                                 type: array
                                 items:
                                     type: string
-                                description: Optional list of image URLs
+                                description: Optional list of base64 data URLs for images. Max 5 images, each < 5 MB.
         responses:
             201:
                 description: Review created successfully

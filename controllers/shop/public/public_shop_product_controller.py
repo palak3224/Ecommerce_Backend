@@ -182,6 +182,9 @@ class PublicShopProductController:
             brand_id = request.args.get('brand_id', type=int)
             min_price = request.args.get('min_price', type=float)
             max_price = request.args.get('max_price', type=float)
+            # New: discount range filtering (percentage). NULL discount treated as 0.
+            discount_min = request.args.get('discount_min', type=float)
+            discount_max = request.args.get('discount_max', type=float)
             search = request.args.get('search', '').strip()
 
             # Build base query for shop products (exclude variant products)
@@ -248,6 +251,24 @@ class PublicShopProductController:
                         )
                     )
                 )
+
+            # Discount filtering (COALESCE to 0)
+            if discount_min is not None:
+                # Clamp to [0,100]
+                try:
+                    discount_min = max(0.0, min(100.0, float(discount_min)))
+                except (TypeError, ValueError):
+                    discount_min = None
+            if discount_max is not None:
+                try:
+                    discount_max = max(0.0, min(100.0, float(discount_max)))
+                except (TypeError, ValueError):
+                    discount_max = None
+
+            if discount_min is not None:
+                query = query.filter(func.coalesce(ShopProduct.discount_pct, 0) >= discount_min)
+            if discount_max is not None:
+                query = query.filter(func.coalesce(ShopProduct.discount_pct, 0) <= discount_max)
 
             # Search functionality
             if search:
@@ -323,6 +344,8 @@ class PublicShopProductController:
                     'brand_id': brand_id,
                     'min_price': min_price,
                     'max_price': max_price,
+                    'discount_min': discount_min,
+                    'discount_max': discount_max,
                     'search': search,
                     'sort_by': sort_by,
                     'order': order
