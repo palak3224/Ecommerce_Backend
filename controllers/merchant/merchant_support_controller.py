@@ -19,7 +19,7 @@ def _upload_to_cloudinary(file_to_upload, folder_name="support_attachments"):
             raise Exception("Cloudinary service is not configured.")
         upload_result = cloudinary.uploader.upload(
             file_to_upload,
-            folder=f"shopeasy/{folder_name}", 
+            folder=f"Aoin/{folder_name}", 
             resource_type="auto"
         )
         return upload_result.get('secure_url')

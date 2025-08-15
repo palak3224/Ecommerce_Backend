@@ -23,7 +23,7 @@ def _upload_to_cloudinary(file_to_upload, folder_name="support_attachments"):
 
         upload_result = cloudinary.uploader.upload(
             file_to_upload,
-            folder=f"shopeasy/{folder_name}", 
+            folder=f"Aoin/{folder_name}", 
             resource_type="auto" # Let Cloudinary auto-detect
         )
         return upload_result.get('secure_url')
