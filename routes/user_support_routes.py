@@ -190,8 +190,8 @@ def get_user_ticket_route(ticket_uid):
     security:
       - Bearer: []
     parameters:
-      - name: ticket_uid
-        in: path
+      - in: path
+        name: ticket_uid
         type: string
         required: true
         description: "Unique identifier of the support ticket."
@@ -228,8 +228,8 @@ def add_user_message_route(ticket_uid):
     consumes:
       - multipart/form-data
     parameters:
-      - name: ticket_uid
-        in: path
+      - in: path
+        name: ticket_uid
         type: string
         required: true
         description: "Unique identifier of the support ticket."
@@ -296,8 +296,8 @@ def close_user_ticket_route(ticket_uid):
     security:
       - Bearer: []
     parameters:
-      - name: ticket_uid
-        in: path
+      - in: path
+        name: ticket_uid
         type: string
         required: true
         description: "Unique identifier of the support ticket."

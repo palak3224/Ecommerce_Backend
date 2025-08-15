@@ -132,8 +132,8 @@ def get_order(order_id):
     security:
       - Bearer: []
     parameters:
-      - name: order_id
-        in: path
+      - in: path
+        name: order_id
         type: string
         required: true
         description: ID of the order to retrieve
@@ -333,8 +333,8 @@ def update_order_status(order_id):
     security:
       - Bearer: []
     parameters:
-      - name: order_id
-        in: path
+      - in: path
+        name: order_id
         type: string
         required: true
         description: ID of the order to update
@@ -449,8 +449,8 @@ def update_payment_status(order_id):
     security:
       - Bearer: []
     parameters:
-      - name: order_id
-        in: path
+      - in: path
+        name: order_id
         type: string
         required: true
         description: ID of the order to update payment status
@@ -595,8 +595,8 @@ def cancel_order(order_id):
     security:
       - Bearer: []
     parameters:
-      - name: order_id
-        in: path
+      - in: path
+        name: order_id
         type: string
         required: true
         description: ID of the order to cancel

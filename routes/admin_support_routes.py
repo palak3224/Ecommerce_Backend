@@ -139,8 +139,8 @@ def get_admin_ticket_route(ticket_uid):
     security:
       - Bearer: []
     parameters:
-      - name: ticket_uid
-        in: path
+      - in: path
+        name: ticket_uid
         type: string
         required: true
         description: Unique identifier of the support ticket.
@@ -174,8 +174,8 @@ def assign_ticket_route(ticket_uid):
     security:
       - Bearer: []
     parameters:
-      - name: ticket_uid
-        in: path
+      - in: path
+        name: ticket_uid
         type: string
         required: true
         description: Unique identifier of the support ticket.
@@ -231,8 +231,8 @@ def admin_reply_route(ticket_uid):
     consumes:
       - multipart/form-data
     parameters:
-      - name: ticket_uid
-        in: path
+      - in: path
+        name: ticket_uid
         type: string
         required: true
         description: Unique identifier of the support ticket.
@@ -298,8 +298,8 @@ def update_ticket_status_route(ticket_uid):
     security:
       - Bearer: []
     parameters:
-      - name: ticket_uid
-        in: path
+      - in: path
+        name: ticket_uid
         type: string
         required: true
         description: Unique identifier of the support ticket.
@@ -356,8 +356,8 @@ def update_ticket_priority_route(ticket_uid):
     security:
       - Bearer: []
     parameters:
-      - name: ticket_uid
-        in: path
+      - in: path
+        name: ticket_uid
         type: string
         required: true
         description: Unique identifier of the support ticket.

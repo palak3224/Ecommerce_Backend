@@ -211,8 +211,8 @@ def get_card(card_id):
     security:
       - Bearer: []
     parameters:
-      - name: card_id
-        in: path
+      - in: path
+        name: card_id
         type: integer
         required: true
         description: ID of the payment card to retrieve
@@ -289,8 +289,8 @@ def update_card(card_id):
     security:
       - Bearer: []
     parameters:
-      - name: card_id
-        in: path
+      - in: path
+        name: card_id
         type: integer
         required: true
         description: ID of the payment card to update
@@ -400,8 +400,8 @@ def delete_card(card_id):
     security:
       - Bearer: []
     parameters:
-      - name: card_id
-        in: path
+      - in: path
+        name: card_id
         type: integer
         required: true
         description: ID of the payment card to delete
@@ -448,8 +448,8 @@ def set_default_card(card_id):
     security:
       - Bearer: []
     parameters:
-      - name: card_id
-        in: path
+      - in: path
+        name: card_id
         type: integer
         required: true
         description: ID of the payment card to set as default

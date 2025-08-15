@@ -387,8 +387,8 @@ def get_tracking_details(awb_code):
     tags:
       - ShipRocket
     parameters:
-      - name: awb_code
-        in: path
+      - in: path
+        name: awb_code
         type: string
         required: true
         description: AWB code
@@ -433,8 +433,8 @@ def get_tracking_by_order_id(order_id):
     security:
       - Bearer: []
     parameters:
-      - name: order_id
-        in: path
+      - in: path
+        name: order_id
         type: string
         required: true
         description: Order ID from your store
@@ -487,8 +487,8 @@ def get_shipment_tracking(shipment_id):
     security:
       - Bearer: []
     parameters:
-      - name: shipment_id
-        in: path
+      - in: path
+        name: shipment_id
         type: integer
         required: true
         description: Shipment ID from database
@@ -535,8 +535,8 @@ def get_tracking_by_db_order_id(order_id):
     security:
       - Bearer: []
     parameters:
-      - name: order_id
-        in: path
+      - in: path
+        name: order_id
         type: string
         required: true
         description: Order ID from your database (e.g., "ORD-20250728114812-8D8759")
@@ -821,8 +821,8 @@ def create_merchant_pickup_location(merchant_id):
     security:
       - Bearer: []
     parameters:
-      - name: merchant_id
-        in: path
+      - in: path
+        name: merchant_id
         required: true
         type: integer
         description: Merchant ID
@@ -856,8 +856,8 @@ def get_merchant_pickup_location(merchant_id):
     security:
       - Bearer: []
     parameters:
-      - name: merchant_id
-        in: path
+      - in: path
+        name: merchant_id
         required: true
         type: integer
         description: Merchant ID

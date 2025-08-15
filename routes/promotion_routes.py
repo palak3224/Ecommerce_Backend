@@ -171,8 +171,8 @@ def update_promotion(pid):
     security:
       - Bearer: []
     parameters:
-      - name: pid
-        in: path
+      - in: path
+        name: pid
         type: integer
         required: true
         description: ID of the promotion to update
@@ -241,8 +241,8 @@ def delete_promotion(pid):
     security:
       - Bearer: []
     parameters:
-      - name: pid
-        in: path
+      - in: path
+        name: pid
         type: integer
         required: true
         description: ID of the promotion to delete

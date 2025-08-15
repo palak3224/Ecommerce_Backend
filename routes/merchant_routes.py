@@ -44,9 +44,11 @@ def allowed_media_file(filename):
     ---
     tags:
       - Merchant - Media
+    security:
+      - Bearer: []
     parameters:
-      - name: filename
-        in: path
+      - in: path  
+        name: filename
         type: string
         required: true
         description: Name of the file to check
@@ -623,8 +625,8 @@ def create_product_variant(pid):
     security:
       - Bearer: []
     parameters:
-      - name: pid
-        in: path
+      - in: path
+        name: pid
         type: integer
         required: true
         description: Parent product ID
@@ -750,8 +752,8 @@ def get_product(pid):
     security:
       - Bearer: []
     parameters:
-      - name: pid
-        in: path
+      - in: path
+        name: pid
         type: integer
         required: true
         description: Product ID
@@ -833,8 +835,8 @@ def update_product(pid):
     security:
       - Bearer: []
     parameters:
-      - name: pid
-        in: path
+      - in: path
+        name: pid
         type: integer
         required: true
         description: Product ID
@@ -943,8 +945,8 @@ def delete_product(pid):
     security:
       - Bearer: []
     parameters:
-      - name: pid
-        in: path
+      - in: path
+        name: pid
         type: integer
         required: true
         description: Product ID to delete
@@ -990,8 +992,8 @@ def get_product_meta(pid):
     security:
       - Bearer: []
     parameters:
-      - name: pid
-        in: path
+      - in: path
+        name: pid
         type: integer
         required: true
         description: Product ID
@@ -1042,8 +1044,8 @@ def upsert_product_meta(pid):
     security:
       - Bearer: []
     parameters:
-      - name: pid
-        in: path
+      - in: path
+        name: pid
         type: integer
         required: true
         description: Product ID
@@ -1155,8 +1157,8 @@ def get_product_tax(pid):
     security:
       - Bearer: []
     parameters:
-      - name: pid
-        in: path
+      - in: path
+        name: pid
         type: integer
         required: true
         description: Product ID
@@ -1195,8 +1197,8 @@ def upsert_product_tax(pid):
     security:
       - Bearer: []
     parameters:
-      - name: pid
-        in: path
+      - in: path
+        name: pid
         type: integer
         required: true
         description: Product ID
@@ -1259,8 +1261,8 @@ def get_product_shipping(pid):
     security:
       - Bearer: []
     parameters:
-      - name: pid
-        in: path
+      - in: path
+        name: pid
         type: integer
         required: true
         description: Product ID
@@ -1318,8 +1320,8 @@ def upsert_product_shipping(pid):
     security:
       - Bearer: []
     parameters:
-      - name: pid
-        in: path
+      - in: path
+        name: pid
         type: integer
         required: true
         description: Product ID
@@ -1418,8 +1420,8 @@ def list_product_media(pid):
     security:
       - Bearer: []
     parameters:
-      - name: pid
-        in: path
+      - in: path
+        name: pid
         type: integer
         required: true
         description: Product ID
@@ -1476,8 +1478,8 @@ def get_product_media_stats(pid):
     security:
       - Bearer: []
     parameters:
-      - name: pid
-        in: path
+      - in: path
+        name: pid
         type: integer
         required: true
         description: Product ID
@@ -1537,8 +1539,8 @@ def create_product_media(pid):
     security:
       - Bearer: []
     parameters:
-      - name: pid
-        in: path
+      - in: path
+        name: pid
         type: integer
         required: true
         description: Product ID
@@ -1695,8 +1697,8 @@ def delete_product_media(mid):
     security:
       - Bearer: []
     parameters:
-      - name: mid
-        in: path
+      - in: path
+        name: mid
         type: integer
         required: true
         description: Media ID to delete
@@ -1752,8 +1754,8 @@ def list_product_attributes(pid):
     security:
       - Bearer: []
     parameters:
-      - name: pid
-        in: path
+      - in: path
+        name: pid
         type: integer
         required: true
         description: Product ID
@@ -1945,8 +1947,8 @@ def get_brands_for_category(cid):
     security:
       - Bearer: []
     parameters:
-      - name: cid
-        in: path
+      - in: path
+        name: cid
         type: integer
         required: true
         description: Category ID
@@ -2010,8 +2012,8 @@ def get_product_stock(pid):
     security:
       - Bearer: []
     parameters:
-      - name: pid
-        in: path
+      - in: path
+        name: pid
         type: integer
         required: true
         description: Product ID
@@ -2086,8 +2088,8 @@ def update_product_stock(pid):
     security:
       - Bearer: []
     parameters:
-      - name: pid
-        in: path
+      - in: path
+        name: pid
         type: integer
         required: true
         description: Product ID
@@ -2175,8 +2177,8 @@ def bulk_update_product_stock(pid):
     security:
       - Bearer: []
     parameters:
-      - name: pid
-        in: path
+      - in: path
+        name: pid
         type: integer
         required: true
         description: Product ID
@@ -2577,8 +2579,9 @@ def get_merchant_order_details(order_id):
     security:
       - Bearer: []
     parameters:
-      - name: order_id
-        in: path
+      - in: path
+        name: order_id
+
         type: string
         required: true
         description: ID of the order to retrieve
@@ -3447,8 +3450,8 @@ def delete_product_placement(placement_id):
     security:
       - Bearer: []
     parameters:
-      - name: placement_id
-        in: path
+      - in: path
+        name: placement_id
         type: integer
         required: true
         description: ID of the placement to delete
@@ -3493,8 +3496,8 @@ def update_placement_sort_order(placement_id):
     security:
       - Bearer: []
     parameters:
-      - name: placement_id
-        in: path
+      - in: path
+        name: placement_id
         type: integer
         required: true
         description: ID of the placement to update
@@ -3547,8 +3550,8 @@ def update_promoted_placement(placement_id):
     security:
       - Bearer: []
     parameters:
-      - name: placement_id
-        in: path
+      - in: path
+        name: placement_id
         type: integer
         required: true
         description: ID of the promoted placement to update

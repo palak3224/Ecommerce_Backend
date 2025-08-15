@@ -425,6 +425,7 @@ def approve_document(id):
         type: integer
         required: true
         description: Document ID
+        
       - in: body
         name: body
         schema:

@@ -569,8 +569,8 @@ def verify_email_route(token):
     tags:
       - Authentication
     parameters:
-      - name: token
-        in: path
+      - in: path
+        name: token
         type: string
         required: true
         description: Email verification token

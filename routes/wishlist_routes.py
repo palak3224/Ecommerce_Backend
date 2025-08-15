@@ -171,8 +171,8 @@ def remove_from_wishlist(wishlist_item_id):
     security:
       - Bearer: []
     parameters:
-      - name: wishlist_item_id
-        in: path
+      - in: path
+        name: wishlist_item_id
         type: integer
         required: true
         description: ID of the wishlist item to remove

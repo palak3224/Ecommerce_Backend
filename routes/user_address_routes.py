@@ -180,8 +180,8 @@ def get_address(address_id):
     tags:
       - User Addresses
     parameters:
-      - name: address_id
-        in: path
+      - in: path
+        name: address_id
         type: integer
         required: true
         description: ID of the address to retrieve
@@ -251,8 +251,8 @@ def update_address(address_id):
     tags:
       - User Addresses
     parameters:
-      - name: address_id
-        in: path
+      - in: path
+        name: address_id
         type: integer
         required: true
         description: ID of the address to update
@@ -354,8 +354,8 @@ def delete_address(address_id):
     tags:
       - User Addresses
     parameters:
-      - name: address_id
-        in: path
+      - in: path
+        name: address_id
         type: integer
         required: true
         description: ID of the address to delete
@@ -397,13 +397,13 @@ def set_default_address(address_id, address_type):
     tags:
       - User Addresses
     parameters:
-      - name: address_id
-        in: path
+      - in: path
+        name: address_id
         type: integer
         required: true
         description: ID of the address to set as default
-      - name: address_type
-        in: path
+      - in: path
+        name: address_type
         type: string
         required: true
         enum: [shipping, billing]

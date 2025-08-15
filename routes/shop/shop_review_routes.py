@@ -105,11 +105,11 @@ def get_shop_product_reviews(shop_product_id: int):
         tags:
             - Shop Reviews
         parameters:
-            - name: shop_product_id
-                in: path
-                type: integer
-                required: true
-                description: Product ID
+            - in: path
+              name: shop_product_id
+              type: integer
+              required: true
+              description: Product ID
             - name: page
                 in: query
                 type: integer
@@ -221,11 +221,11 @@ def delete_user_shop_review(review_id: int):
         security:
             - Bearer: []
         parameters:
-            - name: review_id
-                in: path
-                type: integer
-                required: true
-                description: Review ID to delete
+            - in: path
+              name: review_id
+              type: integer
+              required: true
+              description: Review ID to delete
         responses:
             200:
                 description: Review deleted successfully

@@ -125,8 +125,8 @@ def get_review(review_id):
     tags:
       - Reviews
     parameters:
-      - name: review_id
-        in: path
+      - in: path
+        name: review_id
         type: integer
         required: true
         description: ID of the review to retrieve.
@@ -177,8 +177,8 @@ def get_product_reviews(product_id):
     tags:
       - Reviews
     parameters:
-      - name: product_id
-        in: path
+      - in: path
+        name: product_id
         type: integer
         required: true
         description: "ID of the product to retrieve reviews for."
@@ -304,8 +304,8 @@ def delete_review(review_id):
     security:
       - Bearer: []
     parameters:
-      - name: review_id
-        in: path
+      - in: path
+        name: review_id
         type: integer
         required: true
         description: "ID of the review to delete."

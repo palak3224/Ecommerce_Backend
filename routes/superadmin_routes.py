@@ -292,8 +292,8 @@ def update_category(cid):
       - application/json
       - multipart/form-data
     parameters:
-      - name: cid
-        in: path
+      - in: path
+        name: cid
         type: integer
         required: true
         description: "ID of the category to update."
@@ -460,8 +460,8 @@ def delete_category(cid):
     security:
       - Bearer: []
     parameters:
-      - name: cid
-        in: path
+      - in: path
+        name: cid
         type: integer
         required: true
         description: ID of the category to delete
@@ -525,8 +525,8 @@ def upload_category_icon(cid):
     consumes:
       - multipart/form-data
     parameters:
-      - name: cid
-        in: path
+      - in: path
+        name: cid
         type: integer
         required: true
         description: "ID of the category to upload the icon for."
@@ -683,8 +683,8 @@ def approve_brand_request(rid):
     consumes:
       - multipart/form-data
     parameters:
-      - name: rid
-        in: path
+      - in: path
+        name: rid
         type: integer
         required: true
         description: "ID of the brand request to approve."
@@ -786,8 +786,8 @@ def reject_brand_request(rid):
     security:
       - Bearer: []
     parameters:
-      - name: rid
-        in: path
+      - in: path
+        name: rid
         type: integer
         required: true
         description: ID of the brand request to reject
@@ -1086,8 +1086,8 @@ def upload_brand_icon(bid):
     consumes:
       - multipart/form-data
     parameters:
-      - name: bid
-        in: path
+      - in: path
+        name: bid
         type: integer
         required: true
         description: "ID of the brand to upload the icon for."
@@ -1180,8 +1180,8 @@ def update_brand(bid):
       - application/json
       - multipart/form-data
     parameters:
-      - name: bid
-        in: path
+      - in: path
+        name: bid
         type: integer
         required: true
         description: "ID of the brand to update."
@@ -1324,8 +1324,8 @@ def delete_brand(bid):
     security:
       - Bearer: []
     parameters:
-      - name: bid
-        in: path
+      - in: path
+        name: bid
         type: integer
         required: true
         description: ID of the brand to delete
@@ -1360,8 +1360,8 @@ def restore_brand(bid):
     security:
       - Bearer: []
     parameters:
-      - name: bid
-        in: path
+      - in: path
+        name: bid
         type: integer
         required: true
         description: ID of the brand to restore
@@ -1584,8 +1584,8 @@ def update_promotion(pid):
     security:
       - Bearer: []
     parameters:
-      - name: pid
-        in: path
+      - in: path
+        name: pid
         type: integer
         required: true
         description: ID of the promotion to update
@@ -1677,8 +1677,8 @@ def delete_promotion(pid):
     security:
       - Bearer: []
     parameters:
-      - name: pid
-        in: path
+      - in: path
+        name: pid
         type: integer
         required: true
         description: ID of the promotion to delete
@@ -1794,8 +1794,8 @@ def delete_review(rid):
     security:
       - Bearer: []
     parameters:
-      - name: rid
-        in: path
+      - in: path
+        name: rid
         type: integer
         required: true
         description: ID of the review to delete
@@ -1898,8 +1898,8 @@ def list_values_for_attribute(aid):
     security:
       - Bearer: []
     parameters:
-      - name: aid
-        in: path
+      - in: path
+        name: aid
         type: integer
         required: true
         description: ID of the attribute to get values for
@@ -2013,13 +2013,13 @@ def update_attribute_value(aid, value_code):
     security:
       - Bearer: []
     parameters:
-      - name: aid
-        in: path
+      - in: path
+        name: aid
         type: integer
         required: true
         description: ID of the attribute this value belongs to
-      - name: value_code
-        in: path
+      - in: path
+        name: value_code
         type: string
         required: true
         description: Code of the attribute value to update
@@ -2252,8 +2252,8 @@ def get_attribute(attribute_id):
     security:
       - Bearer: []
     parameters:
-      - name: attribute_id
-        in: path
+      - in: path
+        name: attribute_id
         type: integer
         required: true
         description: ID of the attribute to retrieve
@@ -2315,8 +2315,8 @@ def update_attribute(attribute_id):
     security:
       - Bearer: []
     parameters:
-      - name: attribute_id
-        in: path
+      - in: path
+        name: attribute_id
         type: integer
         required: true
         description: ID of the attribute to update
@@ -2401,8 +2401,8 @@ def delete_attribute(attribute_id):
     security:
       - Bearer: []
     parameters:
-      - name: attribute_id
-        in: path
+      - in: path
+        name: attribute_id
         type: integer
         required: true
         description: ID of the attribute to delete
@@ -2454,9 +2454,9 @@ def list_category_attributes_for_category(cid):
     security:
       - Bearer: []
     parameters:
-      - name: cid
-        in: path
-        type: integer
+      - in: path
+        name: cid
+        type: integer 
         required: true
         description: ID of the category to get attributes for
     responses:
@@ -2523,8 +2523,8 @@ def add_attribute_to_category(cid):
     security:
       - Bearer: []
     parameters:
-      - name: cid
-        in: path
+      - in: path
+        name: cid
         type: integer
         required: true
         description: ID of the category to add the attribute to
@@ -2631,13 +2631,13 @@ def update_attribute_for_category(cid, aid):
     security:
       - Bearer: []
     parameters:
-      - name: cid
-        in: path
+      - in: path
+        name: cid
         type: integer
         required: true
         description: ID of the category
-      - name: aid
-        in: path
+      - in: path
+        name: aid
         type: integer
         required: true
         description: ID of the attribute to update
@@ -2719,13 +2719,13 @@ def remove_attribute_from_category(cid, aid):
     security:
       - Bearer: []
     parameters:
-      - name: cid
-        in: path
+      - in: path
+        name: cid
         type: integer
         required: true
         description: ID of the category
-      - name: aid
-        in: path
+      - in: path
+        name: aid
         type: integer
         required: true
         description: ID of the attribute to remove
@@ -2764,8 +2764,8 @@ def assign_attribute_to_category(cid):
     security:
       - Bearer: []
     parameters:
-      - name: cid
-        in: path
+      - in: path
+        name: cid
         type: integer
         required: true
         description: ID of the category to assign the attribute to
@@ -2855,13 +2855,13 @@ def add_category_to_brand(bid, cid):
     security:
       - Bearer: []
     parameters:
-      - name: bid
-        in: path
+      - in: path
+        name: bid
         type: integer
         required: true
         description: ID of the brand
-      - name: cid
-        in: path
+      - in: path
+        name: cid
         type: integer
         required: true
         description: ID of the category to add to the brand
@@ -2939,13 +2939,13 @@ def remove_category_from_brand(bid, cid):
     security:
       - Bearer: []
     parameters:
-      - name: bid
-        in: path
+      - in: path
+        name: bid
         type: integer
         required: true
         description: ID of the brand
-      - name: cid
-        in: path
+      - in: path
+        name: cid
         type: integer
         required: true
         description: ID of the category to remove from the brand
@@ -3021,8 +3021,8 @@ def get_brand_categories(bid):
     security:
       - Bearer: []
     parameters:
-      - name: bid
-        in: path
+      - in: path
+        name: bid
         type: integer
         required: true
         description: ID of the brand to get categories for
@@ -4438,8 +4438,8 @@ def get_shop_categories_for_gst(shop_id):
     security:
       - Bearer: []
     parameters:
-      - name: shop_id
-        in: path
+      - in: path
+        name: shop_id
         type: integer
         required: true
         description: Shop ID
@@ -4530,8 +4530,8 @@ def get_shop_gst_rule_route(rule_id):
     security:
       - Bearer: []
     parameters:
-      - name: rule_id
-        in: path
+      - in: path
+        name: rule_id
         type: integer
         required: true
         description: Rule ID
@@ -4640,8 +4640,8 @@ def update_shop_gst_rule_route(rule_id):
     security:
       - Bearer: []
     parameters:
-      - name: rule_id
-        in: path
+      - in: path
+        name: rule_id
         type: integer
         required: true
         description: Rule ID
@@ -4712,8 +4712,8 @@ def delete_shop_gst_rule_route(rule_id):
     security:
       - Bearer: []
     parameters:
-      - name: rule_id
-        in: path
+      - in: path
+        name: rule_id
         type: integer
         required: true
         description: Rule ID
@@ -4855,8 +4855,8 @@ def get_merchant_transaction(txn_id):
     security:
       - Bearer: []
     parameters:
-      - name: txn_id
-        in: path
+      - in: path
+        name: txn_id
         type: integer
         required: true
         description: ID of the transaction to retrieve
@@ -4909,8 +4909,8 @@ def mark_merchant_transaction_paid(txn_id):
     security:
       - Bearer: []
     parameters:
-      - name: txn_id
-        in: path
+      - in: path
+        name: txn_id
         type: integer
         required: true
         description: ID of the transaction to mark as paid
@@ -5231,8 +5231,8 @@ def get_merchant_pending_transactions(merchant_id):
     security:
       - Bearer: []
     parameters:
-      - name: merchant_id
-        in: path
+      - in: path
+        name: merchant_id
         type: integer
         required: true
         description: ID of the merchant
@@ -5697,8 +5697,8 @@ def get_order_details_superadmin(order_id):
     security:
       - Bearer: []
     parameters:
-      - name: order_id
-        in: path
+      - in: path
+        name: order_id
         type: string
         required: true
         description: ID of the order to retrieve
