@@ -38,7 +38,7 @@ def upload_image():
         name: folder
         type: string
         required: false
-        description: Cloudinary folder to upload to (default: products)
+        description: "Cloudinary folder to upload to (default: products)"
     responses:
       200:
         description: Image uploaded successfully
@@ -123,7 +123,7 @@ def upload_video():
         name: folder
         type: string
         required: false
-        description: Cloudinary folder to upload to (default: products)
+        description: "Cloudinary folder to upload to (default: products)"
     responses:
       200:
         description: Video uploaded successfully

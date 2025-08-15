@@ -21,41 +21,41 @@ def get_products_by_shop(shop_id):
       - in: query
         name: page
         type: integer
-        description: Page number (default: 1)
+        description: "Page number (default: 1)"
       - in: query
         name: per_page
         type: integer
-        description: Items per page (default: 20, max: 50)
+        description: "Items per page (default: 20, max: 50)"
       - in: query
         name: sort_by
         type: string
         enum: [created_at, product_name, selling_price, special_price]
-        description: Field to sort by (default: created_at)
+        description: "Field to sort by (default: created_at)"
       - in: query
         name: order
         type: string
         enum: [asc, desc]
-        description: Sort order (default: desc)
+        description: "Sort order (default: desc)"
       - in: query
         name: category_id
         type: integer
-        description: Filter by category ID
+        description: "Filter by category ID"
       - in: query
         name: brand_id
         type: integer
-        description: Filter by brand ID
+        description: "Filter by brand ID"
       - in: query
         name: min_price
         type: number
-        description: Minimum price filter
+        description: "Minimum price filter"
       - in: query
         name: max_price
         type: number
-        description: Maximum price filter
+        description: "Maximum price filter"
       - in: query
         name: discount_min
         type: number
-        description: Minimum discount percentage (0-100). NULL treated as 0. Inclusive.
+        description: "Minimum discount percentage (0-100). NULL treated as 0. Inclusive."
       - in: query
         name: discount_max
         type: number
@@ -148,7 +148,7 @@ def get_featured_products(shop_id):
       - in: query
         name: limit
         type: integer
-        description: Number of featured products to return (default: 8, max: 20)
+        description: "Number of featured products to return (default: 8, max: 20)"
     responses:
       200:
         description: List of featured products

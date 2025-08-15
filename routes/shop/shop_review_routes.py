@@ -111,15 +111,15 @@ def get_shop_product_reviews(shop_product_id: int):
               required: true
               description: Product ID
             - name: page
-                in: query
-                type: integer
-                default: 1
-                description: Page number for pagination
-            - name: per_page
-                in: query
-                type: integer
-                default: 10
-                description: Number of reviews per page (max 50)
+              in: query
+              type: integer
+              default: 1
+              description: Page number for pagination
+            - in: query
+              name: per_page
+              type: integer
+              default: 10
+              description: Number of reviews per page (max 50)
         responses:
             200:
                 description: Reviews retrieved successfully
@@ -165,15 +165,15 @@ def get_user_shop_reviews():
             - Bearer: []
         parameters:
             - name: page
-                in: query
-                type: integer
-                default: 1
-                description: Page number for pagination
+              in: query
+              type: integer
+              default: 1
+              description: Page number for pagination
             - name: per_page
-                in: query
-                type: integer
-                default: 10
-                description: Number of reviews per page (max 50)
+              in: query
+              type: integer
+              default: 10
+              description: Number of reviews per page (max 50)
         responses:
             200:
                 description: User reviews retrieved successfully
