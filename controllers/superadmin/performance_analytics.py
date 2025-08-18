@@ -960,8 +960,8 @@ class PerformanceAnalyticsController:
             # Get hourly visit data with bounce rate based on time spent
             hourly_data = db.session.query(
                 extract('hour', VisitTracking.visit_time).label('hour'),
-                func.count(VisitTracking.visit_id).label('total_visits'),
-                func.count(func.distinct(VisitTracking.session_id)).label('unique_visitors'),
+                func.count(VisitTracking.session_id).label('total_visits'),
+                func.count(func.distinct(VisitTracking.ip_address)).label('unique_visitors'),
                 func.sum(case(
                     (VisitTracking.time_spent <= 10, 1),  # Consider visits with less than 10 seconds as bounces
                     else_=0
