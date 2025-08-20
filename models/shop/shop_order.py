@@ -47,6 +47,7 @@ class ShopOrder(BaseModel):
     
     items = db.relationship('ShopOrderItem', back_populates='order', cascade='all, delete-orphan', lazy='joined', order_by='ShopOrderItem.order_item_id')
     status_history = db.relationship('ShopOrderStatusHistory', back_populates='order', cascade='all, delete-orphan', lazy='dynamic', order_by='ShopOrderStatusHistory.changed_at.desc()')
+    shipments = db.relationship('ShopShipment', back_populates='shop_order', cascade='all, delete-orphan', lazy='dynamic')
     
     shipping_address_obj = db.relationship('UserAddress', foreign_keys=[shipping_address_id], lazy='joined')
     billing_address_obj = db.relationship('UserAddress', foreign_keys=[billing_address_id], lazy='joined')

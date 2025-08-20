@@ -25,6 +25,8 @@ from .wishlist_item import WishlistItem
 from .cart import Cart, CartItem
 from .order import Order, OrderItem, OrderStatusHistory
 from .shipment import Shipment, ShipmentItem
+from .shop.shop_order import ShopOrder, ShopOrderItem, ShopOrderStatusHistory
+from .shop.shop_shipment import ShopShipment, ShopShipmentItem
 from .visit_tracking import VisitTracking
 
 
@@ -49,5 +51,10 @@ __all__ = [
     'SubscriptionPlan',
     'SubscriptionHistory',
     'GSTRule', 
-    'ProductPriceConditionType' 
+    'ProductPriceConditionType',
+    'ShopOrder',
+    'ShopOrderItem', 
+    'ShopOrderStatusHistory',
+    'ShopShipment',
+    'ShopShipmentItem'
 ]

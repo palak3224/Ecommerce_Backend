@@ -879,3 +879,187 @@ def get_merchant_pickup_location(merchant_id):
         
     except Exception as e:
         return error_response(f"Failed to get pickup location: {str(e)}", 500) 
+
+@shiprocket_bp.route('/create-shop-order', methods=['POST'])
+@jwt_required()
+def create_shiprocket_shop_order():
+    """
+    Create ShipRocket order for a shop order where the shop is the primary pickup location
+    ---
+    tags:
+      - ShipRocket
+    security:
+      - Bearer: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - shop_order_id
+              - shop_id
+              - delivery_address_id
+            properties:
+              shop_order_id:
+                type: string
+                description: Shop order ID from database
+              shop_id:
+                type: integer
+                description: Shop ID
+              delivery_address_id:
+                type: integer
+                description: Delivery address ID
+              courier_id:
+                type: integer
+                description: Preferred courier ID (optional)
+    responses:
+      200:
+        description: ShipRocket shop order created successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            data:
+              type: object
+              properties:
+                shiprocket_order_id:
+                  type: integer
+                shipment_id:
+                  type: integer
+                awb_code:
+                  type: string
+                courier_name:
+                  type: string
+                tracking_number:
+                  type: string
+                serviceability:
+                  type: object
+                db_shipment:
+                  type: object
+                courier_data:
+                  type: object
+      400:
+        description: Invalid request data
+      404:
+        description: Shop order, shop, or address not found
+      500:
+        description: Internal server error
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return error_response("Request data is required", 400)
+        
+        required_fields = ['shop_order_id', 'shop_id', 'delivery_address_id']
+        for field in required_fields:
+            if field not in data:
+                return error_response(f"Missing required field: {field}", 400)
+        
+        shop_order_id = data['shop_order_id']
+        shop_id = int(data['shop_id'])
+        delivery_address_id = int(data['delivery_address_id'])
+        courier_id = int(data.get('courier_id')) if data.get('courier_id') else None
+        
+        # Validate shop_order_id format
+        if not shop_order_id or not isinstance(shop_order_id, str):
+            return error_response("Invalid shop_order_id format", 400)
+        
+        # Validate shop_id
+        if shop_id <= 0:
+            return error_response("Invalid shop_id", 400)
+        
+        # Validate delivery_address_id
+        if delivery_address_id <= 0:
+            return error_response("Invalid delivery_address_id", 400)
+        
+        # Validate courier_id if provided
+        if courier_id is not None and courier_id <= 0:
+            return error_response("Invalid courier_id", 400)
+        
+        shiprocket = ShipRocketController()
+        response = shiprocket.create_shiprocket_order_for_shop(
+            shop_order_id=shop_order_id,
+            shop_id=shop_id,
+            delivery_address_id=delivery_address_id,
+            courier_id=courier_id
+        )
+        
+        return success_response("ShipRocket shop order created successfully", response)
+        
+    except ValueError as e:
+        return error_response(f"Invalid data format: {str(e)}", 400)
+    except Exception as e:
+        return error_response(f"ShipRocket shop order creation failed: {str(e)}", 500)
+
+@shiprocket_bp.route('/shop/<int:shop_id>/pickup-location', methods=['POST'])
+@jwt_required()
+def create_shop_pickup_location(shop_id):
+    """
+    Create pickup location for a shop in ShipRocket
+    ---
+    tags:
+      - ShipRocket
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: shop_id
+        required: true
+        type: integer
+        description: Shop ID
+    responses:
+      200:
+        description: Shop pickup location created successfully
+      404:
+        description: Shop not found
+      500:
+        description: Internal server error
+    """
+    try:
+        shiprocket = ShipRocketController()
+        pickup_location_name = shiprocket.create_shop_pickup_location(shop_id)
+        return success_response("Shop pickup location created successfully", {
+            "pickup_location_name": pickup_location_name,
+            "shop_id": shop_id
+        })
+        
+    except Exception as e:
+        return error_response(f"Failed to create shop pickup location: {str(e)}", 500)
+
+@shiprocket_bp.route('/shop/<int:shop_id>/pickup-location', methods=['GET'])
+@jwt_required()
+def get_shop_pickup_location(shop_id):
+    """
+    Get or create pickup location for a shop
+    ---
+    tags:
+      - ShipRocket
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: shop_id
+        required: true
+        type: integer
+        description: Shop ID
+    responses:
+      200:
+        description: Shop pickup location retrieved/created successfully
+      404:
+        description: Shop not found
+      500:
+        description: Internal server error
+    """
+    try:
+        shiprocket = ShipRocketController()
+        pickup_location_name = shiprocket.get_or_create_shop_pickup_location(shop_id)
+        return success_response("Shop pickup location retrieved/created successfully", {
+            "pickup_location_name": pickup_location_name,
+            "shop_id": shop_id
+        })
+        
+    except Exception as e:
+        return error_response(f"Failed to get shop pickup location: {str(e)}", 500) 
