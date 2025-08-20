@@ -909,6 +909,12 @@ class ShipRocketController:
         """
         try:
             response = self._make_request('GET', 'settings/company/pickup')
+            
+            # Log the response structure for debugging
+            current_app.logger.info(f"ShipRocket pickup locations response structure: {list(response.keys()) if isinstance(response, dict) else 'Not a dict'}")
+            if isinstance(response, dict) and 'data' in response:
+                current_app.logger.info(f"Data structure: {list(response['data'].keys()) if isinstance(response['data'], dict) else 'Data not a dict'}")
+            
             return response
             
         except Exception as e:
@@ -1027,3 +1033,464 @@ class ShipRocketController:
             current_app.logger.error(f"Error getting pickup location for merchant {merchant_id}: {str(e)}")
             # Fallback to merchant-specific pickup location name
             return f"Merchant_{merchant_id}" 
+
+    def create_shiprocket_order_for_shop(self, shop_order_id, shop_id, delivery_address_id, courier_id=None):
+        """
+        Create ShipRocket order for a shop order where the shop is the primary pickup location
+        
+        Args:
+            shop_order_id (str): Shop order ID from database
+            shop_id (int): Shop ID
+            delivery_address_id (int): Delivery address ID
+            courier_id (int, optional): Preferred courier ID
+        
+        Returns:
+            dict: Complete shipping process response
+        """
+        try:
+            # Get shop order details
+            from models.shop.shop_order import ShopOrder
+            from models.shop.shop import Shop
+            from models.user_address import UserAddress
+            
+            shop_order = ShopOrder.query.filter_by(order_id=shop_order_id).first()
+            if not shop_order:
+                raise Exception(f"Shop order {shop_order_id} not found")
+            
+            # Get shop details
+            shop = Shop.query.filter_by(shop_id=shop_id).first()
+            if not shop:
+                raise Exception(f"Shop {shop_id} not found")
+            
+            # Get delivery address
+            delivery_address = UserAddress.query.filter_by(address_id=delivery_address_id).first()
+            if not delivery_address:
+                raise Exception(f"Delivery address {delivery_address_id} not found")
+            
+            # Create shop pickup location if it doesn't exist
+            pickup_location_name = self.get_or_create_shop_pickup_location(shop_id)
+            current_app.logger.info(f"Using pickup location '{pickup_location_name}' for shop {shop_id}")
+            
+            # Calculate total weight and prepare order items
+            total_weight = Decimal('0')
+            total_length = Decimal('0')
+            total_breadth = Decimal('0')
+            total_height = Decimal('0')
+            order_items = []
+            
+            for item in shop_order.items:
+                # Get product shipping details
+                from models.shop.shop_product import ShopProduct
+                product = ShopProduct.query.filter_by(product_id=item.product_id).first()
+                
+                if product and hasattr(product, 'shipping') and product.shipping:
+                    # Use actual shipping dimensions from product_shipping
+                    item_weight = product.shipping.weight_kg or Decimal('0.5')
+                    item_length = product.shipping.length_cm or Decimal('10')
+                    item_breadth = product.shipping.width_cm or Decimal('10')
+                    item_height = product.shipping.height_cm or Decimal('10')
+                else:
+                    # Default dimensions if no shipping info available
+                    item_weight = Decimal('0.5')
+                    item_length = Decimal('10')
+                    item_breadth = Decimal('10')
+                    item_height = Decimal('10')
+                
+                # Calculate totals for the entire shipment
+                total_weight += item_weight * item.quantity
+                # For dimensions, use the largest item's dimensions
+                if item_length > total_length:
+                    total_length = item_length
+                if item_breadth > total_breadth:
+                    total_breadth = item_breadth
+                if item_height > total_height:
+                    total_height = item_height
+                
+                current_app.logger.info(f"Product {item.product_id} shipping details: weight={item_weight}kg, length={item_length}cm, breadth={item_breadth}cm, height={item_height}cm")
+                
+                order_items.append({
+                    "name": item.product_name_at_purchase,
+                    "sku": item.sku_at_purchase,
+                    "units": str(item.quantity),
+                    "selling_price": str(int(float(item.unit_price_inclusive_gst))),
+                    "discount": str(int(float(item.discount_amount_per_unit_applied or 0))),
+                    "tax": str(int(float(item.gst_amount_per_unit or 0))),
+                    "hsn": ""
+                })
+            
+            # Check serviceability
+            cod_amount = 0
+            if shop_order.payment_status.value != 'paid':
+                cod_amount = float(shop_order.total_amount)
+                # Cap COD amount at ShipRocket's limit
+                if cod_amount > 50000:
+                    current_app.logger.warning(f"COD amount {cod_amount} exceeds limit, capping at 50000")
+                    cod_amount = 50000
+            
+            # Get primary pickup location pincode from ShipRocket
+            pickup_pincode = "110001"  # Default fallback
+            try:
+                pickup_locations_response = self.get_pickup_locations()
+                if pickup_locations_response.get('status') == 200:
+                    pickup_locations = pickup_locations_response.get('data', {}).get('data', [])
+                    for location in pickup_locations:
+                        if location.get('address_type') == 'Primary' or location.get('is_primary') == True:
+                            pickup_pincode = location.get('pin_code', '110001')
+                            current_app.logger.info(f"Using primary pickup location pincode: {pickup_pincode}")
+                            break
+            except Exception as e:
+                current_app.logger.warning(f"Failed to get primary pickup location pincode: {str(e)}, using default")
+            
+            serviceability_response = self.check_serviceability(
+                pickup_pincode=pickup_pincode,
+                delivery_pincode=delivery_address.postal_code,
+                weight=float(total_weight),
+                cod=0 if shop_order.payment_status.value == 'paid' else float(shop_order.total_amount)
+            )
+            
+            if not serviceability_response.get('data', {}).get('available_courier_companies'):
+                raise Exception("No courier services available for this route")
+            
+            # Select the best courier service
+            available_couriers = serviceability_response['data']['available_courier_companies']
+            
+            # If the caller specified a courier_id and it is in the list, honour that choice
+            selected_courier = None
+            if courier_id:
+                selected_courier = next((c for c in available_couriers if c['courier_company_id'] == courier_id), None)
+            
+            # Otherwise pick the courier with the best rating and lowest price
+            if not selected_courier:
+                def _sort_key(c):
+                    try:
+                        rating = float(c.get('rating', 0))
+                    except (TypeError, ValueError):
+                        rating = 0.0
+                    try:
+                        price = float(c.get('rate', 0))
+                    except (TypeError, ValueError):
+                        price = float('inf')
+                    return (-rating, price)
+                
+                available_couriers_sorted = sorted(available_couriers, key=_sort_key)
+                selected_courier = available_couriers_sorted[0]
+                
+                current_app.logger.info(f"Auto-selected best courier: {selected_courier.get('courier_name', 'Unknown')} "
+                                      f"(Rating: {selected_courier.get('rating', 'N/A')}, "
+                                      f"Rate: ₹{selected_courier.get('rate', 'N/A')})")
+            
+            # Clean up courier data
+            cleaned_courier = self._clean_courier_data(selected_courier)
+            
+            # Create or update shipment record in database
+            from models.shop.shop_shipment import ShopShipment
+            from models.shipment import ShipmentStatusEnum
+            
+            existing_shipment = ShopShipment.query.filter_by(
+                shop_order_id=shop_order_id, 
+                shop_id=shop_id
+            ).first()
+            
+            if existing_shipment:
+                current_app.logger.info(f"Updating existing shipment {existing_shipment.shipment_id}")
+                existing_shipment.carrier_name = selected_courier.get('courier_name', 'Unknown')
+                existing_shipment.shipment_status = ShipmentStatusEnum.PENDING_PICKUP
+                existing_shipment.courier_id = selected_courier.get('courier_company_id')
+                existing_shipment.pickup_address_id = None  # Shop pickup location
+                existing_shipment.delivery_address_id = delivery_address_id
+                shipment = existing_shipment
+            else:
+                current_app.logger.info(f"Creating new shipment record for shop order {shop_order_id}, shop {shop_id}")
+                from models.shop.shop_shipment import ShopShipment
+                shipment = ShopShipment(
+                    shop_order_id=shop_order_id,
+                    shop_id=shop_id,
+                    carrier_name=selected_courier.get('courier_name', 'Unknown'),
+                    shipment_status=ShipmentStatusEnum.PENDING_PICKUP,
+                    courier_id=selected_courier.get('courier_company_id'),
+                    pickup_address_id=None,  # Shop pickup location
+                    delivery_address_id=delivery_address_id
+                )
+                db.session.add(shipment)
+            
+            try:
+                db.session.commit()
+                current_app.logger.info(f"Successfully saved shipment record: {shipment.shipment_id}")
+            except Exception as db_error:
+                current_app.logger.error(f"Database error saving shipment: {str(db_error)}")
+                db.session.rollback()
+                raise
+            
+            # Try to create ShipRocket order
+            shiprocket_order_id = None
+            shipment_id = None
+            awb_code = None
+            courier_name = selected_courier.get('courier_name', 'Unknown')
+            
+            try:
+                # Split customer name into first and last name
+                customer_name = delivery_address.contact_name or f"{shop_order.user.first_name} {shop_order.user.last_name}"
+                name_parts = customer_name.strip().split(' ', 1)
+                billing_first_name = name_parts[0] if name_parts else ""
+                billing_last_name = name_parts[1] if len(name_parts) > 1 else ""
+                
+                # Prepare order data for ShipRocket
+                order_data = {
+                    "order_id": shop_order_id,
+                    "order_date": shop_order.order_date.strftime("%Y-%m-%d %H:%M"),
+                    "pickup_location": pickup_location_name,
+                    "comment": "",
+                    "reseller_name": shop.name,
+                    "company_name": shop.name,
+                    "billing_customer_name": billing_first_name,
+                    "billing_last_name": billing_last_name,
+                    "billing_address": delivery_address.address_line1,
+                    "billing_address_2": delivery_address.address_line2 or "",
+                    "billing_isd_code": "",
+                    "billing_city": delivery_address.city,
+                    "billing_pincode": delivery_address.postal_code,
+                    "billing_state": delivery_address.state_province,
+                    "billing_country": delivery_address.country_code,
+                    "billing_email": shop_order.user.email,
+                    "billing_phone": self._format_phone_number(delivery_address.contact_phone or shop_order.user.phone),
+                    "billing_alternate_phone": "",
+                    "shipping_is_billing": "1",
+                    "shipping_customer_name": "",
+                    "shipping_last_name": "",
+                    "shipping_address": "",
+                    "shipping_address_2": "",
+                    "shipping_city": "",
+                    "shipping_pincode": "",
+                    "shipping_country": "",
+                    "shipping_state": "",
+                    "shipping_email": "",
+                    "shipping_phone": "",
+                    "order_items": order_items,
+                    "payment_method": "Prepaid" if shop_order.payment_status.value == 'paid' else "COD",
+                    "shipping_charges": str(int(float(shop_order.shipping_amount or 0))),
+                    "giftwrap_charges": "",
+                    "transaction_charges": "",
+                    "total_discount": "",
+                    "sub_total": str(int(float(shop_order.total_amount))),
+                    "length": str(float(total_length)),
+                    "breadth": str(float(total_breadth)),
+                    "height": str(float(total_height)),
+                    "weight": str(float(total_weight)),
+                    "ewaybill_no": "",
+                    "customer_gstin": "",
+                    "invoice_number": "",
+                    "order_type": ""
+                }
+                
+                current_app.logger.info(f"Final shipping dimensions for shop order {shop_order_id}: length={total_length}cm, breadth={total_breadth}cm, height={total_height}cm, weight={total_weight}kg")
+                
+                # Ensure minimum dimensions and weight
+                if total_weight <= 0:
+                    total_weight = Decimal('0.5')
+                    current_app.logger.warning(f"No shipping weight found for shop order {shop_order_id}, using default 0.5kg")
+                if total_length <= 0:
+                    total_length = Decimal('10')
+                    current_app.logger.warning(f"No shipping length found for shop order {shop_order_id}, using default 10cm")
+                if total_breadth <= 0:
+                    total_breadth = Decimal('10')
+                    current_app.logger.warning(f"No shipping breadth found for shop order {shop_order_id}, using default 10cm")
+                if total_height <= 0:
+                    total_height = Decimal('10')
+                    current_app.logger.warning(f"No shipping height found for shop order {shop_order_id}, using default 10cm")
+                
+                # Validate required fields
+                required_fields = ['order_id', 'billing_customer_name', 'billing_address', 'billing_city', 'billing_pincode', 'billing_state', 'billing_country', 'billing_email', 'billing_phone']
+                for field in required_fields:
+                    if not order_data.get(field):
+                        current_app.logger.warning(f"Missing required field for ShipRocket shop order: {field}")
+                
+                if not order_items:
+                    current_app.logger.warning("No order items found for ShipRocket shop order")
+                
+                # Create order in ShipRocket
+                order_response = self.create_order(order_data)
+                
+                if order_response.get('status') == 200:
+                    shiprocket_order_id = order_response['data']['order_id']
+                    shipment_id = order_response['data']['shipment_id']
+                    
+                    # Assign AWB
+                    awb_response = self.assign_awb(shipment_id, selected_courier['courier_company_id'])
+                    
+                    if awb_response.get('status') == 200:
+                        awb_code = awb_response['data']['awb_code']
+                        courier_name = awb_response['data']['courier_name']
+                        
+                        # Generate pickup
+                        pickup_response = self.generate_pickup(shipment_id)
+                        
+                        if pickup_response.get('status') == 200:
+                            # Update shipment with ShipRocket details
+                            shipment.shiprocket_order_id = shiprocket_order_id
+                            shipment.shiprocket_shipment_id = shipment_id
+                            shipment.awb_code = awb_code
+                            shipment.tracking_number = awb_code
+                            shipment.carrier_name = courier_name
+                            shipment.shipment_status = ShipmentStatusEnum.LABEL_CREATED
+                            shipment.shipped_date = datetime.now(timezone.utc)
+                            shipment.pickup_generated = True
+                            shipment.pickup_generated_at = datetime.now(timezone.utc)
+                            db.session.commit()
+                            
+                            current_app.logger.info(f"ShipRocket shop order created successfully for shop {shop_id}")
+                        else:
+                            current_app.logger.warning(f"Pickup generation failed: {pickup_response.get('message', 'Unknown error')}")
+                    else:
+                        current_app.logger.warning(f"AWB assignment failed: {awb_response.get('message', 'Unknown error')}")
+                else:
+                    current_app.logger.warning(f"ShipRocket shop order creation failed: {order_response.get('message', 'Unknown error')}")
+                    
+            except Exception as shiprocket_error:
+                current_app.logger.warning(f"ShipRocket shop order creation failed for shop {shop_id}: {str(shiprocket_error)}")
+                # Don't fail the entire process if ShipRocket fails
+            
+            return {
+                "success": True,
+                "shiprocket_order_id": shiprocket_order_id,
+                "shipment_id": shipment_id,
+                "awb_code": awb_code,
+                "courier_name": courier_name,
+                "tracking_number": awb_code,
+                "serviceability": serviceability_response,
+                "db_shipment": shipment.serialize(),
+                "courier_data": cleaned_courier
+            }
+            
+        except Exception as e:
+            current_app.logger.error(f"ShipRocket shop order creation failed: {str(e)}")
+            db.session.rollback()
+            raise
+    
+    def create_shop_pickup_location(self, shop_id):
+        """
+        Get the primary pickup location from ShipRocket instead of creating new ones
+        
+        Args:
+            shop_id (int): Shop ID
+        
+        Returns:
+            str: Primary pickup location name from ShipRocket
+        """
+        try:
+            # Get shop details for logging
+            from models.shop.shop import Shop
+            shop = Shop.query.filter_by(shop_id=shop_id).first()
+            if not shop:
+                raise Exception(f"Shop {shop_id} not found")
+            
+            current_app.logger.info(f"Getting primary pickup location from ShipRocket for shop {shop_id}")
+            
+            try:
+                # Get all pickup locations from ShipRocket
+                pickup_locations_response = self.get_pickup_locations()
+                
+                if pickup_locations_response.get('status') == 200:
+                    # Try different possible response structures
+                    pickup_locations = []
+                    
+                    # Structure 1: data.data (nested)
+                    if 'data' in pickup_locations_response and isinstance(pickup_locations_response['data'], dict):
+                        if 'data' in pickup_locations_response['data']:
+                            pickup_locations = pickup_locations_response['data']['data']
+                        elif 'pickup_locations' in pickup_locations_response['data']:
+                            pickup_locations = pickup_locations_response['data']['pickup_locations']
+                        elif isinstance(pickup_locations_response['data'], list):
+                            pickup_locations = pickup_locations_response['data']
+                    
+                    # Structure 2: direct data array
+                    elif isinstance(pickup_locations_response.get('data'), list):
+                        pickup_locations = pickup_locations_response['data']
+                    
+                    current_app.logger.info(f"Found {len(pickup_locations)} pickup locations")
+                    
+                    # Find the primary pickup location or Aoin location
+                    primary_pickup = None
+                    for location in pickup_locations:
+                        pickup_name = location.get('pickup_location', 'Unknown')
+                        address_type = location.get('address_type', 'Unknown')
+                        is_primary = location.get('is_primary', False)
+                        
+                        current_app.logger.info(f"Checking pickup location: {pickup_name} - type: {address_type} - primary: {is_primary}")
+                        
+                        # First priority: Look for "Aoin" location
+                        if pickup_name.lower() == 'aoin':
+                            primary_pickup = location
+                            current_app.logger.info(f"Found Aoin pickup location: {pickup_name}")
+                            break
+                        # Second priority: Look for primary location
+                        elif (address_type == 'Primary' or 
+                              is_primary == True or 
+                              pickup_name.lower() == 'primary'):
+                            primary_pickup = location
+                            current_app.logger.info(f"Found primary pickup location: {pickup_name}")
+                            break
+                    
+                    if primary_pickup:
+                        pickup_location_name = primary_pickup.get('pickup_location', 'Primary')
+                        current_app.logger.info(f"Found primary pickup location: {pickup_location_name}")
+                        
+                        # Update shop with the primary pickup location info
+                        shop.shiprocket_pickup_location_name = pickup_location_name
+                        shop.shiprocket_pickup_location_id = primary_pickup.get('pickup_location_id')
+                        db.session.commit()
+                        
+                        return pickup_location_name
+                    elif pickup_locations:
+                        # Use the first available pickup location as fallback
+                        first_location = pickup_locations[0]
+                        pickup_location_name = first_location.get('pickup_location', 'Primary')
+                        current_app.logger.info(f"No primary pickup location found, using first available: {pickup_location_name}")
+                        
+                        # Update shop with the pickup location info
+                        shop.shiprocket_pickup_location_name = pickup_location_name
+                        shop.shiprocket_pickup_location_id = first_location.get('pickup_location_id')
+                        db.session.commit()
+                        
+                        return pickup_location_name
+                    else:
+                        current_app.logger.warning("No pickup locations found in ShipRocket, using 'Aoin' as fallback")
+                        return "Aoin"
+                else:
+                    current_app.logger.warning(f"Failed to get pickup locations from ShipRocket: {pickup_locations_response.get('message', 'Unknown error')}")
+                    return "Aoin"
+                    
+            except Exception as e:
+                current_app.logger.warning(f"Failed to get pickup locations from ShipRocket for shop {shop_id}: {str(e)}")
+                return "Aoin"
+                
+        except Exception as e:
+            current_app.logger.error(f"Failed to get pickup location for shop {shop_id}: {str(e)}")
+            return "Aoin"
+    
+    def get_or_create_shop_pickup_location(self, shop_id):
+        """
+        Get the primary pickup location from ShipRocket for all shops
+        
+        Args:
+            shop_id (int): Shop ID
+        
+        Returns:
+            str: Primary pickup location name from ShipRocket
+        """
+        try:
+            # Get shop details for logging
+            from models.shop.shop import Shop
+            shop = Shop.query.filter_by(shop_id=shop_id).first()
+            if not shop:
+                raise Exception(f"Shop {shop_id} not found")
+            
+            # Always get the primary pickup location from ShipRocket
+            current_app.logger.info(f"Getting primary pickup location from ShipRocket for shop {shop_id}")
+            pickup_location_name = self.create_shop_pickup_location(shop_id)
+            
+            current_app.logger.info(f"Using primary pickup location for shop {shop_id}: {pickup_location_name}")
+            return pickup_location_name
+                
+        except Exception as e:
+            current_app.logger.error(f"Error getting pickup location for shop {shop_id}: {str(e)}")
+            return "Aoin" 
