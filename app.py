@@ -67,6 +67,7 @@ from routes.shop.public.public_shop_wishlsit_routes import public_shop_wishlist_
 from routes.shop.public.public_shop_order_routes import public_shop_order_bp
 
 from routes.upload_routes import upload_bp
+from routes.translate_routes import translate_bp
 
 
 from flasgger import Swagger
@@ -236,6 +237,10 @@ def create_app(config_name='default'):
     app.register_blueprint(newsletter_public_bp, url_prefix='/api')
 
     app.register_blueprint(upload_bp, url_prefix='/api/upload')
+
+    # Optional: Translation endpoints behind feature flag
+    if app.config.get('FEATURE_TRANSLATION'):
+        app.register_blueprint(translate_bp)
 
     # Add custom headers to every response
     app.after_request(add_headers)
