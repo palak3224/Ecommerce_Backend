@@ -39,3 +39,4 @@ langchain_huggingface
 flask-cors
 fastapi
 uvicorn
+boto3

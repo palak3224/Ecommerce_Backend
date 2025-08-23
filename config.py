@@ -55,6 +55,10 @@ class Config:
     SHIPROCKET_PASSWORD = os.getenv('SHIPROCKET_PASSWORD')
     SHIPROCKET_BASE_URL = 'https://apiv2.shiprocket.in/v1/external'
 
+    # AWS / Translate
+    AWS_REGION = os.getenv('AWS_REGION', 'ap-south-1')
+    FEATURE_TRANSLATION = os.getenv('FEATURE_TRANSLATION', 'false').lower() in ('1', 'true', 'yes')
+
 class DevelopmentConfig(Config):
     """Configuration for development environment."""
     DEBUG = True
