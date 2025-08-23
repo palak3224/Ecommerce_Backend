@@ -20,8 +20,8 @@ class MerchantLiveStreamController:
         return result['secure_url'], result['public_id']
 
     @staticmethod
-    def schedule_youtube_live_event(access_token, title, description, scheduled_time, return_livestream_id=False):
-        logging.debug(f"Scheduling YouTube event: title={title}, scheduled_time={scheduled_time}")
+    def schedule_youtube_live_event(access_token, title, description, scheduled_time, return_livestream_id=False, allow_embedding=True):
+        logging.debug(f"Scheduling YouTube event: title={title}, scheduled_time={scheduled_time}, allow_embedding={allow_embedding}")
         # 1. Create the broadcast
         broadcast_url = "https://www.googleapis.com/youtube/v3/liveBroadcasts?part=snippet,status,contentDetails"
         headers = {
@@ -36,7 +36,8 @@ class MerchantLiveStreamController:
                 "scheduledStartTime": scheduled_time,
             },
             "status": {
-                "privacyStatus": "public"
+                "privacyStatus": "public",
+                "embeddable": allow_embedding
             },
             "kind": "youtube#liveBroadcast"
         }
@@ -106,7 +107,7 @@ class MerchantLiveStreamController:
             return broadcast_id, broadcast_data['snippet'].get('liveBroadcastContent', ''), broadcast_data['snippet'].get('thumbnails', {}), rtmp_info
 
     @staticmethod
-    def schedule_live_stream(merchant_id, title, description, product_id, scheduled_time, thumbnail_file=None, thumbnail_url=None):
+    def schedule_live_stream(merchant_id, title, description, product_id, scheduled_time, thumbnail_file=None, thumbnail_url=None, allow_embedding=True):
         logging.debug(f"schedule_live_stream called: merchant_id={merchant_id}, title={title}, product_id={product_id}, scheduled_time={scheduled_time}")
         # Validate product
         product = Product.query.filter_by(product_id=product_id, merchant_id=merchant_id, deleted_at=None).first()
@@ -130,7 +131,7 @@ class MerchantLiveStreamController:
         scheduled_time_utc = dt_utc.isoformat().replace('+00:00', 'Z')
         # Schedule YouTube event and get RTMP info
         yt_event_id, yt_status, yt_thumbnails, rtmp_info, yt_livestream_id = MerchantLiveStreamController.schedule_youtube_live_event(
-            access_token, title, description, scheduled_time_utc, return_livestream_id=True
+            access_token, title, description, scheduled_time_utc, return_livestream_id=True, allow_embedding=allow_embedding
         )
         # Save to DB
         stream = LiveStream(
@@ -386,6 +387,44 @@ class MerchantLiveStreamController:
                 result['ended'].append(stream)
 
         return result 
+
+    @staticmethod
+    def update_stream_embedding(stream, merchant_id, allow_embedding):
+        """
+        Update the embedding settings for an existing live stream.
+        """
+        if not stream or stream.merchant_id != merchant_id:
+            raise Exception("Live stream not found or not owned by merchant.")
+        
+        if not stream.stream_key:
+            raise Exception("Stream key not found for this live stream.")
+        
+        yt_token = YouTubeToken.query.filter_by(is_active=True).order_by(YouTubeToken.created_at.desc()).first()
+        if not yt_token:
+            raise Exception("No active YouTube token found.")
+        
+        access_token = yt_token.access_token
+        
+        # Update the broadcast embedding settings
+        url = f"https://www.googleapis.com/youtube/v3/liveBroadcasts?part=status&id={stream.stream_key}"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        }
+        
+        body = {
+            "id": stream.stream_key,
+            "status": {
+                "embeddable": allow_embedding
+            }
+        }
+        
+        resp = requests.put(url, headers=headers, json=body)
+        if resp.status_code != 200:
+            raise Exception(f"YouTube API error updating embedding: {resp.text}")
+        
+        return stream
 
     @staticmethod
     def get_available_time_slots(date_str, slot_start="09:00", slot_end="22:00"):

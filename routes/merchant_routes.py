@@ -4423,6 +4423,7 @@ def schedule_live_stream():
             scheduled_time = request.form.get('scheduled_time')
             thumbnail_file = request.files.get('thumbnail')
             thumbnail_url = None
+            allow_embedding = request.form.get('allow_embedding', 'true').lower() == 'true'
         else:
             data = request.get_json()
             title = data.get('title')
@@ -4431,11 +4432,12 @@ def schedule_live_stream():
             scheduled_time = data.get('scheduled_time')
             thumbnail_file = None
             thumbnail_url = data.get('thumbnail_url')
+            allow_embedding = data.get('allow_embedding', True)
         if not all([title, description, product_id, scheduled_time]):
             return jsonify({"error": "Missing required fields."}), 400
-        # Updated: get rtmp_info from controller
+        # Updated: get rtmp_info from controller with embedding control
         stream, yt_event_id, yt_status, yt_thumbnails, rtmp_info = MerchantLiveStreamController.schedule_live_stream(
-            merchant.id, title, description, product_id, scheduled_time, thumbnail_file, thumbnail_url
+            merchant.id, title, description, product_id, scheduled_time, thumbnail_file, thumbnail_url, allow_embedding
         )
         return jsonify({
             "data": stream.serialize(),
@@ -4553,6 +4555,37 @@ def delete_merchant_live_stream(stream_id):
     try:
         MerchantLiveStreamController.delete_stream(stream, merchant.id)
         return jsonify({"message": "Live stream deleted."}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 400
+
+@merchant_dashboard_bp.route('/live-streams/<int:stream_id>/embedding', methods=['PUT'])
+@jwt_required()
+def update_stream_embedding(stream_id):
+    """
+    Update embedding settings for a live stream
+    """
+    user_id = get_jwt_identity()
+    merchant = MerchantProfile.get_by_user_id(user_id)
+    if not merchant:
+        return jsonify({"error": "Merchant profile not found."}), 404
+    
+    data = request.get_json()
+    allow_embedding = data.get('allow_embedding')
+    
+    if allow_embedding is None:
+        return jsonify({"error": "allow_embedding field is required."}), 400
+    
+    stream = MerchantLiveStreamController.get_by_id(stream_id)
+    if not stream or stream.merchant_id != merchant.id:
+        return jsonify({"error": "Live stream not found or not owned by merchant."}), 404
+    
+    try:
+        updated_stream = MerchantLiveStreamController.update_stream_embedding(stream, merchant.id, allow_embedding)
+        return jsonify({
+            "message": f"Embedding settings updated successfully. Embedding {'enabled' if allow_embedding else 'disabled'}.",
+            "data": updated_stream.serialize()
+        }), 200
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 400
