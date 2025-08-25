@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify
 from controllers.user_address_controller import UserAddressController
+from flask_jwt_extended import jwt_required, get_jwt_identity
 
 user_address_bp = Blueprint('user_address', __name__, url_prefix='/api/user-address')
 
@@ -13,6 +14,7 @@ def handle_preflight():
 # Create a new address
 @user_address_bp.route('', methods=['POST'])
 @user_address_bp.route('/', methods=['POST'])
+@jwt_required()
 def create_address():
     """
     Create a new address for a user
@@ -25,12 +27,7 @@ def create_address():
         application/json:
           schema:
             type: object
-            required:
-              - user_id
             properties:
-              user_id:
-                type: integer
-                description: ID of the user to create address for
               address_line1:
                 type: string
                 description: First line of the address
@@ -101,24 +98,22 @@ def create_address():
       500:
         description: Internal server error
     """
-    user_id = request.json.get('user_id')
-    return UserAddressController.create_address(user_id)
+    # Derive user from JWT; ignore any client-sent user_id
+    current_user_id = get_jwt_identity()
+    return UserAddressController.create_address(current_user_id)
 
 # Get all addresses for the current user
 @user_address_bp.route('', methods=['GET'])
 @user_address_bp.route('/', methods=['GET'])
+@jwt_required()
 def get_addresses():
     """
     Get all addresses for a specific user
     ---
     tags:
       - User Addresses
-    parameters:
-      - name: user_id
-        in: query
-        type: integer
-        required: true
-        description: ID of the user to get addresses for
+    security:
+      - bearerAuth: []
     responses:
       200:
         description: List of addresses retrieved successfully
@@ -162,17 +157,18 @@ def get_addresses():
                     type: string
                     format: date-time
       400:
-        description: Invalid request - Missing user_id
+        description: Invalid request
       404:
         description: User not found
       500:
         description: Internal server error
     """
-    user_id = request.args.get('user_id')
-    return UserAddressController.get_addresses(user_id)
+    current_user_id = get_jwt_identity()
+    return UserAddressController.get_addresses(current_user_id)
 
 # Get a specific address
 @user_address_bp.route('/<int:address_id>', methods=['GET'])
+@jwt_required()
 def get_address(address_id):
     """
     Get a specific address by ID
@@ -185,11 +181,8 @@ def get_address(address_id):
         type: integer
         required: true
         description: ID of the address to retrieve
-      - name: user_id
-        in: query
-        type: integer
-        required: true
-        description: ID of the user who owns the address
+    security:
+      - bearerAuth: []
     responses:
       200:
         description: Address retrieved successfully
@@ -231,7 +224,7 @@ def get_address(address_id):
                   type: string
                   format: date-time
       400:
-        description: Invalid request - Missing user_id
+        description: Invalid request
       403:
         description: Forbidden - User does not have access to this address
       404:
@@ -239,11 +232,12 @@ def get_address(address_id):
       500:
         description: Internal server error
     """
-    user_id = request.args.get('user_id')
-    return UserAddressController.get_address(user_id, address_id)
+    current_user_id = get_jwt_identity()
+    return UserAddressController.get_address(current_user_id, address_id)
 
 # Update an address
 @user_address_bp.route('/<int:address_id>', methods=['PUT'])
+@jwt_required()
 def update_address(address_id):
     """
     Update an existing address
@@ -262,12 +256,7 @@ def update_address(address_id):
         application/json:
           schema:
             type: object
-            required:
-              - user_id
             properties:
-              user_id:
-                type: integer
-                description: ID of the user who owns the address
               address_line1:
                 type: string
                 description: First line of the address
@@ -342,11 +331,12 @@ def update_address(address_id):
       500:
         description: Internal server error
     """
-    user_id = request.json.get('user_id')
-    return UserAddressController.update_address(user_id, address_id)
+    current_user_id = get_jwt_identity()
+    return UserAddressController.update_address(current_user_id, address_id)
 
 # Delete an address
 @user_address_bp.route('/<int:address_id>', methods=['DELETE'])
+@jwt_required()
 def delete_address(address_id):
     """
     Delete an existing address
@@ -359,11 +349,8 @@ def delete_address(address_id):
         type: integer
         required: true
         description: ID of the address to delete
-      - name: user_id
-        in: query
-        type: integer
-        required: true
-        description: ID of the user who owns the address
+    security:
+      - bearerAuth: []
     responses:
       200:
         description: Address deleted successfully
@@ -377,7 +364,7 @@ def delete_address(address_id):
               type: string
               example: Address deleted successfully
       400:
-        description: Invalid request - Missing user_id
+        description: Invalid request
       403:
         description: Forbidden - User does not have access to this address
       404:
@@ -385,11 +372,12 @@ def delete_address(address_id):
       500:
         description: Internal server error
     """
-    user_id = request.args.get('user_id')
-    return UserAddressController.delete_address(user_id, address_id)
+    current_user_id = get_jwt_identity()
+    return UserAddressController.delete_address(current_user_id, address_id)
 
 # Set default address (shipping or billing)
 @user_address_bp.route('/<int:address_id>/default/<string:address_type>', methods=['PUT'])
+@jwt_required()
 def set_default_address(address_id, address_type):
     """
     Set an address as the default shipping or billing address
@@ -414,12 +402,11 @@ def set_default_address(address_id, address_type):
         application/json:
           schema:
             type: object
-            required:
-              - user_id
             properties:
-              user_id:
-                type: integer
-                description: ID of the user who owns the address
+              # No body required; identity is taken from JWT
+              note:
+                type: string
+                description: Identity is derived from the access token
     responses:
       200:
         description: Default address updated successfully
@@ -446,7 +433,7 @@ def set_default_address(address_id, address_type):
                   type: boolean
                   example: true
       400:
-        description: Invalid request - Missing user_id or invalid address type
+        description: Invalid request - Invalid address type
       403:
         description: Forbidden - User does not have access to this address
       404:
@@ -456,5 +443,5 @@ def set_default_address(address_id, address_type):
     """
     if address_type not in ['shipping', 'billing']:
         return {'error': 'Invalid address type. Must be either "shipping" or "billing"'}, 400
-    user_id = request.json.get('user_id')
-    return UserAddressController.set_default_address(user_id, address_id, address_type) 
+    current_user_id = get_jwt_identity()
+    return UserAddressController.set_default_address(current_user_id, address_id, address_type)
