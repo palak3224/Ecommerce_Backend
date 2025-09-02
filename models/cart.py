@@ -94,6 +94,15 @@ class CartItem(BaseModel):
         
         # Get the product data with proper price calculations (including special price logic)
         product_data = product.serialize()
+
+        # Ensure we always store a concrete price (never None)
+        price_value = product_data.get('price')
+        if price_value is None:
+            # fallback to selling_price or 0.0
+            try:
+                price_value = float(product.selling_price) if product.selling_price is not None else 0.0
+            except Exception:
+                price_value = 0.0
         
         return cls(
             cart_id=cart_id,
@@ -101,7 +110,7 @@ class CartItem(BaseModel):
             quantity=quantity,
             product_name=product.product_name,
             product_sku=product.sku,
-            product_price=product_data.get('price', product.selling_price),  # Use backend-calculated price
+            product_price=price_value,  # Use backend-calculated price with safe fallback
             product_discount_pct=product.discount_pct,
             product_special_price=product.special_price,
             product_image_url=main_image,
@@ -128,12 +137,18 @@ class CartItem(BaseModel):
         # If there's a special price active, original price is the selling price
         # Otherwise, use cost_price as fallback if available through product relationship
         original_price = self.product_price  # Default fallback
-        if self.product_special_price and self.product_special_price < self.product_price:
+        if self.product_special_price and self.product_price is not None and self.product_special_price < self.product_price:
             # If we have special price and it's less than stored price, 
             # it means stored price is already the special price, so get original from product
             if self.product:
                 product_data = self.product.serialize()
-                original_price = product_data.get('originalPrice', self.product.selling_price)
+                # Use explicit fallback because dict.get will return None if key exists with None
+                original_price = product_data.get('originalPrice')
+                if original_price is None:
+                    original_price = self.product.selling_price
+        # Safe numeric conversions
+        price_value = float(self.product_price) if self.product_price is not None else 0.0
+        original_price_value = float(original_price) if original_price is not None else price_value
         
         return {
             'cart_item_id': self.cart_item_id,
@@ -146,8 +161,8 @@ class CartItem(BaseModel):
                 'id': self.product_id,
                 'name': self.product_name,
                 'sku': self.product_sku,
-                'price': float(self.product_price),  # This is now the backend-calculated price (with special price applied)
-                'original_price': float(original_price),  # Original price for savings calculation
+                'price': price_value,  # This is now the backend-calculated price (with special price applied)
+                'original_price': original_price_value,  # Original price for savings calculation
                 'special_price': float(self.product_special_price) if self.product_special_price else None,
                 'image_url': self.product_image_url,
                 'stock': self.product_stock_qty,

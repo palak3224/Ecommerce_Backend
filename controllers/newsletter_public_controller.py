@@ -6,8 +6,16 @@ from sqlalchemy.exc import IntegrityError
 
 newsletter_public_bp = Blueprint('newsletter_public', __name__)
 
-@newsletter_public_bp.route('/newsletter/subscribe', methods=['POST'])
+# Handle OPTIONS preflight for all routes in this blueprint
+@newsletter_public_bp.before_request
+def handle_preflight():
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'}), 200
+
+@newsletter_public_bp.route('/newsletter/subscribe', methods=['POST', 'OPTIONS'])
 def subscribe_newsletter():
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'}), 200
     data = request.get_json()
     email = data.get('email')
     if not email:
