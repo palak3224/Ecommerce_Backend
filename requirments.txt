@@ -40,3 +40,4 @@ flask-cors
 fastapi
 uvicorn
 boto3
+razorpay
