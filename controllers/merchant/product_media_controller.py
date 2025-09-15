@@ -109,3 +109,106 @@ class MerchantProductMediaController:
         pm.deleted_at = datetime.now(timezone.utc)
         db.session.commit()
         return pm
+
+    @staticmethod
+    def get_by_id(mid):
+        """Get a media item by ID"""
+        merchant_id = MerchantProductMediaController._get_merchant_id_from_jwt()
+        pm = ProductMedia.query.join(ProductMedia.product).filter(
+            ProductMedia.media_id == mid,
+            ProductMedia.deleted_at == None,
+            Product.merchant_id == merchant_id
+        ).first_or_404(
+            description=f"Product media with ID {mid} not found or you do not have permission to access it."
+        )
+        return pm
+
+    @staticmethod
+    def set_thumbnail(pid, mid):
+        """Set a media item as thumbnail for a product"""
+        merchant_id = MerchantProductMediaController._get_merchant_id_from_jwt()
+        
+        # Verify the product belongs to the merchant
+        product = Product.query.filter_by(
+            product_id=pid,
+            merchant_id=merchant_id,
+            deleted_at=None
+        ).first_or_404(
+            description=f"Product with ID {pid} not found or you do not have permission to access it."
+        )
+        
+        # Get the media item
+        media = ProductMedia.query.filter_by(
+            media_id=mid,
+            product_id=pid,
+            deleted_at=None
+        ).first_or_404(
+            description=f"Media with ID {mid} not found for product {pid}."
+        )
+        
+        # Unset all other thumbnails for this product
+        ProductMedia.query.filter_by(
+            product_id=pid,
+            deleted_at=None
+        ).update({'is_thumbnail': False})
+        
+        # Set this media as thumbnail
+        media.is_thumbnail = True
+        db.session.commit()
+        
+        return media
+
+    @staticmethod
+    def set_main_image(pid, mid):
+        """Set a media item as main image for a product"""
+        merchant_id = MerchantProductMediaController._get_merchant_id_from_jwt()
+        
+        # Verify the product belongs to the merchant
+        product = Product.query.filter_by(
+            product_id=pid,
+            merchant_id=merchant_id,
+            deleted_at=None
+        ).first_or_404(
+            description=f"Product with ID {pid} not found or you do not have permission to access it."
+        )
+        
+        # Get the media item
+        media = ProductMedia.query.filter_by(
+            media_id=mid,
+            product_id=pid,
+            deleted_at=None
+        ).first_or_404(
+            description=f"Media with ID {mid} not found for product {pid}."
+        )
+        
+        # Unset all other main images for this product
+        ProductMedia.query.filter_by(
+            product_id=pid,
+            deleted_at=None
+        ).update({'is_main_image': False})
+        
+        # Set this media as main image
+        media.is_main_image = True
+        db.session.commit()
+        
+        return media
+
+    @staticmethod
+    def update_sort_order(mid, new_sort_order):
+        """Update the sort order of a media item"""
+        merchant_id = MerchantProductMediaController._get_merchant_id_from_jwt()
+        
+        # Get the media item
+        media = ProductMedia.query.join(ProductMedia.product).filter(
+            ProductMedia.media_id == mid,
+            ProductMedia.deleted_at == None,
+            Product.merchant_id == merchant_id
+        ).first_or_404(
+            description=f"Product media with ID {mid} not found or you do not have permission to access it."
+        )
+        
+        # Update sort order
+        media.sort_order = new_sort_order
+        db.session.commit()
+        
+        return media

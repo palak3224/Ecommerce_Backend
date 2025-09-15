@@ -17,15 +17,34 @@ import json
 class ProductController:
     @staticmethod
     def get_product_media(product_id):
-        """Get primary media for a product"""
-        # Get primary product media
+        """Get primary media for a product using flags with sensible fallbacks."""
+        # 1) Prefer explicit thumbnail
         primary_media = ProductMedia.query.filter_by(
             product_id=product_id,
             deleted_at=None,
-            type=MediaType.IMAGE
-        ).order_by(
-            ProductMedia.sort_order
+            type=MediaType.IMAGE,
+            is_thumbnail=True
         ).first()
+
+        if not primary_media:
+            # 2) Fallback to explicit main image
+            primary_media = ProductMedia.query.filter_by(
+                product_id=product_id,
+                deleted_at=None,
+                type=MediaType.IMAGE,
+                is_main_image=True
+            ).first()
+
+        if not primary_media:
+            # 3) Fallback to first image by sort_order then created_at
+            primary_media = ProductMedia.query.filter_by(
+                product_id=product_id,
+                deleted_at=None,
+                type=MediaType.IMAGE
+            ).order_by(
+                ProductMedia.sort_order.asc(),
+                ProductMedia.created_at.asc()
+            ).first()
 
         return primary_media.serialize() if primary_media else None
 
@@ -214,6 +233,16 @@ class ProductController:
                     if media:
                         product_dict['primary_image'] = media['url']
                         product_dict['image'] = media['url']  # For backward compatibility
+                    else:
+                        # As a final fallback, pick any image if available
+                        any_img = ProductMedia.query.filter_by(
+                            product_id=product.product_id,
+                            deleted_at=None,
+                            type=MediaType.IMAGE
+                        ).order_by(ProductMedia.sort_order.asc(), ProductMedia.created_at.asc()).first()
+                        if any_img:
+                            product_dict['primary_image'] = any_img.url
+                            product_dict['image'] = any_img.url
                     
                     product_data.append(product_dict)
 
@@ -279,6 +308,15 @@ class ProductController:
                     if media:
                         product_dict['primary_image'] = media['url']
                         product_dict['image'] = media['url']  # For backward compatibility
+                    else:
+                        any_img = ProductMedia.query.filter_by(
+                            product_id=product.product_id,
+                            deleted_at=None,
+                            type=MediaType.IMAGE
+                        ).order_by(ProductMedia.sort_order.asc(), ProductMedia.created_at.asc()).first()
+                        if any_img:
+                            product_dict['primary_image'] = any_img.url
+                            product_dict['image'] = any_img.url
                     
                     product_data.append(product_dict)
 
@@ -395,10 +433,16 @@ class ProductController:
             ).first_or_404()
 
             # Get product media
+            # Order product media: thumbnail first, then main image, then others by sort and date
             product_media = ProductMedia.query.filter_by(
                 product_id=product_id,
                 deleted_at=None
-            ).order_by(ProductMedia.sort_order).all()
+            ).order_by(
+                ProductMedia.is_thumbnail.desc(),
+                ProductMedia.is_main_image.desc(),
+                ProductMedia.sort_order.asc(),
+                ProductMedia.created_at.asc()
+            ).all()
 
             # Get product meta information
             product_meta = ProductMeta.query.filter_by(
@@ -955,43 +999,68 @@ class ProductController:
     def get_product_variants(product_id):
         """Get all variants for a parent product"""
         try:
-            # Get the parent product to verify it exists
-            parent_product = Product.query.filter_by(
+            # Fetch the requested product first (could be a parent or a variant)
+            product = Product.query.filter_by(
                 product_id=product_id,
                 deleted_at=None,
                 active_flag=True,
                 approval_status='approved'
             ).first_or_404()
 
-            # Get all variants for this parent product
+            # Determine the base parent id: if this product is a variant, use its parent; else use itself
+            base_parent_id = product.parent_product_id if product.parent_product_id is not None else product.product_id
+
+            # Get the parent product (base)
+            parent_product = Product.query.filter_by(
+                product_id=base_parent_id,
+                deleted_at=None,
+                active_flag=True,
+                approval_status='approved'
+            ).first_or_404()
+
+            # Get all variants for this parent product (siblings)
             variants = Product.query.filter_by(
-                parent_product_id=product_id,
+                parent_product_id=base_parent_id,
                 deleted_at=None,
                 active_flag=True,
                 approval_status='approved'
             ).all()
 
             # Prepare response data
+            # Compose response list including the parent first, then other variants
+            variant_like_products = [parent_product] + variants
+
             variant_data = []
-            for variant in variants:
-                variant_dict = variant.serialize()
+            for v in variant_like_products:
+                v_serialized = v.serialize()
                 # Add frontend-specific fields
-                variant_dict.update({
-                    'id': str(variant.product_id),
-                    'name': variant.product_name,
-                    'description': variant.product_description,
+                variant_dict = {
+                    **v_serialized,
+                    'id': str(v.product_id),
+                    'name': v.product_name,
+                    'description': v.product_description,
                     'stock': 100,  # TODO: Add stock tracking
                     'isNew': True,  # TODO: Add logic for new products
                     'isBuiltIn': False,  # TODO: Add logic for built-in products
-                    'isVariant': True,
-                    'parentProductId': str(product_id)
-                })
+                    'isVariant': v.parent_product_id is not None,
+                    'isParent': v.product_id == base_parent_id,
+                    'parentProductId': str(base_parent_id)
+                }
                 
                 # Get primary media
-                media = ProductController.get_product_media(variant.product_id)
+                media = ProductController.get_product_media(v.product_id)
                 if media:
                     variant_dict['primary_image'] = media['url']
                     variant_dict['image'] = media['url']
+                else:
+                    any_img = ProductMedia.query.filter_by(
+                        product_id=v.product_id,
+                        deleted_at=None,
+                        type=MediaType.IMAGE
+                    ).order_by(ProductMedia.sort_order.asc(), ProductMedia.created_at.asc()).first()
+                    if any_img:
+                        variant_dict['primary_image'] = any_img.url
+                        variant_dict['image'] = any_img.url
                 
                 variant_data.append(variant_dict)
 

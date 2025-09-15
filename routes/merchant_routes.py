@@ -34,6 +34,7 @@ from controllers.merchant.inventory_export_controller import MerchantInventoryEx
 from controllers.merchant.merchant_settings_controller import MerchantSettingsController
 from controllers.merchant.live_stream_controller import MerchantLiveStreamController
 import logging
+from models.enums import MediaType
 
 
 ALLOWED_MEDIA_EXTENSIONS = {'png', 'jpg', 'jpeg', 'svg', 'gif', 'webp', 'mp4', 'mov', 'avi'}
@@ -1741,6 +1742,201 @@ def delete_product_media(mid):
         if hasattr(e, 'code') and isinstance(e.code, int):
             return jsonify({'message': getattr(e, 'description', str(e))}), e.code
         return jsonify({'message': "Failed to delete product media."}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+@merchant_dashboard_bp.route('/products/<int:pid>/media/<int:mid>/set-thumbnail', methods=['POST'])
+@merchant_role_required
+def set_product_media_thumbnail(pid, mid):
+    """
+    Set a media file as the thumbnail for a product
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: pid
+        type: integer
+        required: true
+        description: Product ID
+      - in: path
+        name: mid
+        type: integer
+        required: true
+        description: Media ID to set as thumbnail
+    responses:
+      200:
+        description: Thumbnail set successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            media_id:
+              type: integer
+            is_thumbnail:
+              type: boolean
+      404:
+        description: Product or media not found
+      400:
+        description: Invalid request (e.g., media is not an image)
+      500:
+        description: Internal server error
+    """
+    try:
+        # Verify the media belongs to the product and is an image
+        media = MerchantProductMediaController.get_by_id(mid)
+        if not media or media.product_id != pid:
+            return jsonify({'message': 'Media not found or does not belong to this product'}), HTTPStatus.NOT_FOUND
+        
+        # media.type is an enum (MediaType). Compare against MediaType.IMAGE
+        if getattr(media, 'type', None) != MediaType.IMAGE:
+            return jsonify({'message': 'Only images can be set as thumbnails'}), HTTPStatus.BAD_REQUEST
+        
+        # Set this media as thumbnail (unset others)
+        result = MerchantProductMediaController.set_thumbnail(pid, mid)
+        return jsonify({
+            'message': 'Thumbnail set successfully',
+            'media_id': mid,
+            'is_thumbnail': True
+        }), HTTPStatus.OK
+        
+    except Exception as e:
+        current_app.logger.error(f"Error setting thumbnail for product {pid}, media {mid}: {e}")
+        return jsonify({'message': 'Failed to set thumbnail'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+@merchant_dashboard_bp.route('/products/<int:pid>/media/<int:mid>/set-main-image', methods=['POST'])
+@merchant_role_required
+def set_product_media_main_image(pid, mid):
+    """
+    Set a media file as the main image for a product
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: pid
+        type: integer
+        required: true
+        description: Product ID
+      - in: path
+        name: mid
+        type: integer
+        required: true
+        description: Media ID to set as main image
+    responses:
+      200:
+        description: Main image set successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            media_id:
+              type: integer
+            is_main_image:
+              type: boolean
+      404:
+        description: Product or media not found
+      400:
+        description: Invalid request (e.g., media is not an image)
+      500:
+        description: Internal server error
+    """
+    try:
+        # Verify the media belongs to the product and is an image
+        media = MerchantProductMediaController.get_by_id(mid)
+        if not media or media.product_id != pid:
+            return jsonify({'message': 'Media not found or does not belong to this product'}), HTTPStatus.NOT_FOUND
+        
+        # media.type is an enum (MediaType). Compare against MediaType.IMAGE
+        if getattr(media, 'type', None) != MediaType.IMAGE:
+            return jsonify({'message': 'Only images can be set as main image'}), HTTPStatus.BAD_REQUEST
+        
+        # Set this media as main image (unset others)
+        result = MerchantProductMediaController.set_main_image(pid, mid)
+        return jsonify({
+            'message': 'Main image set successfully',
+            'media_id': mid,
+            'is_main_image': True
+        }), HTTPStatus.OK
+        
+    except Exception as e:
+        current_app.logger.error(f"Error setting main image for product {pid}, media {mid}: {e}")
+        return jsonify({'message': 'Failed to set main image'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+@merchant_dashboard_bp.route('/products/media/<int:mid>/update-order', methods=['PUT'])
+@merchant_role_required
+def update_media_order(mid):
+    """
+    Update the sort order of a media file
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: mid
+        type: integer
+        required: true
+        description: Media ID to update
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - sort_order
+            properties:
+              sort_order:
+                type: integer
+                description: New sort order for the media
+    responses:
+      200:
+        description: Media order updated successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            media_id:
+              type: integer
+            sort_order:
+              type: integer
+      404:
+        description: Media not found
+      400:
+        description: Invalid request data
+      500:
+        description: Internal server error
+    """
+    try:
+        data = request.get_json()
+        if not data or 'sort_order' not in data:
+            return jsonify({'message': 'sort_order is required'}), HTTPStatus.BAD_REQUEST
+        
+        sort_order = data['sort_order']
+        if not isinstance(sort_order, int):
+            return jsonify({'message': 'sort_order must be an integer'}), HTTPStatus.BAD_REQUEST
+        
+        # Update the media sort order
+        result = MerchantProductMediaController.update_sort_order(mid, sort_order)
+        return jsonify({
+            'message': 'Media order updated successfully',
+            'media_id': mid,
+            'sort_order': sort_order
+        }), HTTPStatus.OK
+        
+    except Exception as e:
+        current_app.logger.error(f"Error updating media order for media {mid}: {e}")
+        return jsonify({'message': 'Failed to update media order'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 # PRODUCT ATTRIBUTES
 @merchant_dashboard_bp.route('/products/<int:pid>/attributes', methods=['GET'])

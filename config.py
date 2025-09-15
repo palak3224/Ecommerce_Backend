@@ -58,6 +58,10 @@ class Config:
     # AWS / Translate
     AWS_REGION = os.getenv('AWS_REGION', 'ap-south-1')
     FEATURE_TRANSLATION = os.getenv('FEATURE_TRANSLATION', 'false').lower() in ('1', 'true', 'yes')
+    
+    # Razorpay Configuration
+    RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID', 'rzp_test_1DP5mmOlF5G5ag')
+    RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET', 'your_secret_key')
 
 class DevelopmentConfig(Config):
     """Configuration for development environment."""

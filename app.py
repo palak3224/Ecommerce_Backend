@@ -68,6 +68,7 @@ from routes.shop.public.public_shop_order_routes import public_shop_order_bp
 
 from routes.upload_routes import upload_bp
 from routes.translate_routes import translate_bp
+from routes.razorpay_routes import razorpay_bp
 
 
 from flasgger import Swagger
@@ -237,6 +238,7 @@ def create_app(config_name='default'):
     app.register_blueprint(newsletter_public_bp, url_prefix='/api/public')
 
     app.register_blueprint(upload_bp, url_prefix='/api/upload')
+    app.register_blueprint(razorpay_bp)
 
     # Optional: Translation endpoints behind feature flag
     if app.config.get('FEATURE_TRANSLATION'):
