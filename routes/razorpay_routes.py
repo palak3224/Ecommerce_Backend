@@ -43,14 +43,16 @@ def create_razorpay_order():
         razorpay_client = get_razorpay_client()
         order = razorpay_client.order.create(data=order_data)
         
-        return success_response({
-            'id': order['id'],
-            'amount': order['amount'],
-            'currency': order['currency'],
-            'receipt': order['receipt'],
-            'status': order['status'],
-            'created_at': order['created_at']
-        }, 'Razorpay order created successfully')
+        # Normalize response to a consistent shape with both keys
+        payload = {
+            'id': order.get('id'),
+            'amount': order.get('amount'),
+            'currency': order.get('currency'),
+            'receipt': order.get('receipt'),
+            'status': order.get('status'),
+            'created_at': order.get('created_at')
+        }
+        return jsonify({ 'status': 'success', 'success': True, 'data': payload, 'message': 'Razorpay order created successfully' }), 200
         
     except Exception as e:
         return error_response(f'Failed to create Razorpay order: {str(e)}', 500)
