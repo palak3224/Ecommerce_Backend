@@ -695,7 +695,12 @@ class ProductController:
                     "media": [media.serialize() for media in ProductMedia.query.filter_by(
                         product_id=v.product_id,
                         deleted_at=None
-                    ).order_by(ProductMedia.sort_order).all()] if ProductMedia.query.filter_by(
+                    ).order_by(
+                        ProductMedia.is_thumbnail.desc(),
+                        ProductMedia.is_main_image.desc(),
+                        ProductMedia.sort_order.asc(),
+                        ProductMedia.created_at.asc()
+                    ).all()] if ProductMedia.query.filter_by(
                         product_id=v.product_id,
                         deleted_at=None
                     ).first() else []

@@ -3370,18 +3370,32 @@ def list_pending_products():
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 10, type=int)
         products = ProductMonitoringController.get_pending_products()
-        return jsonify([{
-            'product_id': p.product_id,
-            'product_name': p.product_name,
-            'sku': p.sku,
-            'status': p.approval_status,
-            'cost_price': float(p.cost_price),
-            'selling_price': float(p.selling_price),
-            'media': [m.serialize() for m in p.media] if p.media else [],
-            'meta': p.meta.serialize() if p.meta else None,
-            'brand': p.brand.serialize() if p.brand else None,
-            'category': p.category.serialize() if p.category else None
-        } for p in products]), HTTPStatus.OK
+        result = []
+        for p in products:
+            media_items = sorted(
+                p.media or [],
+                key=lambda m: (
+                    not getattr(m, 'is_thumbnail', False),
+                    not getattr(m, 'is_main_image', False),
+                    getattr(m, 'sort_order', 0),
+                    getattr(m, 'created_at', None).timestamp() if getattr(m, 'created_at', None) else 0
+                )
+            )
+            primary = next((m for m in media_items if getattr(getattr(m, 'type', None), 'value', None) == 'IMAGE'), None)
+            result.append({
+                'product_id': p.product_id,
+                'product_name': p.product_name,
+                'sku': p.sku,
+                'status': p.approval_status,
+                'cost_price': float(p.cost_price),
+                'selling_price': float(p.selling_price),
+                'media': [m.serialize() for m in media_items],
+                'primary_image': primary.serialize().get('url') if primary else None,
+                'meta': p.meta.serialize() if p.meta else None,
+                'brand': p.brand.serialize() if p.brand else None,
+                'category': p.category.serialize() if p.category else None
+            })
+        return jsonify(result), HTTPStatus.OK
     except Exception as e:
         current_app.logger.error(f"Error listing pending products: {e}")
         return jsonify({'message': 'Failed to retrieve pending products.'}), HTTPStatus.INTERNAL_SERVER_ERROR
@@ -3463,18 +3477,32 @@ def list_approved_products():
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 10, type=int)
         products = ProductMonitoringController.get_approved_products()
-        return jsonify([{
-            'product_id': p.product_id,
-            'product_name': p.product_name,
-            'sku': p.sku,
-            'status': p.approval_status,
-            'cost_price': float(p.cost_price),
-            'selling_price': float(p.selling_price),
-            'media': [m.serialize() for m in p.media] if p.media else [],
-            'meta': p.meta.serialize() if p.meta else None,
-            'brand': p.brand.serialize() if p.brand else None,
-            'category': p.category.serialize() if p.category else None
-        } for p in products]), HTTPStatus.OK
+        result = []
+        for p in products:
+            media_items = sorted(
+                p.media or [],
+                key=lambda m: (
+                    not getattr(m, 'is_thumbnail', False),
+                    not getattr(m, 'is_main_image', False),
+                    getattr(m, 'sort_order', 0),
+                    getattr(m, 'created_at', None).timestamp() if getattr(m, 'created_at', None) else 0
+                )
+            )
+            primary = next((m for m in media_items if getattr(getattr(m, 'type', None), 'value', None) == 'IMAGE'), None)
+            result.append({
+                'product_id': p.product_id,
+                'product_name': p.product_name,
+                'sku': p.sku,
+                'status': p.approval_status,
+                'cost_price': float(p.cost_price),
+                'selling_price': float(p.selling_price),
+                'media': [m.serialize() for m in media_items],
+                'primary_image': primary.serialize().get('url') if primary else None,
+                'meta': p.meta.serialize() if p.meta else None,
+                'brand': p.brand.serialize() if p.brand else None,
+                'category': p.category.serialize() if p.category else None
+            })
+        return jsonify(result), HTTPStatus.OK
     except Exception as e:
         current_app.logger.error(f"Error listing approved products: {e}")
         return jsonify({'message': 'Failed to retrieve approved products.'}), HTTPStatus.INTERNAL_SERVER_ERROR
@@ -3559,19 +3587,33 @@ def list_rejected_products():
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 10, type=int)
         products = ProductMonitoringController.get_rejected_products()
-        return jsonify([{
-            'product_id': p.product_id,
-            'product_name': p.product_name,
-            'sku': p.sku,
-            'status': p.approval_status,
-            'cost_price': float(p.cost_price),
-            'selling_price': float(p.selling_price),
-            'rejection_reason': p.rejection_reason,
-            'media': [m.serialize() for m in p.media] if p.media else [],
-            'meta': p.meta.serialize() if p.meta else None,
-            'brand': p.brand.serialize() if p.brand else None,
-            'category': p.category.serialize() if p.category else None
-        } for p in products]), HTTPStatus.OK
+        result = []
+        for p in products:
+            media_items = sorted(
+                p.media or [],
+                key=lambda m: (
+                    not getattr(m, 'is_thumbnail', False),
+                    not getattr(m, 'is_main_image', False),
+                    getattr(m, 'sort_order', 0),
+                    getattr(m, 'created_at', None).timestamp() if getattr(m, 'created_at', None) else 0
+                )
+            )
+            primary = next((m for m in media_items if getattr(getattr(m, 'type', None), 'value', None) == 'IMAGE'), None)
+            result.append({
+                'product_id': p.product_id,
+                'product_name': p.product_name,
+                'sku': p.sku,
+                'status': p.approval_status,
+                'cost_price': float(p.cost_price),
+                'selling_price': float(p.selling_price),
+                'rejection_reason': p.rejection_reason,
+                'media': [m.serialize() for m in media_items],
+                'primary_image': primary.serialize().get('url') if primary else None,
+                'meta': p.meta.serialize() if p.meta else None,
+                'brand': p.brand.serialize() if p.brand else None,
+                'category': p.category.serialize() if p.category else None
+            })
+        return jsonify(result), HTTPStatus.OK
     except Exception as e:
         current_app.logger.error(f"Error listing rejected products: {e}")
         return jsonify({'message': 'Failed to retrieve rejected products.'}), HTTPStatus.INTERNAL_SERVER_ERROR

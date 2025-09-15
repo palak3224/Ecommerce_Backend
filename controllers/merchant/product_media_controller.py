@@ -97,7 +97,7 @@ class MerchantProductMediaController:
             description=f"Product media with ID {mid} not found or you do not have permission to delete it."
         )
         
-        
+        # Attempt Cloudinary deletion first if we have a public_id
         if hasattr(pm, 'public_id') and pm.public_id:
             try:
                 resource_type_for_cloudinary = "image" if pm.type == MediaType.IMAGE else "video"
@@ -106,9 +106,15 @@ class MerchantProductMediaController:
             except Exception as e:
                 current_app.logger.error(f"Failed to delete media {pm.public_id} from Cloudinary: {e}")
 
-        pm.deleted_at = datetime.now(timezone.utc)
-        db.session.commit()
-        return pm
+        # Hard delete the media row from the database
+        try:
+            db.session.delete(pm)
+            db.session.commit()
+            return pm
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Failed to hard delete media {mid} from database: {e}")
+            raise
 
     @staticmethod
     def get_by_id(mid):
