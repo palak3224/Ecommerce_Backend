@@ -160,41 +160,8 @@ class ShipRocketController:
             # Convert COD amount to boolean and separate amount
             cod_amount = float(cod) if cod else 0
             is_cod = cod_amount > 0  # True if COD amount > 0, False for prepaid
-            
-            # Try different approaches for ShipRocket API
-            # First attempt: Basic GET request without cod parameter for prepaid
-            if not is_cod:
-                params = {
-                    'pickup_postcode': pickup_pincode,
-                    'delivery_postcode': delivery_pincode,
-                    'weight': round(weight, 2),
-                }
-                
-                # Don't include order_id for serviceability checks as it's not needed
-                # and causes "Order doesn't exist" errors
-                
-                current_app.logger.info(f"ShipRocket serviceability GET request (prepaid): {params}")
-                
-                try:
-                    response = self._make_request('GET', 'courier/serviceability/', params=params)
-                    
-                    # Log only essential information instead of full response
-                    if response.get('data', {}).get('available_courier_companies'):
-                        couriers_count = len(response['data']['available_courier_companies'])
-                        current_app.logger.info(f"ShipRocket serviceability successful: {couriers_count} couriers available")
-                        
-                        # Clean up the response to return only essential courier information
-                        cleaned_couriers = [self._clean_courier_data(courier) for courier in response['data']['available_courier_companies']]
-                        response['data']['available_courier_companies'] = cleaned_couriers
-                    else:
-                        current_app.logger.info("ShipRocket serviceability response: No couriers available")
-                        response['data']['available_courier_companies'] = []
-                    
-                    return response
-                except Exception as first_error:
-                    current_app.logger.warning(f"Prepaid GET attempt failed: {str(first_error)}")
-            
-            # Second attempt: GET with cod parameter as integer (1 for COD, 0 for prepaid)
+
+            # Always include cod parameter as integer (0 for prepaid, 1 for COD)
             params = {
                 'pickup_postcode': pickup_pincode,
                 'delivery_postcode': delivery_pincode,
@@ -208,58 +175,30 @@ class ShipRocketController:
             
             # Don't include order_id for serviceability checks
             
-            current_app.logger.info(f"ShipRocket serviceability GET request (with cod int): {params}")
+            current_app.logger.info(f"ShipRocket serviceability GET request: {params}")
             
             try:
                 response = self._make_request('GET', 'courier/serviceability/', params=params)
                 
                 # Log only essential information instead of full response
-                if response.get('data', {}).get('available_courier_companies'):
-                    couriers_count = len(response['data']['available_courier_companies'])
+                data_section = response.get('data') if isinstance(response, dict) else None
+                companies = []
+                if isinstance(data_section, dict) and data_section.get('available_courier_companies'):
+                    companies = data_section.get('available_courier_companies') or []
+                if companies:
+                    couriers_count = len(companies)
                     current_app.logger.info(f"ShipRocket serviceability successful: {couriers_count} couriers available")
-                    
                     # Clean up the response to return only essential courier information
-                    cleaned_couriers = [self._clean_courier_data(courier) for courier in response['data']['available_courier_companies']]
-                    response['data']['available_courier_companies'] = cleaned_couriers
+                    cleaned_couriers = [self._clean_courier_data(courier) for courier in companies]
+                    response.setdefault('data', {})['available_courier_companies'] = cleaned_couriers
                 else:
                     current_app.logger.info("ShipRocket serviceability response: No couriers available")
-                    response['data']['available_courier_companies'] = []
+                    response.setdefault('data', {})['available_courier_companies'] = []
                 
                 return response
-            except Exception as second_error:
-                current_app.logger.warning(f"GET with cod int failed: {str(second_error)}")
-                
-                # Third attempt: GET with cod parameter as string
-                params = {
-                    'pickup_postcode': pickup_pincode,
-                    'delivery_postcode': delivery_pincode,
-                    'weight': round(weight, 2),
-                    'cod': 'true' if is_cod else 'false',  # String format
-                }
-                
-                # Add COD amount if it's a COD order
-                if is_cod:
-                    params['cod_amount'] = int(cod_amount)
-                
-                # Don't include order_id for serviceability checks
-                
-                current_app.logger.info(f"ShipRocket serviceability GET request (with cod string): {params}")
-                
-                response = self._make_request('GET', 'courier/serviceability/', params=params)
-                
-                # Log only essential information instead of full response
-                if response.get('data', {}).get('available_courier_companies'):
-                    couriers_count = len(response['data']['available_courier_companies'])
-                    current_app.logger.info(f"ShipRocket serviceability successful: {couriers_count} couriers available")
-                    
-                    # Clean up the response to return only essential courier information
-                    cleaned_couriers = [self._clean_courier_data(courier) for courier in response['data']['available_courier_companies']]
-                    response['data']['available_courier_companies'] = cleaned_couriers
-                else:
-                    current_app.logger.info("ShipRocket serviceability response: No couriers available")
-                    response['data']['available_courier_companies'] = []
-                
-                return response
+            except Exception as e:
+                current_app.logger.error(f"Serviceability GET failed: {str(e)}")
+                raise
             
         except Exception as e:
             current_app.logger.error(f"Serviceability check failed: {str(e)}")
