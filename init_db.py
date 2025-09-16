@@ -268,7 +268,7 @@ def init_subscription_plans():
             'featured_limit': 10,
             'promo_limit': 10,
             'duration_days': 30,
-            'price': 29.99,
+            'price': 399,
             'active_flag': True,
             'can_place_premium': False,
             'approval_status': 'approved'
@@ -279,7 +279,7 @@ def init_subscription_plans():
             'featured_limit': 50,
             'promo_limit': 50,
             'duration_days': 30,
-            'price': 79.99,
+            'price': 999,
             'active_flag': True,
             'can_place_premium': True,
             'approval_status': 'approved'
@@ -290,7 +290,7 @@ def init_subscription_plans():
             'featured_limit': 999999,
             'promo_limit': 999999,
             'duration_days': 30,
-            'price': 199.99,
+            'price': 1999,
             'active_flag': True,
             'can_place_premium': True,
             'approval_status': 'approved'
