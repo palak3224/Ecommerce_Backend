@@ -31,6 +31,9 @@ class Order(BaseModel):
     payment_status = db.Column(db.Enum(PaymentStatusEnum), nullable=False, default=PaymentStatusEnum.PENDING, index=True)
     payment_gateway_transaction_id = db.Column(db.String(255), nullable=True, index=True, unique=True)
     payment_gateway_name = db.Column(db.String(50), nullable=True)
+    # Razorpay specific references to reconcile external and internal orders
+    razorpay_order_id = db.Column(db.String(100), nullable=True, index=True)
+    razorpay_payment_id = db.Column(db.String(100), nullable=True, index=True)
 
     shipping_address_id = db.Column(db.Integer, db.ForeignKey('user_addresses.address_id', ondelete='SET NULL'), nullable=True)
     billing_address_id = db.Column(db.Integer, db.ForeignKey('user_addresses.address_id', ondelete='SET NULL'), nullable=True)
@@ -67,6 +70,8 @@ class Order(BaseModel):
             "payment_method": self.payment_method.value if self.payment_method else None,
             "payment_status": self.payment_status.value if self.payment_status else None,
             "payment_gateway_transaction_id": self.payment_gateway_transaction_id,
+            "razorpay_order_id": self.razorpay_order_id,
+            "razorpay_payment_id": self.razorpay_payment_id,
             "shipping_address_id": self.shipping_address_id,
             "billing_address_id": self.billing_address_id,
             "shipping_method_name": self.shipping_method_name,
