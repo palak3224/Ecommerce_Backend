@@ -367,7 +367,8 @@ class ShipRocketController:
             # Check serviceability
             # Calculate COD amount with proper limits
             cod_amount = 0
-            if order.payment_status.value != 'paid':
+            # Treat SUCCESSFUL payments as prepaid; anything else as COD
+            if str(order.payment_status.value).lower() != 'successful':
                 cod_amount = float(order.total_amount)
                 # Cap COD amount at ShipRocket's limit (typically 50k)
                 if cod_amount > 50000:
@@ -378,7 +379,7 @@ class ShipRocketController:
                 pickup_pincode=pickup_address.postal_code,
                 delivery_pincode=delivery_address.postal_code,
                 weight=float(total_weight),
-                cod=0 if order.payment_status.value == 'paid' else float(order.total_amount)
+                cod=0 if str(order.payment_status.value).lower() == 'successful' else float(order.total_amount)
             )
             
             if not serviceability_response.get('data', {}).get('available_courier_companies'):
@@ -508,7 +509,7 @@ class ShipRocketController:
                     "shipping_email": "",  # Empty when shipping_is_billing is True
                     "shipping_phone": "",  # Empty when shipping_is_billing is True
                     "order_items": order_items,
-                    "payment_method": "Prepaid" if order.payment_status.value == 'paid' else "COD",
+                    "payment_method": "Prepaid" if str(order.payment_status.value).lower() == 'successful' else "COD",
                     "shipping_charges": str(int(float(order.shipping_amount or 0))),
                     "giftwrap_charges": "",
                     "transaction_charges": "",
@@ -1059,7 +1060,8 @@ class ShipRocketController:
             
             # Check serviceability
             cod_amount = 0
-            if shop_order.payment_status.value != 'paid':
+            # Treat SUCCESSFUL payments as prepaid; anything else as COD
+            if str(shop_order.payment_status.value).lower() != 'successful':
                 cod_amount = float(shop_order.total_amount)
                 # Cap COD amount at ShipRocket's limit
                 if cod_amount > 50000:
@@ -1084,7 +1086,7 @@ class ShipRocketController:
                 pickup_pincode=pickup_pincode,
                 delivery_pincode=delivery_address.postal_code,
                 weight=float(total_weight),
-                cod=0 if shop_order.payment_status.value == 'paid' else float(shop_order.total_amount)
+                cod=0 if str(shop_order.payment_status.value).lower() == 'successful' else float(shop_order.total_amount)
             )
             
             if not serviceability_response.get('data', {}).get('available_courier_companies'):
@@ -1205,7 +1207,7 @@ class ShipRocketController:
                     "shipping_email": "",
                     "shipping_phone": "",
                     "order_items": order_items,
-                    "payment_method": "Prepaid" if shop_order.payment_status.value == 'paid' else "COD",
+                    "payment_method": "Prepaid" if str(shop_order.payment_status.value).lower() == 'successful' else "COD",
                     "shipping_charges": str(int(float(shop_order.shipping_amount or 0))),
                     "giftwrap_charges": "",
                     "transaction_charges": "",

@@ -170,6 +170,11 @@ class OrderController:
                 customer_notes=order_data.get('customer_notes'),
                 internal_notes=order_data.get('internal_notes') # Good place for promo code used
             )
+            # If the client passed Razorpay references along with order creation, store them
+            if order_data.get('razorpay_order_id'):
+                new_order.razorpay_order_id = order_data['razorpay_order_id']
+            if order_data.get('razorpay_payment_id'):
+                new_order.razorpay_payment_id = order_data['razorpay_payment_id']
             new_order.items.extend(new_order_items)
 
             # Create initial status history
@@ -183,6 +188,21 @@ class OrderController:
 
             db.session.add(new_order)
             db.session.flush() 
+
+            # If Razorpay payment was already verified and references are provided, mark payment as successful
+            if order_data.get('razorpay_payment_id'):
+                new_order.payment_status = PaymentStatusEnum.SUCCESSFUL
+                new_order.order_status = OrderStatusEnum.PROCESSING
+                new_order.payment_gateway_transaction_id = order_data.get('razorpay_payment_id')
+                new_order.payment_gateway_name = 'Razorpay'
+
+                payment_success_history = OrderStatusHistory(
+                    order_id=new_order.order_id,
+                    status=new_order.order_status,
+                    changed_by_user_id=user_id,
+                    notes=f"Payment successful via Razorpay. Transaction ID: {new_order.payment_gateway_transaction_id}."
+                )
+                db.session.add(payment_success_history)
 
             if payment_card:
                 payment_succeeded_simulation = True # Simulate success
