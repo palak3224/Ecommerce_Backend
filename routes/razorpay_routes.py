@@ -26,13 +26,25 @@ def create_razorpay_order():
         # Accept either amount in paise or rupees for flexibility
         amount_rupees = data.get('amount_rupees')
         raw_amount = data.get('amount')
-        currency = data.get('currency', 'INR')
+        currency = (data.get('currency') or 'INR').upper()
 
         # Normalize amount to paise (integer) as Razorpay expects
         amount_paise = None
+        # Determine currency minor units (decimals)
+        # 0-decimal: JPY, KRW; 3-decimal: TND, BHD (Razorpay primarily uses 2 but guard anyway)
+        zero_decimal = { 'JPY', 'KRW' }
+        three_decimal = { 'BHD', 'JOD', 'KWD', 'OMR', 'TND' }
+        factor = 1
+        if currency in zero_decimal:
+            factor = 1
+        elif currency in three_decimal:
+            factor = 1000
+        else:
+            factor = 100
+
         if amount_rupees is not None:
             try:
-                amount_paise = int(round(float(amount_rupees) * 100))
+                amount_paise = int(round(float(amount_rupees) * factor))
             except Exception:
                 return error_response('Invalid amount_rupees', 400)
         elif raw_amount is not None:
@@ -43,11 +55,11 @@ def create_razorpay_order():
                 if val.is_integer():
                     # Could be paise already if big; if improbably small (< 1000), treat as rupees
                     if val < 1000:
-                        amount_paise = int(round(val * 100))
+                        amount_paise = int(round(val * factor))
                     else:
                         amount_paise = int(val)
                 else:
-                    amount_paise = int(round(val * 100))
+                    amount_paise = int(round(val * factor))
             except Exception:
                 return error_response('Invalid amount', 400)
         else:
