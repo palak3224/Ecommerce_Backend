@@ -22,16 +22,43 @@ def get_razorpay_client():
 def create_razorpay_order():
     """Create a Razorpay order"""
     try:
-        data = request.get_json()
-        amount = data.get('amount')  # Amount in paise
+        data = request.get_json() or {}
+        # Accept either amount in paise or rupees for flexibility
+        amount_rupees = data.get('amount_rupees')
+        raw_amount = data.get('amount')
         currency = data.get('currency', 'INR')
-        
-        if not amount:
+
+        # Normalize amount to paise (integer) as Razorpay expects
+        amount_paise = None
+        if amount_rupees is not None:
+            try:
+                amount_paise = int(round(float(amount_rupees) * 100))
+            except Exception:
+                return error_response('Invalid amount_rupees', 400)
+        elif raw_amount is not None:
+            # If client already provided paise as int-like, use it; if float, convert safely
+            try:
+                # Some clients may send a float rupee amount by mistake; if < 1000 assume rupees
+                val = float(raw_amount)
+                if val.is_integer():
+                    # Could be paise already if big; if improbably small (< 1000), treat as rupees
+                    if val < 1000:
+                        amount_paise = int(round(val * 100))
+                    else:
+                        amount_paise = int(val)
+                else:
+                    amount_paise = int(round(val * 100))
+            except Exception:
+                return error_response('Invalid amount', 400)
+        else:
             return error_response('Amount is required', 400)
-        
+
+        if amount_paise <= 0:
+            return error_response('Amount must be greater than zero', 400)
+
         # Create Razorpay order
         order_data = {
-            'amount': amount,
+            'amount': amount_paise,
             'currency': currency,
             # If client supplied a receipt, use it to correlate to internal order; else auto-generate
             'receipt': data.get('receipt') or f'order_{datetime.now().strftime("%Y%m%d_%H%M%S")}',
