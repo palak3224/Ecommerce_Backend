@@ -887,19 +887,12 @@ class PerformanceAnalyticsController:
             # Calculate conversion rate
             conversion_rate = (total_purchases / total_visitors * 100) if total_visitors > 0 else 0
 
-            # Get monthly breakdown
-            monthly_data = db.session.query(
+            # Get monthly breakdown - separate queries for visitors and purchases
+            # First get visitors by month
+            visitors_by_month = db.session.query(
                 extract('year', VisitTracking.visit_time).label('year'),
                 extract('month', VisitTracking.visit_time).label('month'),
-                func.count(func.distinct(VisitTracking.session_id)).label('visitors'),
-                func.count(func.distinct(Order.order_id)).label('purchases')
-            ).outerjoin(
-                Order,
-                and_(
-                    Order.order_date >= start_date,
-                    Order.order_date <= end_date,
-                    Order.user_id.isnot(None)
-                )
+                func.count(func.distinct(VisitTracking.session_id)).label('visitors')
             ).filter(
                 and_(
                     VisitTracking.visit_time >= start_date,
@@ -909,19 +902,42 @@ class PerformanceAnalyticsController:
             ).group_by(
                 extract('year', VisitTracking.visit_time),
                 extract('month', VisitTracking.visit_time)
-            ).order_by(
-                extract('year', VisitTracking.visit_time),
-                extract('month', VisitTracking.visit_time)
             ).all()
+
+            # Then get purchases by month
+            purchases_by_month = db.session.query(
+                extract('year', Order.order_date).label('year'),
+                extract('month', Order.order_date).label('month'),
+                func.count(func.distinct(Order.order_id)).label('purchases')
+            ).filter(
+                and_(
+                    Order.order_date >= start_date,
+                    Order.order_date <= end_date,
+                    Order.user_id.isnot(None)
+                )
+            ).group_by(
+                extract('year', Order.order_date),
+                extract('month', Order.order_date)
+            ).all()
+
+            # Create lookup dictionaries
+            visitors_dict = {(int(v.year), int(v.month)): int(v.visitors or 0) for v in visitors_by_month}
+            purchases_dict = {(int(p.year), int(p.month)): int(p.purchases or 0) for p in purchases_by_month}
+
+            # Get all unique year-month combinations
+            all_months = set(visitors_dict.keys()) | set(purchases_dict.keys())
 
             # Format monthly data
             monthly_breakdown = []
-            for data in monthly_data:
-                month_rate = (data.purchases / data.visitors * 100) if data.visitors > 0 else 0
+            for year, month in sorted(all_months):
+                visitors = visitors_dict.get((year, month), 0)
+                purchases = purchases_dict.get((year, month), 0)
+                month_rate = (purchases / visitors * 100) if visitors > 0 else 0
+                
                 monthly_breakdown.append({
-                    "month": f"{int(data.year)}-{int(data.month):02d}",
-                    "visitors": int(data.visitors or 0),
-                    "purchases": int(data.purchases or 0),
+                    "month": f"{year}-{month:02d}",
+                    "visitors": visitors,
+                    "purchases": purchases,
                     "conversion_rate": round(month_rate, 2)
                 })
 
@@ -951,11 +967,13 @@ class PerformanceAnalyticsController:
             }
 
     @staticmethod
-    def get_hourly_analytics(months=12):
+    def get_hourly_analytics(months=12, start_date=None, end_date=None):
         """Get hourly analytics including page views, unique visitors, bounce rate, and conversion rate"""
         try:
-            end_date = datetime.now(timezone.utc)
-            start_date = end_date - timedelta(days=30 * months)
+            if not end_date:
+                end_date = datetime.now(timezone.utc)
+            if not start_date:
+                start_date = end_date - timedelta(days=30 * months)
 
             # Get hourly visit data with bounce rate based on time spent
             hourly_data = db.session.query(
@@ -965,11 +983,7 @@ class PerformanceAnalyticsController:
                 func.sum(case(
                     (VisitTracking.time_spent <= 10, 1),  # Consider visits with less than 10 seconds as bounces
                     else_=0
-                )).label('bounced_visits'),
-                func.count(case(
-                    (VisitTracking.was_converted == True, 1),
-                    else_=None
-                )).label('conversions')
+                )).label('bounced_visits')
             ).filter(
                 and_(
                     VisitTracking.visit_time >= start_date,
@@ -983,27 +997,53 @@ class PerformanceAnalyticsController:
                 extract('hour', VisitTracking.visit_time)
             ).all()
 
+            # Get conversions separately by joining with orders
+            conversion_data = db.session.query(
+                extract('hour', Order.order_date).label('hour'),
+                func.count(func.distinct(Order.order_id)).label('conversions')
+            ).filter(
+                and_(
+                    Order.order_date >= start_date,
+                    Order.order_date <= end_date,
+                    Order.user_id.isnot(None)  # Only count orders from registered users
+                )
+            ).group_by(
+                extract('hour', Order.order_date)
+            ).all()
+
+            # Create a dictionary for quick lookup of conversions by hour
+            conversions_by_hour = {int(data.hour): int(data.conversions or 0) for data in conversion_data}
+
             # Format the data and convert UTC to IST
             hourly_analytics = []
             for data in hourly_data:
                 total_visits = int(data.total_visits or 0)
                 unique_visitors = int(data.unique_visitors or 0)
                 bounced_visits = int(data.bounced_visits or 0)
-                conversions = int(data.conversions or 0)
+                
+                # Get conversions for this hour from our lookup dictionary
+                utc_hour = int(data.hour)
+                conversions = conversions_by_hour.get(utc_hour, 0)
 
                 # Convert UTC hour to IST (UTC+5:30)
-                utc_hour = int(data.hour)
-                ist_hour = (utc_hour + 5) % 24  # Add 5 hours for IST
-                if utc_hour >= 18:  # If UTC hour is 18 or later, we need to add 30 minutes
-                    ist_hour = (ist_hour + 1) % 24
-
+                # IST is 5 hours and 30 minutes ahead of UTC
+                # For hourly data, we add 5 hours and handle the 30-minute offset
+                ist_hour = (utc_hour + 5) % 24
+                
+                # Since we're dealing with hourly data and IST is +5:30, we need to consider
+                # that some UTC hours might map to different IST hours due to the 30-minute offset
+                # For example: UTC 00:30 becomes IST 06:00, not 05:30
+                # We'll use a simple approach: if the minute component would push us to the next hour,
+                # we'll round up to the next hour for better representation
+                
                 # Calculate rates
                 bounce_rate = (bounced_visits / total_visits * 100) if total_visits > 0 else 0
-                conversion_rate = (conversions / unique_visitors * 100) if unique_visitors > 0 else 0
+                # Conversion rate should be based on total visits, not unique visitors
+                conversion_rate = (conversions / total_visits * 100) if total_visits > 0 else 0
 
                 hourly_analytics.append({
                     "hour": ist_hour,
-                    "hour_display": f"{ist_hour:02d}:00 IST",
+                    "hour_display": f"{ist_hour:02d}:00",
                     "total_visits": total_visits,
                     "unique_visitors": unique_visitors,
                     "bounced_visits": bounced_visits,
@@ -1020,11 +1060,22 @@ class PerformanceAnalyticsController:
 
             # Calculate overall bounce rate correctly
             overall_bounce_rate = (total_bounced_visits / total_visits * 100) if total_visits > 0 else 0
-            overall_conversion_rate = (total_conversions / total_unique_visitors * 100) if total_unique_visitors > 0 else 0
+            overall_conversion_rate = (total_conversions / total_visits * 100) if total_visits > 0 else 0
 
-            # Find peak hours
-            peak_visits_hour = max(hourly_analytics, key=lambda x: x["total_visits"]) if hourly_analytics else None
-            peak_conversion_hour = max(hourly_analytics, key=lambda x: x["conversion_rate"]) if hourly_analytics else None
+            # Find peak hours - only consider hours with actual visits
+            peak_visits_hour = None
+            peak_conversion_hour = None
+            
+            if hourly_analytics:
+                # Filter out hours with 0 visits for peak visits calculation
+                hours_with_visits = [h for h in hourly_analytics if h["total_visits"] > 0]
+                if hours_with_visits:
+                    peak_visits_hour = max(hours_with_visits, key=lambda x: x["total_visits"])
+                
+                # Filter out hours with 0 conversions for peak conversion calculation
+                hours_with_conversions = [h for h in hourly_analytics if h["conversions"] > 0]
+                if hours_with_conversions:
+                    peak_conversion_hour = max(hours_with_conversions, key=lambda x: x["conversion_rate"])
 
             return {
                 "status": "success",
@@ -1045,6 +1096,280 @@ class PerformanceAnalyticsController:
                             "best_conversion": {
                                 "hour": peak_conversion_hour["hour_display"] if peak_conversion_hour else None,
                                 "rate": peak_conversion_hour["conversion_rate"] if peak_conversion_hour else 0
+                            }
+                        }
+                    }
+                }
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+
+    @staticmethod
+    def get_daily_analytics(days=30, start_date=None, end_date=None):
+        """Get daily analytics including page views, unique visitors, bounce rate, and conversion rate"""
+        try:
+            if not end_date:
+                end_date = datetime.now(timezone.utc)
+            if not start_date:
+                start_date = end_date - timedelta(days=days)
+
+            # Get daily visit data with bounce rate based on time spent
+            daily_data = db.session.query(
+                func.date(VisitTracking.visit_time).label('date'),
+                func.count(VisitTracking.session_id).label('total_visits'),
+                func.count(func.distinct(VisitTracking.ip_address)).label('unique_visitors'),
+                func.sum(case(
+                    (VisitTracking.time_spent <= 10, 1),  # Consider visits with less than 10 seconds as bounces
+                    else_=0
+                )).label('bounced_visits')
+            ).filter(
+                and_(
+                    VisitTracking.visit_time >= start_date,
+                    VisitTracking.visit_time <= end_date,
+                    VisitTracking.is_deleted == False,
+                    VisitTracking.exited_page.isnot(None)  # Only count visits that have exited
+                )
+            ).group_by(
+                func.date(VisitTracking.visit_time)
+            ).order_by(
+                func.date(VisitTracking.visit_time)
+            ).all()
+
+            # Get conversions separately by joining with orders
+            conversion_data = db.session.query(
+                func.date(Order.order_date).label('date'),
+                func.count(func.distinct(Order.order_id)).label('conversions')
+            ).filter(
+                and_(
+                    Order.order_date >= start_date,
+                    Order.order_date <= end_date,
+                    Order.user_id.isnot(None)  # Only count orders from registered users
+                )
+            ).group_by(
+                func.date(Order.order_date)
+            ).all()
+
+            # Create a dictionary for quick lookup of conversions by date
+            conversions_by_date = {data.date: int(data.conversions or 0) for data in conversion_data}
+
+            # Format the data
+            daily_analytics = []
+            for data in daily_data:
+                total_visits = int(data.total_visits or 0)
+                unique_visitors = int(data.unique_visitors or 0)
+                bounced_visits = int(data.bounced_visits or 0)
+                
+                # Get conversions for this date from our lookup dictionary
+                conversions = conversions_by_date.get(data.date, 0)
+
+                # Calculate rates
+                bounce_rate = (bounced_visits / total_visits * 100) if total_visits > 0 else 0
+                # Conversion rate should be based on total visits, not unique visitors
+                conversion_rate = (conversions / total_visits * 100) if total_visits > 0 else 0
+
+                # Format date for display
+                date_obj = data.date
+                day_name = date_obj.strftime('%A')
+                formatted_date = date_obj.strftime('%Y-%m-%d')
+
+                daily_analytics.append({
+                    "date": formatted_date,
+                    "hour_display": f"{day_name} ({formatted_date})",
+                    "total_visits": total_visits,
+                    "unique_visitors": unique_visitors,
+                    "bounced_visits": bounced_visits,
+                    "conversions": conversions,
+                    "bounce_rate": round(bounce_rate, 2),
+                    "conversion_rate": round(conversion_rate, 2)
+                })
+
+            # Calculate overall metrics
+            total_visits = sum(item["total_visits"] for item in daily_analytics)
+            total_unique_visitors = sum(item["unique_visitors"] for item in daily_analytics)
+            total_bounced_visits = sum(item["bounced_visits"] for item in daily_analytics)
+            total_conversions = sum(item["conversions"] for item in daily_analytics)
+
+            # Calculate overall rates
+            overall_bounce_rate = (total_bounced_visits / total_visits * 100) if total_visits > 0 else 0
+            overall_conversion_rate = (total_conversions / total_visits * 100) if total_visits > 0 else 0
+
+            # Find peak days - only consider days with actual visits
+            peak_visits_day = None
+            peak_conversion_day = None
+            
+            if daily_analytics:
+                # Filter out days with 0 visits for peak visits calculation
+                days_with_visits = [d for d in daily_analytics if d["total_visits"] > 0]
+                if days_with_visits:
+                    peak_visits_day = max(days_with_visits, key=lambda x: x["total_visits"])
+                
+                # Filter out days with 0 conversions for peak conversion calculation
+                days_with_conversions = [d for d in daily_analytics if d["conversions"] > 0]
+                if days_with_conversions:
+                    peak_conversion_day = max(days_with_conversions, key=lambda x: x["conversion_rate"])
+
+            return {
+                "status": "success",
+                "data": {
+                    "daily_breakdown": daily_analytics,
+                    "summary": {
+                        "total_visits": total_visits,
+                        "total_unique_visitors": total_unique_visitors,
+                        "total_bounced_visits": total_bounced_visits,
+                        "total_conversions": total_conversions,
+                        "overall_bounce_rate": round(overall_bounce_rate, 2),
+                        "overall_conversion_rate": round(overall_conversion_rate, 2),
+                        "peak_days": {
+                            "most_visits": {
+                                "day": peak_visits_day["hour_display"] if peak_visits_day else None,
+                                "visits": peak_visits_day["total_visits"] if peak_visits_day else 0
+                            },
+                            "best_conversion": {
+                                "day": peak_conversion_day["hour_display"] if peak_conversion_day else None,
+                                "rate": peak_conversion_day["conversion_rate"] if peak_conversion_day else 0
+                            }
+                        }
+                    }
+                }
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+
+    @staticmethod
+    def get_monthly_analytics(months=12, start_date=None, end_date=None):
+        """Get monthly analytics including page views, unique visitors, bounce rate, and conversion rate"""
+        try:
+            if not end_date:
+                end_date = datetime.now(timezone.utc)
+            if not start_date:
+                start_date = end_date - timedelta(days=30 * months)
+
+            # Get monthly visit data with bounce rate based on time spent
+            monthly_data = db.session.query(
+                extract('year', VisitTracking.visit_time).label('year'),
+                extract('month', VisitTracking.visit_time).label('month'),
+                func.count(VisitTracking.session_id).label('total_visits'),
+                func.count(func.distinct(VisitTracking.ip_address)).label('unique_visitors'),
+                func.sum(case(
+                    (VisitTracking.time_spent <= 10, 1),  # Consider visits with less than 10 seconds as bounces
+                    else_=0
+                )).label('bounced_visits')
+            ).filter(
+                and_(
+                    VisitTracking.visit_time >= start_date,
+                    VisitTracking.visit_time <= end_date,
+                    VisitTracking.is_deleted == False,
+                    VisitTracking.exited_page.isnot(None)  # Only count visits that have exited
+                )
+            ).group_by(
+                extract('year', VisitTracking.visit_time),
+                extract('month', VisitTracking.visit_time)
+            ).order_by(
+                extract('year', VisitTracking.visit_time),
+                extract('month', VisitTracking.visit_time)
+            ).all()
+
+            # Get conversions separately by joining with orders
+            conversion_data = db.session.query(
+                extract('year', Order.order_date).label('year'),
+                extract('month', Order.order_date).label('month'),
+                func.count(func.distinct(Order.order_id)).label('conversions')
+            ).filter(
+                and_(
+                    Order.order_date >= start_date,
+                    Order.order_date <= end_date,
+                    Order.user_id.isnot(None)  # Only count orders from registered users
+                )
+            ).group_by(
+                extract('year', Order.order_date),
+                extract('month', Order.order_date)
+            ).all()
+
+            # Create a dictionary for quick lookup of conversions by year-month
+            conversions_by_month = {(int(data.year), int(data.month)): int(data.conversions or 0) for data in conversion_data}
+
+            # Format the data
+            monthly_analytics = []
+            for data in monthly_data:
+                total_visits = int(data.total_visits or 0)
+                unique_visitors = int(data.unique_visitors or 0)
+                bounced_visits = int(data.bounced_visits or 0)
+                
+                # Get conversions for this year-month from our lookup dictionary
+                year = int(data.year)
+                month = int(data.month)
+                conversions = conversions_by_month.get((year, month), 0)
+
+                # Calculate rates
+                bounce_rate = (bounced_visits / total_visits * 100) if total_visits > 0 else 0
+                # Conversion rate should be based on total visits, not unique visitors
+                conversion_rate = (conversions / total_visits * 100) if total_visits > 0 else 0
+
+                # Format month for display
+                month_name = datetime(year, month, 1).strftime('%B')
+                formatted_month = f"{year}-{month:02d}"
+
+                monthly_analytics.append({
+                    "month": formatted_month,
+                    "hour_display": f"{month_name} {year}",
+                    "total_visits": total_visits,
+                    "unique_visitors": unique_visitors,
+                    "bounced_visits": bounced_visits,
+                    "conversions": conversions,
+                    "bounce_rate": round(bounce_rate, 2),
+                    "conversion_rate": round(conversion_rate, 2)
+                })
+
+            # Calculate overall metrics
+            total_visits = sum(item["total_visits"] for item in monthly_analytics)
+            total_unique_visitors = sum(item["unique_visitors"] for item in monthly_analytics)
+            total_bounced_visits = sum(item["bounced_visits"] for item in monthly_analytics)
+            total_conversions = sum(item["conversions"] for item in monthly_analytics)
+
+            # Calculate overall rates
+            overall_bounce_rate = (total_bounced_visits / total_visits * 100) if total_visits > 0 else 0
+            overall_conversion_rate = (total_conversions / total_visits * 100) if total_visits > 0 else 0
+
+            # Find peak months - only consider months with actual visits
+            peak_visits_month = None
+            peak_conversion_month = None
+            
+            if monthly_analytics:
+                # Filter out months with 0 visits for peak visits calculation
+                months_with_visits = [m for m in monthly_analytics if m["total_visits"] > 0]
+                if months_with_visits:
+                    peak_visits_month = max(months_with_visits, key=lambda x: x["total_visits"])
+                
+                # Filter out months with 0 conversions for peak conversion calculation
+                months_with_conversions = [m for m in monthly_analytics if m["conversions"] > 0]
+                if months_with_conversions:
+                    peak_conversion_month = max(months_with_conversions, key=lambda x: x["conversion_rate"])
+
+            return {
+                "status": "success",
+                "data": {
+                    "monthly_breakdown": monthly_analytics,
+                    "summary": {
+                        "total_visits": total_visits,
+                        "total_unique_visitors": total_unique_visitors,
+                        "total_bounced_visits": total_bounced_visits,
+                        "total_conversions": total_conversions,
+                        "overall_bounce_rate": round(overall_bounce_rate, 2),
+                        "overall_conversion_rate": round(overall_conversion_rate, 2),
+                        "peak_months": {
+                            "most_visits": {
+                                "month": peak_visits_month["hour_display"] if peak_visits_month else None,
+                                "visits": peak_visits_month["total_visits"] if peak_visits_month else 0
+                            },
+                            "best_conversion": {
+                                "month": peak_conversion_month["hour_display"] if peak_conversion_month else None,
+                                "rate": peak_conversion_month["conversion_rate"] if peak_conversion_month else 0
                             }
                         }
                     }
@@ -1476,6 +1801,185 @@ class PerformanceAnalyticsController:
                 "status": "error",
                 "message": str(e)
             }
+
+    @staticmethod
+    def export_traffic_analytics_report(time_filter='hourly', format='csv', months=12):
+        """Export traffic analytics report in specified format (csv, excel, pdf)"""
+        try:
+            from io import BytesIO
+            import pandas as pd
+            from datetime import datetime, timezone, timedelta
+            from sqlalchemy import and_
+            from models.visit_tracking import VisitTracking
+            from reportlab.lib import colors
+            from reportlab.lib.pagesizes import letter, landscape
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
+            # Get analytics data based on time filter
+            if time_filter == 'hourly':
+                analytics_data = PerformanceAnalyticsController.get_hourly_analytics(months)
+                data_key = 'hourly_breakdown'
+                time_label = 'Hour'
+            elif time_filter == 'daily':
+                analytics_data = PerformanceAnalyticsController.get_daily_analytics(30)
+                data_key = 'daily_breakdown'
+                time_label = 'Date'
+            elif time_filter == 'monthly':
+                analytics_data = PerformanceAnalyticsController.get_monthly_analytics(months)
+                data_key = 'monthly_breakdown'
+                time_label = 'Month'
+            else:
+                raise ValueError(f"Invalid time filter: {time_filter}")
+
+            if analytics_data['status'] != 'success':
+                raise Exception("Failed to fetch analytics data")
+
+            # Convert to DataFrame
+            df = pd.DataFrame(analytics_data['data'][data_key])
+            
+            # Rename columns for better display
+            df = df.rename(columns={
+                'hour_display': time_label,
+                'total_visits': 'Total Visits',
+                'unique_visitors': 'Unique Visitors',
+                'bounced_visits': 'Bounced Visits',
+                'conversions': 'Conversions',
+                'bounce_rate': 'Bounce Rate (%)',
+                'conversion_rate': 'Conversion Rate (%)'
+            })
+
+            # Select relevant columns
+            display_columns = [time_label, 'Total Visits', 'Unique Visitors', 'Bounced Visits', 
+                             'Conversions', 'Bounce Rate (%)', 'Conversion Rate (%)']
+            df = df[display_columns]
+
+            # Add summary statistics
+            summary_data = analytics_data['data']['summary']
+            summary_df = pd.DataFrame([{
+                'Total Visits': summary_data['total_visits'],
+                'Total Unique Visitors': summary_data['total_unique_visitors'],
+                'Total Bounced Visits': summary_data['total_bounced_visits'],
+                'Total Conversions': summary_data['total_conversions'],
+                'Overall Bounce Rate (%)': summary_data['overall_bounce_rate'],
+                'Overall Conversion Rate (%)': summary_data['overall_conversion_rate']
+            }])
+
+            if format == 'csv':
+                # Export as CSV
+                output = BytesIO()
+                df.to_csv(output, index=False)
+                output.seek(0)
+                return output.getvalue(), 'text/csv', f'traffic_analytics_{time_filter}_{datetime.now().strftime("%Y%m%d")}.csv'
+
+            elif format == 'excel':
+                # Export as Excel
+                output = BytesIO()
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    df.to_excel(writer, sheet_name=f'{time_filter.title()} Data', index=False)
+                    summary_df.to_excel(writer, sheet_name='Summary', index=False)
+                    
+                    # Get workbook and add formats
+                    workbook = writer.book
+                    header_format = workbook.add_format({
+                        'bold': True,
+                        'bg_color': '#FF5733',
+                        'font_color': 'white'
+                    })
+                    
+                    # Format the data sheet
+                    worksheet = writer.sheets[f'{time_filter.title()} Data']
+                    for col_num, value in enumerate(df.columns.values):
+                        worksheet.write(0, col_num, value, header_format)
+                        worksheet.set_column(col_num, col_num, 15)
+                    
+                    # Format the Summary sheet
+                    worksheet = writer.sheets['Summary']
+                    for col_num, value in enumerate(summary_df.columns.values):
+                        worksheet.write(0, col_num, value, header_format)
+                        worksheet.set_column(col_num, col_num, 20)
+
+                output.seek(0)
+                return output.getvalue(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', f'traffic_analytics_{time_filter}_{datetime.now().strftime("%Y%m%d")}.xlsx'
+
+            elif format == 'pdf':
+                # Export as PDF using reportlab
+                output = BytesIO()
+                doc = SimpleDocTemplate(
+                    output,
+                    pagesize=landscape(letter),
+                    rightMargin=0.5*inch,
+                    leftMargin=0.5*inch,
+                    topMargin=0.5*inch,
+                    bottomMargin=0.5*inch
+                )
+
+                # Create the PDF content
+                elements = []
+                styles = getSampleStyleSheet()
+                
+                # Add title
+                title_style = ParagraphStyle(
+                    'CustomTitle',
+                    parent=styles['Heading1'],
+                    textColor=colors.HexColor('#FF5733'),
+                    spaceAfter=30
+                )
+                elements.append(Paragraph(f'Traffic Analytics Report - {time_filter.title()}', title_style))
+                
+                # Add summary section
+                elements.append(Paragraph('Summary', styles['Heading2']))
+                summary_data_pdf = [[k, f"{v:,.2f}" if isinstance(v, float) else f"{v:,}"] 
+                              for k, v in summary_df.iloc[0].items()]
+                summary_table = Table(summary_data_pdf)
+                summary_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, -1), colors.lightgrey),
+                    ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, -1), 10),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+                    ('TOPPADDING', (0, 0), (-1, -1), 12),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
+                ]))
+                elements.append(summary_table)
+                elements.append(Spacer(1, 20))
+
+                # Add detailed data
+                elements.append(Paragraph(f'Detailed {time_filter.title()} Data', styles['Heading2']))
+                data_pdf = [df.columns.values.tolist()] + df.values.tolist()
+                table = Table(data_pdf)
+                table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#FF5733')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 10),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                    ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+                    ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                    ('FONTSIZE', (0, 1), (-1, -1), 8),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('TOPPADDING', (0, 0), (-1, -1), 6),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                ]))
+                elements.append(table)
+
+                # Build PDF
+                doc.build(elements)
+                output.seek(0)
+                return output.getvalue(), 'application/pdf', f'traffic_analytics_{time_filter}_{datetime.now().strftime("%Y%m%d")}.pdf'
+
+            else:
+                raise ValueError(f"Unsupported format: {format}")
+
+        except Exception as e:
+            print(f"Error exporting traffic analytics report: {str(e)}")
+            return None, None, None
 
     @staticmethod
     def export_sales_report(format='csv'):

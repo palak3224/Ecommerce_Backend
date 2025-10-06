@@ -4264,12 +4264,126 @@ def get_conversion_rate():
 def get_hourly_analytics():
     try:
         from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
-        return PerformanceAnalyticsController.get_hourly_analytics()
+        from datetime import datetime, timezone
+        import dateutil.parser
+        
+        months = request.args.get('months', default=12, type=int)
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        
+        # Parse dates if provided
+        parsed_start_date = None
+        parsed_end_date = None
+        
+        if start_date:
+            parsed_start_date = dateutil.parser.parse(start_date).replace(tzinfo=timezone.utc)
+        if end_date:
+            parsed_end_date = dateutil.parser.parse(end_date).replace(tzinfo=timezone.utc)
+            
+        return PerformanceAnalyticsController.get_hourly_analytics(
+            months=months, 
+            start_date=parsed_start_date, 
+            end_date=parsed_end_date
+        )
     except Exception as e:
         current_app.logger.error(f"Error getting hourly analytics: {e}")
         return jsonify({
             "status": "error",
             "message": "Failed to retrieve hourly analytics data"
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/daily', methods=['GET'])
+@super_admin_role_required
+def get_daily_analytics():
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        from datetime import datetime, timezone
+        import dateutil.parser
+        
+        days = request.args.get('days', default=30, type=int)
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        
+        # Parse dates if provided
+        parsed_start_date = None
+        parsed_end_date = None
+        
+        if start_date:
+            parsed_start_date = dateutil.parser.parse(start_date).replace(tzinfo=timezone.utc)
+        if end_date:
+            parsed_end_date = dateutil.parser.parse(end_date).replace(tzinfo=timezone.utc)
+            
+        return PerformanceAnalyticsController.get_daily_analytics(
+            days=days, 
+            start_date=parsed_start_date, 
+            end_date=parsed_end_date
+        )
+    except Exception as e:
+        current_app.logger.error(f"Error getting daily analytics: {e}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to retrieve daily analytics data"
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/monthly', methods=['GET'])
+@super_admin_role_required
+def get_monthly_analytics():
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        from datetime import datetime, timezone
+        import dateutil.parser
+        
+        months = request.args.get('months', default=12, type=int)
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        
+        # Parse dates if provided
+        parsed_start_date = None
+        parsed_end_date = None
+        
+        if start_date:
+            parsed_start_date = dateutil.parser.parse(start_date).replace(tzinfo=timezone.utc)
+        if end_date:
+            parsed_end_date = dateutil.parser.parse(end_date).replace(tzinfo=timezone.utc)
+            
+        return PerformanceAnalyticsController.get_monthly_analytics(
+            months=months, 
+            start_date=parsed_start_date, 
+            end_date=parsed_end_date
+        )
+    except Exception as e:
+        current_app.logger.error(f"Error getting monthly analytics: {e}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to retrieve monthly analytics data"
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/daily/export', methods=['GET'])
+@super_admin_role_required
+def export_daily_analytics():
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        days = request.args.get('days', default=30, type=int)
+        return PerformanceAnalyticsController.export_daily_analytics(days)
+    except Exception as e:
+        current_app.logger.error(f"Error exporting daily analytics: {e}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to export daily analytics data"
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/monthly/export', methods=['GET'])
+@super_admin_role_required
+def export_monthly_analytics():
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        months = request.args.get('months', default=12, type=int)
+        return PerformanceAnalyticsController.export_monthly_analytics(months)
+    except Exception as e:
+        current_app.logger.error(f"Error exporting monthly analytics: {e}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to export monthly analytics data"
         }), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @superadmin_bp.route('/monitoring/system/status', methods=['GET'])
