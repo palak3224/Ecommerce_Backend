@@ -69,6 +69,7 @@ from routes.shop.public.public_shop_order_routes import public_shop_order_bp
 from routes.upload_routes import upload_bp
 from routes.translate_routes import translate_bp
 from routes.razorpay_routes import razorpay_bp
+from routes.ai_image_upload import ai_image_upload_bp
 
 
 from flasgger import Swagger
@@ -80,6 +81,7 @@ from datetime import datetime, timezone, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 import threading
 from controllers.newsletter_public_controller import newsletter_public_bp
+from flask import send_from_directory as flask_send_from_directory
 
 
 ALLOWED_ORIGINS = [
@@ -87,6 +89,7 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1:5173",
     "http://kea.mywire.org:5300",
     "https://aoinstore.com"
+    
 ]
 
 def add_headers(response):
@@ -239,10 +242,18 @@ def create_app(config_name='default'):
 
     app.register_blueprint(upload_bp, url_prefix='/api/upload')
     app.register_blueprint(razorpay_bp)
+    app.register_blueprint(ai_image_upload_bp)
 
     # Optional: Translation endpoints behind feature flag
     if app.config.get('FEATURE_TRANSLATION'):
         app.register_blueprint(translate_bp)
+
+    # Serve static files (temporary uploads for AI processing)
+    @app.route('/static/temp_uploads/<path:filename>')
+    def serve_temp_upload(filename):
+        """Serve temporary uploaded files"""
+        static_folder = os.path.join(app.root_path, 'static', 'temp_uploads')
+        return send_from_directory(static_folder, filename)
 
     # Add custom headers to every response
     app.after_request(add_headers)
