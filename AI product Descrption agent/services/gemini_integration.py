@@ -87,7 +87,7 @@ def call_gemini(prompt: str, images: Optional[List[str]] = None, return_raw: boo
 
 def analyze_image_with_gemini(image_url: str, analysis_type: str = "detailed") -> str:
     """
-    Analyze an image using Gemini's vision capabilities.
+    Analyze an image using Gemini's vision capabilities with caching.
     
     Args:
         image_url: URL of the image to analyze
@@ -96,6 +96,15 @@ def analyze_image_with_gemini(image_url: str, analysis_type: str = "detailed") -
     Returns:
         Analysis text
     """
+    # Try to get from cache first
+    try:
+        from core.cache import cache
+        cached_analysis = cache.get_image_analysis(image_url, analysis_type)
+        if cached_analysis:
+            return cached_analysis
+    except Exception as e:
+        print(f"Cache check failed: {str(e)}")
+    
     prompts = {
         "detailed": """Analyze this product image in detail. Describe:
 1. The main product and its visible features
@@ -125,6 +134,15 @@ Focus on the main product features visible in the image. Be specific and factual
     
     try:
         response = call_gemini(prompt, images=[image_url], return_raw=True)
-        return response if isinstance(response, str) else str(response)
+        result = response if isinstance(response, str) else str(response)
+        
+        # Cache the result
+        try:
+            from core.cache import cache
+            cache.set_image_analysis(image_url, analysis_type, result)
+        except Exception as e:
+            print(f"Cache set failed: {str(e)}")
+        
+        return result
     except Exception as e:
         return f"Error analyzing image: {str(e)}"
