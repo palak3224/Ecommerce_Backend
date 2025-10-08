@@ -41,3 +41,7 @@ fastapi
 uvicorn
 boto3
 razorpay
+pytesseract
+Pillow
+requests
+apscheduler

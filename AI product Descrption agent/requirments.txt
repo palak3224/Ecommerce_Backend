@@ -1,0 +1,19 @@
+# Core Dependencies
+requests>=2.31.0
+Pillow>=10.0.0
+python-dotenv>=1.0.0
+
+# FastAPI and Web Server
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.5.0
+
+# Redis and Caching
+redis>=5.0.0
+
+# Celery Task Queue
+celery>=5.3.0
+kombu>=5.3.0  # Celery dependency for message queue
+
+# Optional: Flower for Celery monitoring
+flower>=2.0.1
