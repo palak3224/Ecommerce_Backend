@@ -160,5 +160,5 @@ class Product(BaseModel):
             # Attributes, Variants, Stock
             "attributes": [attr.serialize() for attr in self.product_attributes] if self.product_attributes else [],
             "variants": [variant.serialize() for variant in self.variants] if self.variants else [],
-            "stock": self.stock.serialize() if hasattr(self, 'stock') and self.stock else None
+            "stock": self.stock.stock_qty if self.stock else 0
         }

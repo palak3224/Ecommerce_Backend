@@ -205,7 +205,7 @@ class ProductController:
                         'id': str(product.product_id),  # Convert to string for frontend
                         'name': product.product_name,
                         'description': product.product_description,
-                        'stock': 100,  # TODO: Add stock tracking
+                        'stock': product.stock.stock_qty if product.stock else 0,  # TODO: Add stock tracking
                         'isNew': True,  # TODO: Add logic for new products
                         'isBuiltIn': False,  # TODO: Add logic for built-in products
                         'rating': round(float(avg_rating), 1),  # Add average rating
@@ -281,7 +281,7 @@ class ProductController:
                         'id': str(product.product_id),  # Convert to string for frontend
                         'name': product.product_name,
                         'description': product.product_description,
-                        'stock': 100,  # TODO: Add stock tracking
+                        'stock': product.stock.stock_qty if product.stock else 0,  # TODO: Add stock tracking
                         'isNew': True,  # TODO: Add logic for new products
                         'isBuiltIn': False,  # TODO: Add logic for built-in products
                         'rating': round(float(avg_rating), 1),  # Add average rating
@@ -655,7 +655,7 @@ class ProductController:
                 "id": str(product.product_id),
                 "name": product.product_name,
                 "currency": "INR",
-                "stock": 100,
+                "stock": product.stock.stock_qty if product.stock else 0,
                 "isNew": True,
                 "isBuiltIn": False,
                 "rating": round(float(avg_rating), 1),
@@ -812,7 +812,7 @@ class ProductController:
                     'id': str(product.product_id),
                     'name': product.product_name,
                     'description': product.product_description,
-                    'stock': 100,
+                    'stock': product.stock.stock_qty if product.stock else 0,
                     'isNew': True,
                     'isBuiltIn': False,
                     'rating': round(float(avg_rating), 1),
@@ -957,7 +957,7 @@ class ProductController:
                     'id': str(product.product_id),
                     'name': product.product_name,
                     'description': product.product_description,
-                    'stock': 100,
+                    'stock': product.stock.stock_qty if product.stock else 0,
                     'isNew': True,
                     'isBuiltIn': False,
                     'rating': round(float(avg_rating), 1),
@@ -1044,7 +1044,7 @@ class ProductController:
                     'id': str(v.product_id),
                     'name': v.product_name,
                     'description': v.product_description,
-                    'stock': 100,  # TODO: Add stock tracking
+                    'stock': product.stock.stock_qty if product.stock else 0,  # TODO: Add stock tracking
                     'isNew': True,  # TODO: Add logic for new products
                     'isBuiltIn': False,  # TODO: Add logic for built-in products
                     'isVariant': v.parent_product_id is not None,
@@ -1118,7 +1118,7 @@ class ProductController:
                     'id': str(product.product_id),
                     'name': product.product_name,
                     'description': product.product_description,
-                    'stock': 100,  # TODO: Add stock tracking
+                    'stock': product.stock.stock_qty if product.stock else 0,  # TODO: Add stock tracking
                     'isNew': True,  # These are new products
                     'isBuiltIn': False,
                 })
@@ -1337,7 +1337,7 @@ class ProductController:
                     'id': str(product.product_id),
                     'name': product.product_name,
                     'description': product.product_description,
-                    'stock': 100,
+                    'stock': product.stock.stock_qty if product.stock else 0,
                     'isNew': True,
                     'isBuiltIn': False,
                     'rating': round(float(avg_rating), 1),

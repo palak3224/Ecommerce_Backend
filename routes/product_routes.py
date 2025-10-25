@@ -260,7 +260,7 @@ def get_recently_viewed():
                     'price': float(view.product.selling_price),
                     'originalPrice': float(view.product.cost_price),
                     'currency': 'INR',
-                    'stock': 100,
+                    'stock': view.product.stock.stock_qty if view.product.stock else 0,
                     'isNew': True,
                     'isBuiltIn': False,
                     'rating': 0,
