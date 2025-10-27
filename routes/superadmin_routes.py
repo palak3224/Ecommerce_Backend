@@ -4358,13 +4358,26 @@ def get_monthly_analytics():
             "message": "Failed to retrieve monthly analytics data"
         }), HTTPStatus.INTERNAL_SERVER_ERROR
 
+from io import BytesIO
+
 @superadmin_bp.route('/analytics/daily/export', methods=['GET'])
 @super_admin_role_required
 def export_daily_analytics():
     try:
         from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
         days = request.args.get('days', default=30, type=int)
-        return PerformanceAnalyticsController.export_daily_analytics(days)
+        file_format = request.args.get('format', 'csv', type=str)
+        data, mimetype, filename = PerformanceAnalyticsController.export_daily_analytics(days=days, format=file_format)
+        
+        if data is None:
+            return jsonify({"status": "error", "message": "Failed to generate report"}), 500
+            
+        return send_file(
+            BytesIO(data),
+            mimetype=mimetype,
+            as_attachment=True,
+            download_name=filename
+        )
     except Exception as e:
         current_app.logger.error(f"Error exporting daily analytics: {e}")
         return jsonify({
@@ -4378,12 +4391,58 @@ def export_monthly_analytics():
     try:
         from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
         months = request.args.get('months', default=12, type=int)
-        return PerformanceAnalyticsController.export_monthly_analytics(months)
+        file_format = request.args.get('format', 'csv', type=str)
+        data, mimetype, filename = PerformanceAnalyticsController.export_monthly_analytics(months=months, format=file_format)
+
+        if data is None:
+            return jsonify({"status": "error", "message": "Failed to generate report"}), 500
+
+        return send_file(
+            BytesIO(data),
+            mimetype=mimetype,
+            as_attachment=True,
+            download_name=filename
+        )
     except Exception as e:
         current_app.logger.error(f"Error exporting monthly analytics: {e}")
         return jsonify({
             "status": "error",
             "message": "Failed to export monthly analytics data"
+        }), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@superadmin_bp.route('/analytics/export-traffic-report', methods=['GET'])
+@super_admin_role_required
+def export_traffic_report():
+    try:
+        from controllers.superadmin.performance_analytics import PerformanceAnalyticsController
+        from io import BytesIO
+
+        time_filter = request.args.get('time_filter', 'hourly', type=str)
+        file_format = request.args.get('format', 'csv', type=str)
+        months = request.args.get('months', default=12, type=int)
+        days = request.args.get('days', default=30, type=int)
+
+        data, mimetype, filename = PerformanceAnalyticsController.export_traffic_analytics_report(
+            time_filter=time_filter,
+            format=file_format,
+            months=months,
+            days=days
+        )
+
+        if data is None:
+            return jsonify({"status": "error", "message": "Failed to generate report"}), 500
+
+        return send_file(
+            BytesIO(data),
+            mimetype=mimetype,
+            as_attachment=True,
+            download_name=filename
+        )
+    except Exception as e:
+        current_app.logger.error(f"Error exporting traffic report: {e}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to export traffic report"
         }), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @superadmin_bp.route('/monitoring/system/status', methods=['GET'])
