@@ -87,7 +87,8 @@ def get_country_config(country_code):
                 {
                     'type': doc.value,
                     'name': doc.value.replace('_', ' ').title(),
-                    'required': True
+                    # Only PAN card and Aadhar are required; others optional
+                    'required': doc.value in ['pan_card', 'aadhar']
                 } for doc in CountryConfig.get_required_documents(country_code)
             ],
             'field_validations': CountryConfig.get_field_validations(country_code),
