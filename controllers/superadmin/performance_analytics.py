@@ -1802,8 +1802,35 @@ class PerformanceAnalyticsController:
                 "message": str(e)
             }
 
+
     @staticmethod
-    def export_traffic_analytics_report(time_filter='hourly', format='csv', months=12):
+    def export_daily_analytics(days=30, format='csv'):
+        """Export daily analytics report."""
+        try:
+            return PerformanceAnalyticsController.export_traffic_analytics_report(
+                time_filter='daily',
+                format=format,
+                days=days
+            )
+        except Exception as e:
+            print(f"Error in export_daily_analytics: {str(e)}")
+            return None, None, None
+
+    @staticmethod
+    def export_monthly_analytics(months=12, format='csv'):
+        """Export monthly analytics report."""
+        try:
+            return PerformanceAnalyticsController.export_traffic_analytics_report(
+                time_filter='monthly',
+                format=format,
+                months=months
+            )
+        except Exception as e:
+            print(f"Error in export_monthly_analytics: {str(e)}")
+            return None, None, None
+
+    @staticmethod
+    def export_traffic_analytics_report(time_filter='hourly', format='csv', months=12, days=30):
         """Export traffic analytics report in specified format (csv, excel, pdf)"""
         try:
             from io import BytesIO
@@ -1822,7 +1849,7 @@ class PerformanceAnalyticsController:
                 data_key = 'hourly_breakdown'
                 time_label = 'Hour'
             elif time_filter == 'daily':
-                analytics_data = PerformanceAnalyticsController.get_daily_analytics(30)
+                analytics_data = PerformanceAnalyticsController.get_daily_analytics(days)
                 data_key = 'daily_breakdown'
                 time_label = 'Date'
             elif time_filter == 'monthly':

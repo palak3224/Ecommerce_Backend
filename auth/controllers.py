@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import cloudinary
 import cloudinary.uploader
 from flask import current_app, jsonify, request
@@ -7,8 +7,9 @@ from sqlalchemy.exc import IntegrityError
 from authlib.integrations.flask_client import OAuth
 
 from common.database import db
-from auth.models import User, MerchantProfile, RefreshToken, EmailVerification, UserRole, AuthProvider
-from auth.utils import validate_google_token
+from auth.models import User, MerchantProfile, RefreshToken, EmailVerification, UserRole, AuthProvider, PhoneVerification
+from auth.utils import validate_google_token, normalize_phone_number, validate_phone_number
+from auth.twilio_service import send_otp_sms
 from common.cache import cached, get_redis_client
 from auth.email_utils import send_verification_email, send_password_reset_email
 
@@ -591,3 +592,182 @@ def change_password(user_id, old_password, new_password):
         db.session.rollback()
         current_app.logger.error(f"Error changing password for user {user_id}: {e}", exc_info=True)
         return {"error": "An internal error occurred while changing the password"}, 500
+
+
+def send_phone_otp(phone_number):
+    """
+    Send OTP to phone number for sign-up or login.
+    Only for regular users, not merchants.
+    """
+    try:
+        # Normalize phone number
+        normalized_phone = normalize_phone_number(phone_number)
+        if not normalized_phone:
+            return {"error": "Invalid phone number format. Please use E.164 format (e.g., +1234567890)"}, 400
+        
+        # Check if user exists (for login flow)
+        existing_user = User.get_by_phone(normalized_phone)
+        
+        # If user exists, check if they are a merchant (merchants cannot use phone login)
+        if existing_user and existing_user.role == UserRole.MERCHANT:
+            return {"error": "Merchants cannot use phone number login"}, 403
+        
+        # Generate OTP
+        expires_at = datetime.utcnow() + timedelta(minutes=10)
+        
+        if existing_user:
+            # Login flow - user exists
+            otp = PhoneVerification.create_otp(existing_user.id, normalized_phone, expires_at)
+        else:
+            # Sign-up flow - user doesn't exist
+            otp = PhoneVerification.create_otp_for_signup(normalized_phone, expires_at)
+        
+        # Send OTP via Twilio
+        success, message = send_otp_sms(normalized_phone, otp)
+        
+        if not success:
+            return {"error": message}, 500
+        
+        return {
+            "message": "OTP sent successfully",
+            "expires_in": 600  # 10 minutes in seconds
+        }, 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Error sending phone OTP: {str(e)}")
+        return {"error": "Failed to send OTP"}, 500
+
+
+def verify_phone_otp_signup(phone_number, otp, first_name, last_name):
+    """
+    Verify OTP and create new user account.
+    Only for regular users, not merchants.
+    """
+    try:
+        # Normalize phone number
+        normalized_phone = normalize_phone_number(phone_number)
+        if not normalized_phone:
+            return {"error": "Invalid phone number format"}, 400
+        
+        # Validate name fields
+        if not first_name or not last_name:
+            return {"error": "First name and last name are required"}, 400
+        
+        # Check if phone already registered
+        existing_user = User.get_by_phone(normalized_phone)
+        if existing_user:
+            return {"error": "Phone number already registered"}, 409
+        
+        # Verify OTP
+        verification = PhoneVerification.verify_otp_by_phone(normalized_phone, otp)
+        if not verification:
+            return {"error": "Invalid or expired OTP"}, 400
+        
+        # Create new user
+        # Generate temporary email for phone-only users (email field is required in DB)
+        # User can update email later
+        temp_email = f"phone_{normalized_phone.replace('+', '')}@temp.aoin.com"
+        
+        user = User(
+            phone=normalized_phone,
+            first_name=first_name,
+            last_name=last_name,
+            email=temp_email,  # Temporary email, user can update later
+            role=UserRole.USER,  # Only regular users, not merchants
+            auth_provider=AuthProvider.PHONE.value,  # Use lowercase 'phone' string to match database enum
+            is_phone_verified=True,
+            is_email_verified=False,
+            password_hash=None  # No password for phone auth
+        )
+        user.save()
+        
+        # Update verification record with user_id
+        verification.user_id = user.id
+        db.session.commit()
+        
+        # Generate tokens
+        additional_claims = {"role": user.role.value}
+        access_token = create_access_token(identity=str(user.id), additional_claims=additional_claims)
+        refresh_expires = datetime.utcnow() + current_app.config['JWT_REFRESH_TOKEN_EXPIRES']
+        refresh_token_str = RefreshToken.create_token(user.id, refresh_expires)
+        
+        return {
+            "message": "Account created successfully",
+            "access_token": access_token,
+            "refresh_token": refresh_token_str,
+            "user": {
+                "id": user.id,
+                "phone": user.phone,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "role": user.role.value,
+                "is_phone_verified": user.is_phone_verified
+            }
+        }, 201
+        
+    except IntegrityError:
+        db.session.rollback()
+        return {"error": "Phone number already registered"}, 409
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error in phone sign-up: {str(e)}")
+        return {"error": "Failed to create account"}, 500
+
+
+def verify_phone_otp_login(phone_number, otp):
+    """
+    Verify OTP and login existing user.
+    Only for regular users, not merchants.
+    """
+    try:
+        # Normalize phone number
+        normalized_phone = normalize_phone_number(phone_number)
+        if not normalized_phone:
+            return {"error": "Invalid phone number format"}, 400
+        
+        # Find user
+        user = User.get_by_phone(normalized_phone)
+        if not user:
+            return {"error": "Phone number not registered"}, 404
+        
+        # Check if user is merchant (merchants cannot use phone login)
+        if user.role == UserRole.MERCHANT:
+            return {"error": "Merchants cannot use phone number login"}, 403
+        
+        # Check if user is active
+        if not user.is_active:
+            return {"error": "Account is disabled"}, 403
+        
+        # Verify OTP
+        verification = PhoneVerification.verify_otp_by_phone(normalized_phone, otp)
+        if not verification:
+            return {"error": "Invalid or expired OTP"}, 400
+        
+        # Update user's phone verification status and last login
+        user.is_phone_verified = True
+        user.update_last_login()
+        
+        # Generate tokens
+        additional_claims = {"role": user.role.value}
+        access_token = create_access_token(identity=str(user.id), additional_claims=additional_claims)
+        refresh_expires = datetime.utcnow() + current_app.config['JWT_REFRESH_TOKEN_EXPIRES']
+        refresh_token_str = RefreshToken.create_token(user.id, refresh_expires)
+        
+        return {
+            "message": "Login successful",
+            "access_token": access_token,
+            "refresh_token": refresh_token_str,
+            "user": {
+                "id": user.id,
+                "phone": user.phone,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "role": user.role.value,
+                "is_phone_verified": user.is_phone_verified
+            }
+        }, 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Error in phone login: {str(e)}")
+        return {"error": "Login failed"}, 500

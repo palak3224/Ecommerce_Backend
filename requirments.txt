@@ -45,3 +45,4 @@ pytesseract
 Pillow
 requests
 apscheduler
+twilio

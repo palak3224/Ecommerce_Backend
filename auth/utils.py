@@ -1,4 +1,5 @@
 import jwt
+import re
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import request, jsonify, current_app
@@ -129,4 +130,33 @@ def validate_google_token(token):
 def get_super_admin_emails():
     """Get email addresses of all active super admins."""
     super_admins = User.query.filter_by(role=UserRole.SUPER_ADMIN, is_active=True).all()
-    return [admin.email for admin in super_admins if admin.email]    
+    return [admin.email for admin in super_admins if admin.email]
+
+def normalize_phone_number(phone):
+    """Normalize phone number to E.164 format."""
+    if not phone:
+        return None
+    
+    # Remove all non-digit characters except +
+    phone = re.sub(r'[^\d+]', '', phone)
+    
+    # If phone doesn't start with +, assume it needs country code
+    # For now, we'll require + prefix. Frontend should handle country code selection
+    if not phone.startswith('+'):
+        # If it's a 10-digit number, assume it's missing country code
+        # You might want to add country code detection logic here
+        return None
+    
+    # Validate E.164 format: + followed by 1-15 digits
+    if not re.match(r'^\+\d{1,15}$', phone):
+        return None
+    
+    return phone
+
+def validate_phone_number(phone):
+    """Validate phone number format."""
+    if not phone:
+        return False
+    
+    normalized = normalize_phone_number(phone)
+    return normalized is not None    

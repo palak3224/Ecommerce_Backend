@@ -1,9 +1,8 @@
 import bcrypt
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 import re
-from datetime import datetime, timezone
 
 from common.database import db, BaseModel
 from auth.models.merchant_document import VerificationStatus, DocumentType
@@ -19,6 +18,7 @@ class UserRole(Enum):
 class AuthProvider(Enum):
     LOCAL = 'local'
     GOOGLE = 'google'
+    PHONE = 'phone'
     # Can add other providers later (Facebook, Apple, etc.)
 
 class User(BaseModel):
@@ -36,7 +36,7 @@ class User(BaseModel):
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     is_email_verified = db.Column(db.Boolean, default=False, nullable=False)
     is_phone_verified = db.Column(db.Boolean, default=False, nullable=False)
-    auth_provider = db.Column(db.Enum(AuthProvider), default=AuthProvider.LOCAL, nullable=False)
+    auth_provider = db.Column(db.Enum(AuthProvider, values_callable=lambda x: [e.value for e in x]), default=AuthProvider.LOCAL, nullable=False)
     provider_user_id = db.Column(db.String(255), nullable=True)  # For OAuth provider user ID
     last_login = db.Column(db.DateTime, nullable=True)
     
@@ -132,6 +132,11 @@ class User(BaseModel):
     def get_by_email(cls, email):
         """Get user by email."""
         return cls.query.filter_by(email=email).first()
+    
+    @classmethod
+    def get_by_phone(cls, phone):
+        """Get user by phone number."""
+        return cls.query.filter_by(phone=phone).first()
     
     @classmethod
     def get_by_provider_id(cls, provider, provider_user_id):
@@ -438,11 +443,12 @@ class PhoneVerification(BaseModel):
     __tablename__ = 'phone_verifications'
     
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    phone = db.Column(db.String(20), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # Made nullable for sign-up flow
+    phone = db.Column(db.String(20), nullable=False, index=True)
     otp = db.Column(db.String(6), nullable=False)
     expires_at = db.Column(db.DateTime, nullable=False)
     is_used = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     
     @classmethod
     def get_by_id(cls, id):
@@ -450,12 +456,34 @@ class PhoneVerification(BaseModel):
         return cls.query.filter_by(id=id).first()
     
     @classmethod
+    def get_by_phone(cls, phone, is_used=False):
+        """Get latest verification by phone number."""
+        return cls.query.filter_by(
+            phone=phone,
+            is_used=is_used
+        ).order_by(cls.created_at.desc()).first()
+    
+    @classmethod
     def create_otp(cls, user_id, phone, expires_at):
-        """Create a new OTP."""
+        """Create a new OTP for existing user."""
         import random
         otp = ''.join(random.choices('0123456789', k=6))
         verification = cls(
             user_id=user_id,
+            phone=phone,
+            otp=otp,
+            expires_at=expires_at
+        )
+        verification.save()
+        return otp
+    
+    @classmethod
+    def create_otp_for_signup(cls, phone, expires_at):
+        """Create a new OTP for sign-up (no user_id)."""
+        import random
+        otp = ''.join(random.choices('0123456789', k=6))
+        verification = cls(
+            user_id=None,  # No user_id for sign-up
             phone=phone,
             otp=otp,
             expires_at=expires_at
@@ -495,3 +523,23 @@ class PhoneVerification(BaseModel):
                     db.session.commit()
         
         return True
+    
+    @classmethod
+    def verify_otp_by_phone(cls, phone, otp):
+        """Verify OTP by phone number (for sign-up/login)."""
+        verification = cls.query.filter_by(
+            phone=phone,
+            otp=otp,
+            is_used=False
+        ).order_by(cls.created_at.desc()).first()
+        
+        if not verification:
+            return None
+        
+        if verification.expires_at < datetime.utcnow():
+            return None
+        
+        verification.is_used = True
+        db.session.commit()
+        
+        return verification

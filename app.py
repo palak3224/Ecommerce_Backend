@@ -86,6 +86,7 @@ from flask import send_from_directory as flask_send_from_directory
 
 ALLOWED_ORIGINS = [
     "http://localhost:5173",
+    "http://localhost:5174",
     "http://127.0.0.1:5173",
     "http://kea.mywire.org:5300",
     "https://aoinstore.com"

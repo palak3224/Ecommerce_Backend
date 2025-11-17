@@ -6,7 +6,8 @@ from auth.controllers import (
     register_user, register_merchant, login_user, refresh_access_token,
     logout_user, verify_email, google_auth, get_current_user,
     request_password_reset, reset_password,
-    resend_verification_email_controller
+    resend_verification_email_controller,
+    send_phone_otp, verify_phone_otp_signup, verify_phone_otp_login
 )
 from auth.utils import user_role_required, merchant_role_required, admin_role_required
 from auth.models import User, MerchantProfile
@@ -59,6 +60,19 @@ class PasswordResetRequestSchema(Schema):
 class PasswordResetSchema(Schema):
     token = fields.Str(required=True)
     new_password = fields.Str(required=True, validate=validate.Length(min=8))
+
+class SendPhoneOTPSchema(Schema):
+    phone = fields.Str(required=True)
+
+class VerifyPhoneSignupSchema(Schema):
+    phone = fields.Str(required=True)
+    otp = fields.Str(required=True, validate=validate.Length(equal=6))
+    first_name = fields.Str(required=True)
+    last_name = fields.Str(required=True)
+
+class VerifyPhoneLoginSchema(Schema):
+    phone = fields.Str(required=True)
+    otp = fields.Str(required=True, validate=validate.Length(equal=6))
 
 # Create auth blueprint
 auth_bp = Blueprint('auth', __name__)
@@ -870,3 +884,163 @@ def resend_verification_email_route():
 
     except ValidationError as err:
         return jsonify({"error": "Validation error", "details": err.messages}), 400
+
+
+@auth_bp.route('/phone/send-otp', methods=['POST'])
+def send_phone_otp_route():
+    """
+    Send OTP to phone number for sign-up or login.
+    ---
+    tags:
+      - Authentication
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - phone
+          properties:
+            phone:
+              type: string
+              description: Phone number in E.164 format (e.g., +1234567890)
+    responses:
+      200:
+        description: OTP sent successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            expires_in:
+              type: integer
+      400:
+        description: Validation error or invalid phone format
+      500:
+        description: Internal server error
+    """
+    try:
+        schema = SendPhoneOTPSchema()
+        data = schema.load(request.json)
+        
+        response, status_code = send_phone_otp(data['phone'])
+        return jsonify(response), status_code
+    except ValidationError as e:
+        return jsonify({"error": "Validation error", "details": e.messages}), 400
+
+
+@auth_bp.route('/phone/verify-signup', methods=['POST'])
+def verify_phone_signup_route():
+    """
+    Verify OTP and create new user account.
+    ---
+    tags:
+      - Authentication
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - phone
+            - otp
+            - first_name
+            - last_name
+          properties:
+            phone:
+              type: string
+            otp:
+              type: string
+              minLength: 6
+              maxLength: 6
+            first_name:
+              type: string
+            last_name:
+              type: string
+    responses:
+      201:
+        description: Account created successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            access_token:
+              type: string
+            refresh_token:
+              type: string
+            user:
+              type: object
+      400:
+        description: Validation error or invalid OTP
+      409:
+        description: Phone number already registered
+      500:
+        description: Internal server error
+    """
+    try:
+        schema = VerifyPhoneSignupSchema()
+        data = schema.load(request.json)
+        
+        response, status_code = verify_phone_otp_signup(
+            data['phone'],
+            data['otp'],
+            data['first_name'],
+            data['last_name']
+        )
+        return jsonify(response), status_code
+    except ValidationError as e:
+        return jsonify({"error": "Validation error", "details": e.messages}), 400
+
+
+@auth_bp.route('/phone/verify-login', methods=['POST'])
+def verify_phone_login_route():
+    """
+    Verify OTP and login existing user.
+    ---
+    tags:
+      - Authentication
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - phone
+            - otp
+          properties:
+            phone:
+              type: string
+            otp:
+              type: string
+              minLength: 6
+              maxLength: 6
+    responses:
+      200:
+        description: Login successful
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            access_token:
+              type: string
+            refresh_token:
+              type: string
+            user:
+              type: object
+      400:
+        description: Validation error or invalid OTP
+      404:
+        description: Phone number not registered
+      500:
+        description: Internal server error
+    """
+    try:
+        schema = VerifyPhoneLoginSchema()
+        data = schema.load(request.json)
+        
+        response, status_code = verify_phone_otp_login(data['phone'], data['otp'])
+        return jsonify(response), status_code
+    except ValidationError as e:
+        return jsonify({"error": "Validation error", "details": e.messages}), 400
