@@ -59,6 +59,15 @@ class Config:
     AWS_REGION = os.getenv('AWS_REGION', 'ap-south-1')
     FEATURE_TRANSLATION = os.getenv('FEATURE_TRANSLATION', 'false').lower() in ('1', 'true', 'yes')
     
+    # Video Storage Provider
+    VIDEO_STORAGE_PROVIDER = os.getenv('VIDEO_STORAGE_PROVIDER', 'cloudinary')  # 'cloudinary' or 'aws'
+    
+    # AWS S3 Configuration (for future use when switching to AWS)
+    AWS_S3_VIDEO_BUCKET = os.getenv('AWS_S3_VIDEO_BUCKET')
+    AWS_CLOUDFRONT_URL = os.getenv('AWS_CLOUDFRONT_URL')
+    AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
+    AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
+    
     # Razorpay Configuration
     RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID', 'rzp_test_1DP5mmOlF5G5ag')
     RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET', 'your_secret_key')

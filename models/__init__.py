@@ -34,6 +34,7 @@ from .gst_rule import GSTRule
 from .enums import ProductPriceConditionType 
 
 from .payment_card import PaymentCard
+from .reel import Reel
 
 
 __all__ = [
@@ -56,5 +57,6 @@ __all__ = [
     'ShopOrderItem', 
     'ShopOrderStatusHistory',
     'ShopShipment',
-    'ShopShipmentItem'
+    'ShopShipmentItem',
+    'Reel'
 ]

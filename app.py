@@ -3,7 +3,6 @@ from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from flask_migrate import Migrate
 from common.cache import cached
-import os
 import cloudinary
 import cloudinary.uploader
 import cloudinary.api
@@ -70,6 +69,7 @@ from routes.upload_routes import upload_bp
 from routes.translate_routes import translate_bp
 from routes.razorpay_routes import razorpay_bp
 from routes.ai_image_upload import ai_image_upload_bp
+from routes.reels_routes import reels_bp
 
 
 from flasgger import Swagger
@@ -82,7 +82,6 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import threading
 from controllers.newsletter_public_controller import newsletter_public_bp
 from flask import send_from_directory as flask_send_from_directory
-
 
 ALLOWED_ORIGINS = [
     "http://localhost:5173",
@@ -99,7 +98,7 @@ def add_headers(response):
         response.headers['Access-Control-Allow-Origin'] = origin
     else:
         response.headers['Access-Control-Allow-Origin'] = 'null'  # or omit completely if strict
-
+   
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-CSRF-Token'
     response.headers['Access-Control-Allow-Credentials'] = 'true'
@@ -244,6 +243,7 @@ def create_app(config_name='default'):
     app.register_blueprint(upload_bp, url_prefix='/api/upload')
     app.register_blueprint(razorpay_bp)
     app.register_blueprint(ai_image_upload_bp)
+    app.register_blueprint(reels_bp)
 
     # Optional: Translation endpoints behind feature flag
     if app.config.get('FEATURE_TRANSLATION'):
