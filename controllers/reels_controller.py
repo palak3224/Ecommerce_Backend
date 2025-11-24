@@ -2,6 +2,7 @@ from flask import request, jsonify, current_app
 from flask_jwt_extended import get_jwt_identity
 from common.database import db
 from models.reel import Reel
+from models.user_reel_like import UserReelLike
 from models.product import Product
 from models.product_stock import ProductStock
 from auth.models.models import User, MerchantProfile
@@ -198,12 +199,15 @@ class ReelsController:
             return jsonify({'error': f'Upload failed: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
     
     @staticmethod
-    def get_reel(reel_id):
+    def get_reel(reel_id, track_view=True):
         """
         Get a single reel by ID with disabling reasons.
+        Automatically increments view count if track_view is True.
+        If user is authenticated, includes whether the user has liked the reel.
         
         Args:
             reel_id: Reel ID
+            track_view: Whether to increment view count (default: True)
             
         Returns:
             JSON response with reel data
@@ -214,9 +218,29 @@ class ReelsController:
             if not reel:
                 return jsonify({'error': 'Reel not found'}), HTTPStatus.NOT_FOUND
             
+            # Track view if requested and reel is visible
+            if track_view and reel.is_visible:
+                try:
+                    reel.increment_views()
+                except Exception as e:
+                    current_app.logger.warning(f"Failed to increment view count: {str(e)}")
+            
+            # Get reel data
+            reel_data = reel.serialize(include_reasons=True, include_product=True)
+            
+            # Check if user is authenticated and has liked this reel
+            try:
+                current_user_id = get_jwt_identity()
+                if current_user_id:
+                    is_liked = UserReelLike.user_has_liked(current_user_id, reel_id)
+                    reel_data['is_liked'] = is_liked
+            except Exception:
+                # User not authenticated or token invalid - silently ignore
+                reel_data['is_liked'] = False
+            
             return jsonify({
                 'status': 'success',
-                'data': reel.serialize(include_reasons=True, include_product=True)
+                'data': reel_data
             }), HTTPStatus.OK
             
         except Exception as e:
@@ -491,4 +515,166 @@ class ReelsController:
         except Exception as e:
             current_app.logger.error(f"Get available products failed: {str(e)}")
             return jsonify({'error': f'Failed to get products: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+    
+    @staticmethod
+    def like_reel(reel_id):
+        """
+        Like a reel (increment like count with user tracking).
+        Requires authentication to track which user likes which reel for recommendations.
+        
+        Args:
+            reel_id: Reel ID
+            
+        Returns:
+            JSON response with updated like status
+        """
+        try:
+            # Get current user
+            current_user_id = get_jwt_identity()
+            user = User.get_by_id(current_user_id)
+            if not user:
+                return jsonify({'error': 'User not found'}), HTTPStatus.NOT_FOUND
+            
+            # Get reel
+            reel = Reel.query.filter_by(reel_id=reel_id).first()
+            if not reel:
+                return jsonify({'error': 'Reel not found'}), HTTPStatus.NOT_FOUND
+            
+            # Check if reel is visible
+            if not reel.is_visible:
+                return jsonify({'error': 'Reel is not available'}), HTTPStatus.BAD_REQUEST
+            
+            # Check if user already liked this reel
+            if UserReelLike.user_has_liked(current_user_id, reel_id):
+                return jsonify({
+                    'error': 'You have already liked this reel',
+                    'data': {
+                        'reel_id': reel.reel_id,
+                        'likes_count': reel.likes_count,
+                        'is_liked': True
+                    }
+                }), HTTPStatus.BAD_REQUEST
+            
+            # Create like record
+            like = UserReelLike.create_like(current_user_id, reel_id)
+            if like:
+                # Increment like count
+                reel.increment_likes()
+                db.session.commit()
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': 'Reel liked successfully',
+                    'data': {
+                        'reel_id': reel.reel_id,
+                        'likes_count': reel.likes_count,
+                        'is_liked': True
+                    }
+                }), HTTPStatus.OK
+            else:
+                # Should not happen due to check above, but handle gracefully
+                return jsonify({'error': 'Failed to like reel'}), HTTPStatus.INTERNAL_SERVER_ERROR
+            
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Like reel failed: {str(e)}")
+            return jsonify({'error': f'Failed to like reel: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+    
+    @staticmethod
+    def unlike_reel(reel_id):
+        """
+        Unlike a reel (decrement like count with user tracking).
+        Requires authentication to track which user unlikes which reel.
+        
+        Args:
+            reel_id: Reel ID
+            
+        Returns:
+            JSON response with updated like status
+        """
+        try:
+            # Get current user
+            current_user_id = get_jwt_identity()
+            user = User.get_by_id(current_user_id)
+            if not user:
+                return jsonify({'error': 'User not found'}), HTTPStatus.NOT_FOUND
+            
+            # Get reel
+            reel = Reel.query.filter_by(reel_id=reel_id).first()
+            if not reel:
+                return jsonify({'error': 'Reel not found'}), HTTPStatus.NOT_FOUND
+            
+            # Check if user has liked this reel
+            if not UserReelLike.user_has_liked(current_user_id, reel_id):
+                return jsonify({
+                    'error': 'You have not liked this reel',
+                    'data': {
+                        'reel_id': reel.reel_id,
+                        'likes_count': reel.likes_count,
+                        'is_liked': False
+                    }
+                }), HTTPStatus.BAD_REQUEST
+            
+            # Remove like record
+            removed = UserReelLike.remove_like(current_user_id, reel_id)
+            if removed:
+                # Decrement likes (won't go below 0)
+                reel.decrement_likes()
+                db.session.commit()
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': 'Reel unliked successfully',
+                    'data': {
+                        'reel_id': reel.reel_id,
+                        'likes_count': reel.likes_count,
+                        'is_liked': False
+                    }
+                }), HTTPStatus.OK
+            else:
+                # Should not happen due to check above, but handle gracefully
+                return jsonify({'error': 'Failed to unlike reel'}), HTTPStatus.INTERNAL_SERVER_ERROR
+            
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Unlike reel failed: {str(e)}")
+            return jsonify({'error': f'Failed to unlike reel: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+    
+    @staticmethod
+    def share_reel(reel_id):
+        """
+        Share a reel (increment share count).
+        
+        Args:
+            reel_id: Reel ID
+            
+        Returns:
+            JSON response with updated share count
+        """
+        try:
+            # Get reel
+            reel = Reel.query.filter_by(reel_id=reel_id).first()
+            if not reel:
+                return jsonify({'error': 'Reel not found'}), HTTPStatus.NOT_FOUND
+            
+            # Check if reel is visible
+            if not reel.is_visible:
+                return jsonify({'error': 'Reel is not available'}), HTTPStatus.BAD_REQUEST
+            
+            # Increment share count
+            reel.increment_shares()
+            
+            return jsonify({
+                'status': 'success',
+                'message': 'Reel share tracked successfully',
+                'data': {
+                    'reel_id': reel.reel_id,
+                    'shares_count': reel.shares_count
+                }
+            }), HTTPStatus.OK
+            
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Share reel failed: {str(e)}")
+            return jsonify({'error': f'Failed to track share: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
 

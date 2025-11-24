@@ -53,7 +53,7 @@ def upload_reel():
 @cross_origin()
 def get_reel(reel_id):
     """
-    Get a single reel by ID
+    Get a single reel by ID (automatically tracks view)
     ---
     tags:
       - Reels
@@ -63,13 +63,20 @@ def get_reel(reel_id):
         type: integer
         required: true
         description: Reel ID
+      - in: query
+        name: track_view
+        type: boolean
+        required: false
+        default: true
+        description: Whether to increment view count
     responses:
       200:
         description: Reel data
       404:
         description: Reel not found
     """
-    return ReelsController.get_reel(reel_id)
+    track_view = request.args.get('track_view', 'true').lower() == 'true'
+    return ReelsController.get_reel(reel_id, track_view=track_view)
 
 
 @reels_bp.route('/api/reels/merchant/my', methods=['GET', 'OPTIONS'])
@@ -263,4 +270,87 @@ def get_available_products():
         description: Forbidden (not a merchant)
     """
     return ReelsController.get_available_products()
+
+
+@reels_bp.route('/api/reels/<int:reel_id>/like', methods=['POST', 'OPTIONS'])
+@cross_origin()
+@jwt_required()
+def like_reel(reel_id):
+    """
+    Like a reel (increment like count, requires authentication)
+    ---
+    tags:
+      - Reels
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: reel_id
+        type: integer
+        required: true
+        description: Reel ID
+    responses:
+      200:
+        description: Reel liked successfully
+      400:
+        description: Already liked or reel not available
+      401:
+        description: Unauthorized (authentication required)
+      404:
+        description: Reel not found
+    """
+    return ReelsController.like_reel(reel_id)
+
+
+@reels_bp.route('/api/reels/<int:reel_id>/unlike', methods=['POST', 'OPTIONS'])
+@cross_origin()
+@jwt_required()
+def unlike_reel(reel_id):
+    """
+    Unlike a reel (decrement like count, requires authentication)
+    ---
+    tags:
+      - Reels
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: reel_id
+        type: integer
+        required: true
+        description: Reel ID
+    responses:
+      200:
+        description: Reel unliked successfully
+      400:
+        description: Not liked yet
+      401:
+        description: Unauthorized (authentication required)
+      404:
+        description: Reel not found
+    """
+    return ReelsController.unlike_reel(reel_id)
+
+
+@reels_bp.route('/api/reels/<int:reel_id>/share', methods=['POST', 'OPTIONS'])
+@cross_origin()
+def share_reel(reel_id):
+    """
+    Share a reel (increment share count)
+    ---
+    tags:
+      - Reels
+    parameters:
+      - in: path
+        name: reel_id
+        type: integer
+        required: true
+        description: Reel ID
+    responses:
+      200:
+        description: Reel share tracked successfully
+      404:
+        description: Reel not found
+    """
+    return ReelsController.share_reel(reel_id)
 

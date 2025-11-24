@@ -35,6 +35,7 @@ from .enums import ProductPriceConditionType
 
 from .payment_card import PaymentCard
 from .reel import Reel
+from .user_reel_like import UserReelLike
 
 
 __all__ = [
@@ -58,5 +59,6 @@ __all__ = [
     'ShopOrderStatusHistory',
     'ShopShipment',
     'ShopShipmentItem',
-    'Reel'
+    'Reel',
+    'UserReelLike'
 ]
