@@ -41,7 +41,7 @@ else:
     }
 
 # Read SQL file
-sql_file_path = os.path.join(os.path.dirname(__file__), 'migrations', 'sql', '001_create_reels_table.sql')
+sql_file_path = os.path.join(os.path.dirname(__file__), 'migrations', 'sql', '001_create_reels_system_complete.sql')
 
 try:
     # Connect to database
@@ -58,7 +58,7 @@ try:
                     cursor.execute(statement)
         
         connection.commit()
-        print("✅ Reels table created successfully!")
+        print("✅ Complete reels system created successfully! (All tables, indexes, and fulltext search)")
         
 except Exception as e:
     print(f"❌ Error creating reels table: {str(e)}")

@@ -36,6 +36,10 @@ from .enums import ProductPriceConditionType
 from .payment_card import PaymentCard
 from .reel import Reel
 from .user_reel_like import UserReelLike
+from .user_reel_view import UserReelView
+from .user_reel_share import UserReelShare
+from .user_merchant_follow import UserMerchantFollow
+from .user_category_preference import UserCategoryPreference
 
 
 __all__ = [
@@ -60,5 +64,9 @@ __all__ = [
     'ShopShipment',
     'ShopShipmentItem',
     'Reel',
-    'UserReelLike'
+    'UserReelLike',
+    'UserReelView',
+    'UserReelShare',
+    'UserMerchantFollow',
+    'UserCategoryPreference'
 ]

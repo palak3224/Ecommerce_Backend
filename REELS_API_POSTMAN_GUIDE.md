@@ -15,6 +15,13 @@
 | `POST` | `/api/reels/{reel_id}/like` | ✅ Yes (User) | Like a reel (increment likes, tracks user) |
 | `POST` | `/api/reels/{reel_id}/unlike` | ✅ Yes (User) | Unlike a reel (decrement likes, tracks user) |
 | `POST` | `/api/reels/{reel_id}/share` | ❌ No | Share a reel (increment shares) |
+| `GET` | `/api/reels/feed/recommended` | ✅ Yes (User) | Get personalized recommendation feed |
+| `GET` | `/api/reels/feed/trending` | ❌ No (Optional) | Get trending reels feed |
+| `GET` | `/api/reels/feed/following` | ✅ Yes (User) | Get reels from followed merchants |
+| `GET` | `/api/reels/user/stats` | ✅ Yes (User) | Get user's reel interaction statistics |
+| `POST` | `/api/merchants/{merchant_id}/follow` | ✅ Yes (User) | Follow a merchant |
+| `POST` | `/api/merchants/{merchant_id}/unfollow` | ✅ Yes (User) | Unfollow a merchant |
+| `GET` | `/api/merchants/following` | ✅ Yes (User) | Get list of followed merchants |
 
 ---
 
@@ -281,11 +288,13 @@ OR
 
 4. **Query Parameters** (optional):
    - `track_view` (default: `true`): Whether to automatically increment the view count when the reel is fetched
-   - Example: `http://localhost:5000/api/reels/1?track_view=false` to view without incrementing count
+   - `view_duration` (optional, integer): View duration in seconds (for tracking watch time). Must be >= 0 and <= reel's duration_seconds. Only used when user is authenticated.
+   - Example: `http://localhost:5000/api/reels/1?track_view=true&view_duration=25` to track a 25-second view
 
 **Important**: 
 - By default, viewing a reel automatically increments the `views_count`. This happens every time someone fetches the reel data.
 - If you're authenticated (include `Authorization` header), the response will include `is_liked: true/false` to indicate whether you've liked this reel.
+- The `view_duration` parameter allows tracking how long a user watched the reel, which is used for personalized recommendations. This is optional and only tracked for authenticated users.
 
 **Expected Response (200 OK):**
 ```json
@@ -537,6 +546,352 @@ OR
 
 ---
 
+## Recommendation Feed Endpoints
+
+### Get Personalized Recommendation Feed
+**Endpoint**: `GET /api/reels/feed/recommended`
+
+**Description**: Get a personalized feed of reels based on your preferences, followed merchants, category interests, trending content, and similar users.
+
+**Request:**
+- Method: `GET`
+- URL: `http://127.0.0.1:5110/api/reels/feed/recommended?page=1&per_page=20`
+- Headers:
+  ```
+  Authorization: Bearer YOUR_ACCESS_TOKEN
+  Content-Type: application/json
+  ```
+- Query Parameters:
+  - `page` (optional, default: 1): Page number
+  - `per_page` (optional, default: 20, max: 100): Items per page
+
+**Response (200 OK):**
+```json
+{
+  "status": "success",
+  "data": [
+    {
+      "reel_id": 1,
+      "merchant_id": 5,
+      "product_id": 10,
+      "video_url": "https://...",
+      "thumbnail_url": "https://...",
+      "description": "...",
+      "views_count": 150,
+      "likes_count": 25,
+      "shares_count": 5,
+      "is_liked": false,
+      "product": {
+        "product_id": 10,
+        "product_name": "...",
+        "category_id": 3,
+        "category_name": "...",
+        "selling_price": 999.99,
+        "stock_qty": 50
+      },
+      "created_at": "2025-01-15T10:30:00Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "per_page": 20,
+    "total": 150,
+    "pages": 8
+  },
+  "feed_info": {
+    "feed_type": "recommended",
+    "tiers_used": ["followed", "category", "trending", "similar_users"],
+    "generated_at": "2025-01-15T10:35:00Z"
+  }
+}
+```
+
+**Note**: 
+- Requires authentication
+- Feed is personalized based on: followed merchants (40%), category preferences (30%), trending (20%), similar users (10%), and general feed (fill remaining)
+- Results are cached for 5 minutes for performance
+- The `tiers_used` array shows which recommendation tiers were used to generate the feed
+
+---
+
+### Get Trending Reels Feed
+**Endpoint**: `GET /api/reels/feed/trending`
+
+**Description**: Get trending reels based on engagement (likes, views, shares) and recency. Public endpoint, but authentication is optional for `is_liked` status.
+
+**Request:**
+- Method: `GET`
+- URL: `http://127.0.0.1:5110/api/reels/feed/trending?page=1&per_page=20&time_window=24h`
+- Headers (optional for authentication):
+  ```
+  Authorization: Bearer YOUR_ACCESS_TOKEN
+  Content-Type: application/json
+  ```
+- Query Parameters:
+  - `page` (optional, default: 1): Page number
+  - `per_page` (optional, default: 20, max: 100): Items per page
+  - `time_window` (optional, default: "24h"): Time window for trending calculation. Options: `24h`, `7d`, `30d`
+
+**Response (200 OK):**
+```json
+{
+  "status": "success",
+  "data": [...],
+  "pagination": {
+    "page": 1,
+    "per_page": 20,
+    "total": 50,
+    "pages": 3
+  },
+  "feed_info": {
+    "feed_type": "trending",
+    "time_window": "24h",
+    "generated_at": "2025-01-15T10:35:00Z"
+  }
+}
+```
+
+**Note**: 
+- Authentication is optional (public endpoint)
+- If authenticated, `is_liked` field will be included in reel data
+- Trending score is calculated as: `(likes*2 + views*1 + shares*3) / (hours_old + 1)`
+- Results are cached for 10 minutes
+
+---
+
+### Get Following Feed
+**Endpoint**: `GET /api/reels/feed/following`
+
+**Description**: Get reels only from merchants that you follow.
+
+**Request:**
+- Method: `GET`
+- URL: `http://127.0.0.1:5110/api/reels/feed/following?page=1&per_page=20`
+- Headers:
+  ```
+  Authorization: Bearer YOUR_ACCESS_TOKEN
+  Content-Type: application/json
+  ```
+- Query Parameters:
+  - `page` (optional, default: 1): Page number
+  - `per_page` (optional, default: 20, max: 100): Items per page
+
+**Response (200 OK):**
+```json
+{
+  "status": "success",
+  "data": [...],
+  "pagination": {
+    "page": 1,
+    "per_page": 20,
+    "total": 30,
+    "pages": 2
+  },
+  "feed_info": {
+    "feed_type": "following",
+    "followed_merchants_count": 5,
+    "generated_at": "2025-01-15T10:35:00Z"
+  }
+}
+```
+
+**Note**: 
+- Requires authentication
+- Only returns reels from merchants you follow
+- Results are cached for 5 minutes
+
+---
+
+## Merchant Follow Endpoints
+
+### Follow a Merchant
+**Endpoint**: `POST /api/merchants/{merchant_id}/follow`
+
+**Description**: Follow a merchant to see their reels in your personalized feed.
+
+**Request:**
+- Method: `POST`
+- URL: `http://127.0.0.1:5110/api/merchants/5/follow`
+- Headers:
+  ```
+  Authorization: Bearer YOUR_ACCESS_TOKEN
+  Content-Type: application/json
+  ```
+
+**Response (201 Created):**
+```json
+{
+  "status": "success",
+  "message": "Merchant followed successfully",
+  "data": {
+    "merchant_id": 5,
+    "business_name": "ABC Store",
+    "followed_at": "2025-01-15T10:35:00Z"
+  }
+}
+```
+
+**Error Response (400 Bad Request - Already Following):**
+```json
+{
+  "error": "You are already following this merchant",
+  "data": {
+    "merchant_id": 5,
+    "business_name": "ABC Store"
+  }
+}
+```
+
+**Error Response (404 Not Found):**
+```json
+{
+  "error": "Merchant not found"
+}
+```
+
+**Note**: 
+- Requires authentication
+- You can only follow a merchant once
+- Following a merchant will invalidate your recommendation cache
+
+---
+
+### Unfollow a Merchant
+**Endpoint**: `POST /api/merchants/{merchant_id}/unfollow`
+
+**Description**: Unfollow a merchant.
+
+**Request:**
+- Method: `POST`
+- URL: `http://127.0.0.1:5110/api/merchants/5/unfollow`
+- Headers:
+  ```
+  Authorization: Bearer YOUR_ACCESS_TOKEN
+  Content-Type: application/json
+  ```
+
+**Response (200 OK):**
+```json
+{
+  "status": "success",
+  "message": "Merchant unfollowed successfully"
+}
+```
+
+**Error Response (400 Bad Request - Not Following):**
+```json
+{
+  "error": "You are not following this merchant",
+  "data": {
+    "merchant_id": 5,
+    "business_name": "ABC Store"
+  }
+}
+```
+
+**Note**: 
+- Requires authentication
+- You can only unfollow a merchant you're currently following
+- Unfollowing will invalidate your recommendation cache
+
+---
+
+### Get Followed Merchants
+**Endpoint**: `GET /api/merchants/following`
+
+**Description**: Get a list of all merchants you follow.
+
+**Request:**
+- Method: `GET`
+- URL: `http://127.0.0.1:5110/api/merchants/following?page=1&per_page=20`
+- Headers:
+  ```
+  Authorization: Bearer YOUR_ACCESS_TOKEN
+  Content-Type: application/json
+  ```
+- Query Parameters:
+  - `page` (optional, default: 1): Page number
+  - `per_page` (optional, default: 20, max: 100): Items per page
+
+**Response (200 OK):**
+```json
+{
+  "status": "success",
+  "data": [
+    {
+      "merchant_id": 5,
+      "business_name": "ABC Store",
+      "followed_at": "2025-01-15T10:30:00Z"
+    },
+    {
+      "merchant_id": 8,
+      "business_name": "XYZ Shop",
+      "followed_at": "2025-01-14T15:20:00Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "per_page": 20,
+    "total": 5,
+    "pages": 1
+  }
+}
+```
+
+**Note**: 
+- Requires authentication
+- Returns merchants ordered by most recently followed first
+
+---
+
+## User Statistics Endpoint
+
+### Get User Reel Statistics
+**Endpoint**: `GET /api/reels/user/stats`
+
+**Description**: Get user's reel interaction statistics including likes count, views count, follows count, and whether the user is new. Useful for determining which feed to show to the user.
+
+**Request:**
+- Method: `GET`
+- URL: `http://127.0.0.1:5110/api/reels/user/stats`
+- Headers:
+  ```
+  Authorization: Bearer YOUR_ACCESS_TOKEN
+  Content-Type: application/json
+  ```
+
+**Response (200 OK):**
+```json
+{
+  "status": "success",
+  "data": {
+    "is_new_user": true,
+    "reel_stats": {
+      "likes_count": 2,
+      "views_count": 15,
+      "follows_count": 0,
+      "total_interactions": 17
+    },
+    "account_info": {
+      "account_age_days": 3,
+      "created_at": "2025-01-12T10:30:00Z",
+      "last_login": "2025-01-15T08:20:00Z"
+    }
+  }
+}
+```
+
+**Note**: 
+- Requires authentication
+- `is_new_user` is `true` if:
+  - Account was created in the last 7 days, OR
+  - User has less than 3 total interactions (likes + views + follows)
+- Use this to determine which feed to show:
+  - If `is_new_user` is `true` OR `likes_count < 3`: Show **Trending Feed**
+  - Otherwise: Show **Recommended Feed**
+
+---
+
 ## Common Issues & Troubleshooting
 
 ### Issue 1: "Only merchants can upload reels"
@@ -623,6 +978,13 @@ OR
 - [ ] Unlike a reel with authentication (check likes_count decrements and is_liked becomes false)
 - [ ] Try to unlike a reel you haven't liked (should return 400 error)
 - [ ] Share a reel (check shares_count increments)
+- [ ] Follow a merchant
+- [ ] Try to follow the same merchant again (should return 400 error)
+- [ ] Get list of followed merchants
+- [ ] Unfollow a merchant
+- [ ] Get personalized recommendation feed (requires authentication)
+- [ ] Get trending feed (public, optional auth)
+- [ ] Get following feed (requires authentication)
 
 ---
 
@@ -649,7 +1011,15 @@ If you don't have a test video:
 - **Like Tracking**: Likes are now tracked per user for recommendation purposes. Authentication is required for like/unlike endpoints. Each user can only like a reel once. The `is_liked` field in the reel response indicates whether the authenticated user has liked the reel.
 - **Share Tracking**: Shares are tracked as simple counters (no user-specific tracking yet).
 - **Counters**: All counters (`views_count`, `likes_count`, `shares_count`) start at 0 for new reels and increment as users interact with the reel.
-- **User-Reel Interactions**: The `user_reel_likes` table stores which users like which reels, enabling future recommendation algorithms based on user preferences.
+- **User-Reel Interactions**: The `user_reel_likes` table stores which users like which reels, enabling recommendation algorithms based on user preferences.
+- **View Tracking**: User views are tracked in `user_reel_views` table for recommendation purposes. Views are automatically tracked when authenticated users view reels.
+- **Recommendation System**: The personalized feed uses a multi-tier algorithm:
+  - **Tier 1 (40%)**: Reels from followed merchants
+  - **Tier 2 (30%)**: Reels from preferred categories (based on likes, views, orders)
+  - **Tier 3 (20%)**: Trending reels (based on engagement and recency)
+  - **Tier 4 (10%)**: Reels liked by similar users (collaborative filtering)
+  - **Tier 5**: General feed (fill remaining slots)
+- **Caching**: Recommendation feeds are cached in Redis for performance (5-10 minutes TTL). Cache is automatically invalidated when you like/unlike reels, follow/unfollow merchants, or upload new reels.
 - **Storage Provider**: Currently using Cloudinary. To switch to AWS, set `VIDEO_STORAGE_PROVIDER=aws` in environment variables
 - **Thumbnail**: Thumbnail is auto-generated during upload if not provided
 

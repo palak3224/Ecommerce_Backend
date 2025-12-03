@@ -466,3 +466,152 @@ def get_merchant_details(id):
         return jsonify(merchant_data), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+# Reel moderation endpoints
+@admin_bp.route('/reels/<int:reel_id>/approve', methods=['POST'])
+@jwt_required()
+@admin_role_required
+def approve_reel(reel_id):
+    """
+    Approve a reel (admin only)
+    ---
+    tags:
+      - Admin
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: reel_id
+        type: integer
+        required: true
+        description: Reel ID
+    responses:
+      200:
+        description: Reel approved successfully
+      401:
+        description: Unauthorized
+      403:
+        description: Forbidden - User is not an admin
+      404:
+        description: Reel not found
+      500:
+        description: Internal server error
+    """
+    from controllers.reels_controller import ReelsController
+    return ReelsController.approve_reel(reel_id)
+
+@admin_bp.route('/reels/<int:reel_id>/reject', methods=['POST'])
+@jwt_required()
+@admin_role_required
+def reject_reel(reel_id):
+    """
+    Reject a reel with reason (admin only)
+    ---
+    tags:
+      - Admin
+    security:
+      - Bearer: []
+    consumes:
+      - application/json
+    parameters:
+      - in: path
+        name: reel_id
+        type: integer
+        required: true
+        description: Reel ID
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - rejection_reason
+          properties:
+            rejection_reason:
+              type: string
+              maxLength: 255
+              description: Reason for rejection
+    responses:
+      200:
+        description: Reel rejected successfully
+      400:
+        description: Invalid input
+      401:
+        description: Unauthorized
+      403:
+        description: Forbidden - User is not an admin
+      404:
+        description: Reel not found
+      500:
+        description: Internal server error
+    """
+    from controllers.reels_controller import ReelsController
+    return ReelsController.reject_reel(reel_id)
+
+@admin_bp.route('/reels/<int:reel_id>/hide', methods=['POST'])
+@jwt_required()
+@admin_role_required
+def hide_reel(reel_id):
+    """
+    Hide a reel from public view (admin only)
+    ---
+    tags:
+      - Admin
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: reel_id
+        type: integer
+        required: true
+        description: Reel ID
+    responses:
+      200:
+        description: Reel hidden successfully
+      401:
+        description: Unauthorized
+      403:
+        description: Forbidden - User is not an admin
+      404:
+        description: Reel not found
+      500:
+        description: Internal server error
+    """
+    from controllers.reels_controller import ReelsController
+    return ReelsController.hide_reel(reel_id)
+
+@admin_bp.route('/reels/pending', methods=['GET'])
+@jwt_required()
+@admin_role_required
+def get_pending_reels():
+    """
+    Get pending reels for moderation (admin only)
+    ---
+    tags:
+      - Admin
+    security:
+      - Bearer: []
+    parameters:
+      - in: query
+        name: page
+        type: integer
+        required: false
+        default: 1
+        description: Page number
+      - in: query
+        name: per_page
+        type: integer
+        required: false
+        default: 20
+        description: Items per page (max 100)
+    responses:
+      200:
+        description: List of pending reels
+      401:
+        description: Unauthorized
+      403:
+        description: Forbidden - User is not an admin
+      500:
+        description: Internal server error
+    """
+    from controllers.reels_controller import ReelsController
+    return ReelsController.get_pending_reels()

@@ -119,7 +119,7 @@ class Reel(BaseModel):
         
         return reasons
     
-    def serialize(self, include_reasons=True, include_product=True, include_merchant=False):
+    def serialize(self, include_reasons=True, include_product=True, include_merchant=False, fields=None):
         """
         Serialize reel with disabling reasons.
         
@@ -127,11 +127,13 @@ class Reel(BaseModel):
             include_reasons: Whether to include disabling_reasons array
             include_product: Whether to include product info
             include_merchant: Whether to include merchant info
+            fields: Optional list of field names to include (if None, includes all)
             
         Returns:
             dict: Serialized reel data
         """
-        data = {
+        # Define all available fields
+        all_data = {
             'reel_id': self.reel_id,
             'merchant_id': self.merchant_id,
             'product_id': self.product_id,
@@ -154,12 +156,12 @@ class Reel(BaseModel):
         # Include disabling reasons if requested
         if include_reasons:
             disabling_reasons = self.get_disabling_reasons()
-            data['disabling_reasons'] = disabling_reasons
-            data['is_visible'] = len(disabling_reasons) == 0
+            all_data['disabling_reasons'] = disabling_reasons
+            all_data['is_visible'] = len(disabling_reasons) == 0
         
         # Include product info
         if include_product and self.product:
-            data['product'] = {
+            all_data['product'] = {
                 'product_id': self.product.product_id,
                 'product_name': self.product.product_name,
                 'category_id': self.product.category_id,
@@ -170,10 +172,28 @@ class Reel(BaseModel):
         
         # Include merchant info
         if include_merchant and self.merchant:
-            data['merchant'] = {
+            all_data['merchant'] = {
                 'merchant_id': self.merchant.id,
                 'business_name': self.merchant.business_name,
             }
+        
+        # Filter by fields if specified
+        if fields:
+            # Validate fields
+            valid_fields = set(all_data.keys())
+            requested_fields = set(fields)
+            invalid_fields = requested_fields - valid_fields
+            
+            if invalid_fields:
+                # Log warning but continue with valid fields
+                from flask import current_app
+                if current_app:
+                    current_app.logger.warning(f"Invalid fields requested: {invalid_fields}")
+            
+            # Filter data to only include requested valid fields
+            data = {k: v for k, v in all_data.items() if k in requested_fields and k in valid_fields}
+        else:
+            data = all_data
         
         return data
     

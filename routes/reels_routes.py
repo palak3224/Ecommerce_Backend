@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from controllers.reels_controller import ReelsController
 from flask_jwt_extended import jwt_required
 from flask_cors import cross_origin
+from common.decorators import rate_limit
 from http import HTTPStatus
 
 reels_bp = Blueprint('reels', __name__)
@@ -10,6 +11,7 @@ reels_bp = Blueprint('reels', __name__)
 @reels_bp.route('/api/reels', methods=['POST', 'OPTIONS'])
 @cross_origin()
 @jwt_required()
+@rate_limit(limit=10, per=3600, key_prefix='reel_upload')  # 10 uploads per hour
 def upload_reel():
     """
     Upload a new reel
@@ -69,6 +71,11 @@ def get_reel(reel_id):
         required: false
         default: true
         description: Whether to increment view count
+      - in: query
+        name: view_duration
+        type: integer
+        required: false
+        description: View duration in seconds (for tracking watch time, optional)
     responses:
       200:
         description: Reel data
@@ -76,7 +83,8 @@ def get_reel(reel_id):
         description: Reel not found
     """
     track_view = request.args.get('track_view', 'true').lower() == 'true'
-    return ReelsController.get_reel(reel_id, track_view=track_view)
+    view_duration = request.args.get('view_duration', type=int)
+    return ReelsController.get_reel(reel_id, track_view=track_view, view_duration=view_duration)
 
 
 @reels_bp.route('/api/reels/merchant/my', methods=['GET', 'OPTIONS'])
@@ -109,6 +117,28 @@ def get_my_reels():
         required: false
         default: false
         description: Include all reels including non-visible ones
+      - in: query
+        name: category_id
+        type: integer
+        required: false
+        description: Filter by category ID
+      - in: query
+        name: start_date
+        type: string
+        required: false
+        description: Start date filter (ISO format, e.g., 2024-01-01T00:00:00Z)
+      - in: query
+        name: end_date
+        type: string
+        required: false
+        description: End date filter (ISO format, e.g., 2024-01-01T00:00:00Z)
+      - in: query
+        name: sort_by
+        type: string
+        required: false
+        default: newest
+        enum: [newest, likes, views, shares]
+        description: Sort field
     responses:
       200:
         description: List of merchant's reels
@@ -353,4 +383,213 @@ def share_reel(reel_id):
         description: Reel not found
     """
     return ReelsController.share_reel(reel_id)
+
+
+@reels_bp.route('/api/reels/user/stats', methods=['GET', 'OPTIONS'])
+@cross_origin()
+@jwt_required()
+def get_user_reel_stats():
+    """
+    Get user's reel interaction statistics
+    ---
+    tags:
+      - Reels
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: User reel statistics
+      401:
+        description: Unauthorized (authentication required)
+      500:
+        description: Server error
+    """
+    return ReelsController.get_user_reel_stats()
+
+
+@reels_bp.route('/api/reels/merchant/my/analytics', methods=['GET', 'OPTIONS'])
+@cross_origin()
+@jwt_required()
+def get_merchant_reel_analytics():
+    """
+    Get merchant's reel analytics with aggregated stats and per-reel statistics
+    ---
+    tags:
+      - Reels
+    security:
+      - Bearer: []
+    parameters:
+      - in: query
+        name: page
+        type: integer
+        required: false
+        default: 1
+        description: Page number
+      - in: query
+        name: per_page
+        type: integer
+        required: false
+        default: 20
+        description: Items per page (max 100)
+      - in: query
+        name: start_date
+        type: string
+        required: false
+        description: Start date filter (ISO format, e.g., 2024-01-01T00:00:00Z)
+      - in: query
+        name: end_date
+        type: string
+        required: false
+        description: End date filter (ISO format, e.g., 2024-01-01T00:00:00Z)
+      - in: query
+        name: sort_by
+        type: string
+        required: false
+        default: created_at
+        enum: [created_at, views, likes, shares, engagement]
+        description: Sort field for reel stats
+    responses:
+      200:
+        description: Merchant reel analytics
+      401:
+        description: Unauthorized (authentication required)
+      403:
+        description: Forbidden (not a merchant)
+      500:
+        description: Server error
+    """
+    return ReelsController.get_merchant_reel_analytics()
+
+
+@reels_bp.route('/api/reels/user/shared', methods=['GET', 'OPTIONS'])
+@cross_origin()
+@jwt_required()
+def get_user_shared_reels():
+    """
+    Get reels that the current user has shared
+    ---
+    tags:
+      - Reels
+    security:
+      - Bearer: []
+    parameters:
+      - in: query
+        name: page
+        type: integer
+        required: false
+        default: 1
+        description: Page number
+      - in: query
+        name: per_page
+        type: integer
+        required: false
+        default: 20
+        description: Items per page (max 100)
+    responses:
+      200:
+        description: List of shared reels
+      401:
+        description: Unauthorized (authentication required)
+      500:
+        description: Server error
+    """
+    return ReelsController.get_user_shared_reels()
+
+
+@reels_bp.route('/api/reels/search', methods=['GET', 'OPTIONS'])
+@cross_origin()
+def search_reels():
+    """
+    Search reels by description, product name, or merchant name
+    ---
+    tags:
+      - Reels
+    parameters:
+      - in: query
+        name: q
+        type: string
+        required: true
+        description: Search query (searches in reel description)
+      - in: query
+        name: category_id
+        type: integer
+        required: false
+        description: Filter by category ID
+      - in: query
+        name: merchant_id
+        type: integer
+        required: false
+        description: Filter by merchant ID
+      - in: query
+        name: start_date
+        type: string
+        required: false
+        description: Start date filter (ISO format, e.g., 2024-01-01T00:00:00Z)
+      - in: query
+        name: end_date
+        type: string
+        required: false
+        description: End date filter (ISO format, e.g., 2024-01-01T00:00:00Z)
+      - in: query
+        name: page
+        type: integer
+        required: false
+        default: 1
+        description: Page number
+      - in: query
+        name: per_page
+        type: integer
+        required: false
+        default: 20
+        description: Items per page (max 100)
+    responses:
+      200:
+        description: Search results
+      400:
+        description: Invalid search query or filters
+      500:
+        description: Server error
+    """
+    return ReelsController.search_reels()
+
+
+@reels_bp.route('/api/reels/batch/delete', methods=['POST', 'OPTIONS'])
+@cross_origin()
+@jwt_required()
+@rate_limit(limit=5, per=3600, key_prefix='reel_batch_delete')  # 5 batch operations per hour
+def batch_delete_reels():
+    """
+    Delete multiple reels in a batch operation
+    ---
+    tags:
+      - Reels
+    security:
+      - Bearer: []
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - reel_ids
+          properties:
+            reel_ids:
+              type: array
+              items:
+                type: integer
+              description: Array of reel IDs to delete (max 50)
+    responses:
+      200:
+        description: Batch delete completed
+      400:
+        description: Invalid input
+      403:
+        description: Forbidden (not a merchant or unauthorized)
+      500:
+        description: Server error
+    """
+    return ReelsController.batch_delete_reels()
 
