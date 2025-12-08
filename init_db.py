@@ -75,6 +75,12 @@ from models.system_monitoring import SystemMonitoring
 # --- Newsletter models ---
 from models.newsletter_subscription import NewsletterSubscription
 
+# --- Reels models ---
+from models.reel import Reel
+from models.user_reel_like import UserReelLike
+from models.user_reel_view import UserReelView
+from models.user_reel_share import UserReelShare
+
 
 # Load environment variables
 load_dotenv()
@@ -452,6 +458,32 @@ def init_shops():
     db.session.commit()
     print("Shops initialized successfully.")
 
+def init_reels():
+    """Initialize reels tables."""
+    print("\nInitializing Reels Tables:")
+    print("-------------------------")
+    
+    # Check if the tables exist using SQLAlchemy inspector
+    inspector = db.inspect(db.engine)
+    tables = ['reels', 'user_reel_likes', 'user_reel_views', 'user_reel_shares']
+    
+    for table in tables:
+        if table not in inspector.get_table_names():
+            print(f"Creating {table} table...")
+            if table == 'reels':
+                Reel.__table__.create(db.engine)
+            elif table == 'user_reel_likes':
+                UserReelLike.__table__.create(db.engine)
+            elif table == 'user_reel_views':
+                UserReelView.__table__.create(db.engine)
+            elif table == 'user_reel_shares':
+                UserReelShare.__table__.create(db.engine)
+            print(f"{table} table created successfully.")
+        else:
+            print(f"{table} table already exists.")
+    
+    print("Reels tables initialized successfully.")
+
 def migrate_profile_img_column():
     """Add profile_img column to users table if it doesn't exist."""
     print("\nMigrating profile_img column:")
@@ -506,6 +538,7 @@ def init_database():
         init_system_monitoring()
         init_live_streaming()
         init_shops()  # Add shops initialization
+        init_reels()  # Add reels initialization
         
         # Create super admin user if not exists
         admin_email = os.getenv("SUPER_ADMIN_EMAIL")

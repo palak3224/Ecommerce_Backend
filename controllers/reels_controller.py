@@ -1159,9 +1159,11 @@ class ReelsController:
             # Get current user (optional - allow unauthenticated shares but track if authenticated)
             current_user_id = None
             try:
+                verify_jwt_in_request(optional=True)
                 current_user_id = get_jwt_identity()
             except Exception:
-                pass  # User not authenticated - still allow share but don't track user
+                # User not authenticated - still allow share but don't track user
+                current_user_id = None
             
             # Track user share if authenticated
             if current_user_id:
@@ -1174,8 +1176,7 @@ class ReelsController:
             # Increment share count
             try:
                 reel.increment_shares()
-                if current_user_id:
-                    db.session.commit()
+                db.session.commit()  # Always commit, regardless of authentication
             except Exception as e:
                 db.session.rollback()
                 current_app.logger.error(f"Failed to increment share count: {str(e)}")
