@@ -482,6 +482,31 @@ def init_reels():
         else:
             print(f"{table} table already exists.")
     
+    # Add FULLTEXT index on reels.description if it doesn't exist
+    try:
+        with db.engine.connect() as conn:
+            result = conn.execute(text("""
+                SELECT COUNT(*) as count
+                FROM information_schema.statistics
+                WHERE table_schema = DATABASE()
+                AND table_name = 'reels'
+                AND index_name = 'ft_description'
+            """))
+            
+            index_exists = result.fetchone()[0] > 0
+            
+            if not index_exists:
+                print("Creating FULLTEXT index on reels.description...")
+                conn.execute(text("""
+                    CREATE FULLTEXT INDEX ft_description ON reels(description)
+                """))
+                conn.commit()
+                print("✓ FULLTEXT index created on reels.description")
+            else:
+                print("✓ FULLTEXT index already exists on reels.description")
+    except Exception as e:
+        print(f"⚠ Could not create FULLTEXT index (may already exist): {str(e)}")
+    
     print("Reels tables initialized successfully.")
 
 def migrate_profile_img_column():

@@ -1359,31 +1359,35 @@ class ReelsController:
             per_page = min(per_page, 100)  # Max 100 per page
             
             # Build base query - only visible reels
+            # get_visible_reels() already joins Product and ProductStock, so we only need to join MerchantProfile
             query = Reel.get_visible_reels()
+            query = query.join(MerchantProfile, Reel.merchant_id == MerchantProfile.id)
             query = query.options(
                 joinedload(Reel.product).joinedload(Product.category),
                 joinedload(Reel.merchant)
             )
             
-            # Apply FULLTEXT search on description
-            # Note: FULLTEXT index must exist on reels.description
-            # Using MATCH AGAINST for full-text search
-            try:
-                from sqlalchemy import text
-                # Escape special characters for MySQL FULLTEXT
-                search_terms = search_query.replace('"', '\\"')
-                # Use boolean mode for better search results
-                query = query.filter(
-                    text("MATCH(reels.description) AGAINST(:search_query IN BOOLEAN MODE)")
-                ).params(search_query=search_terms)
-            except Exception as e:
-                # Fallback to LIKE if FULLTEXT fails (index might not exist)
-                current_app.logger.warning(f"FULLTEXT search failed, using LIKE: {str(e)}")
-                query = query.filter(Reel.description.like(f'%{search_query}%'))
+            # Apply search across multiple fields: description, product name, merchant name
+            # We'll search in: reels.description, products.product_name, merchant_profiles.business_name
+            from sqlalchemy import text, or_
+            
+            # Escape special characters for MySQL FULLTEXT
+            search_terms = search_query.replace('"', '\\"')
+            search_like = f'%{search_query}%'
+            
+            # Build search conditions - try FULLTEXT on description, LIKE on product/merchant names
+            # Use OR to search across all fields
+            search_conditions = [
+                text("MATCH(reels.description) AGAINST(:search_query IN BOOLEAN MODE)"),
+                Product.product_name.like(search_like),
+                MerchantProfile.business_name.like(search_like)
+            ]
+            
+            query = query.filter(or_(*search_conditions)).params(search_query=search_terms)
             
             # Apply category filter
             if category_id:
-                query = query.join(Product).filter(Product.category_id == category_id)
+                query = query.filter(Product.category_id == category_id)
             
             # Apply merchant filter
             if merchant_id:
@@ -1414,19 +1418,64 @@ class ReelsController:
                         HTTPStatus.BAD_REQUEST
                     )
             
-            # Order by relevance (for FULLTEXT) or created_at
-            try:
-                # Try to order by relevance if FULLTEXT is available
-                query = query.order_by(desc(Reel.created_at))
-            except Exception:
-                query = query.order_by(desc(Reel.created_at))
+            # Order by created_at
+            query = query.order_by(desc(Reel.created_at))
             
-            # Paginate
-            pagination = query.paginate(
-                page=page,
-                per_page=per_page,
-                error_out=False
-            )
+            # Paginate - catch FULLTEXT error here and fallback to LIKE
+            try:
+                pagination = query.paginate(
+                    page=page,
+                    per_page=per_page,
+                    error_out=False
+                )
+            except Exception as e:
+                # If FULLTEXT index doesn't exist, fallback to LIKE search
+                error_str = str(e)
+                if 'FULLTEXT' in error_str or '1191' in error_str:
+                    current_app.logger.warning(f"FULLTEXT index not found, falling back to LIKE search: {str(e)}")
+                    # Rebuild query with LIKE instead of FULLTEXT
+                    # get_visible_reels() already joins Product and ProductStock
+                    query = Reel.get_visible_reels()
+                    query = query.join(MerchantProfile, Reel.merchant_id == MerchantProfile.id)
+                    query = query.options(
+                        joinedload(Reel.product).joinedload(Product.category),
+                        joinedload(Reel.merchant)
+                    )
+                    # Use LIKE search across all fields
+                    search_like = f'%{search_query}%'
+                    query = query.filter(or_(
+                        Reel.description.like(search_like),
+                        Product.product_name.like(search_like),
+                        MerchantProfile.business_name.like(search_like)
+                    ))
+                    
+                    # Reapply filters
+                    if category_id:
+                        query = query.filter(Product.category_id == category_id)
+                    if merchant_id:
+                        query = query.filter(Reel.merchant_id == merchant_id)
+                    if start_date:
+                        try:
+                            start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                            query = query.filter(Reel.created_at >= start_dt)
+                        except ValueError:
+                            pass
+                    if end_date:
+                        try:
+                            end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                            query = query.filter(Reel.created_at <= end_dt)
+                        except ValueError:
+                            pass
+                    
+                    query = query.order_by(desc(Reel.created_at))
+                    pagination = query.paginate(
+                        page=page,
+                        per_page=per_page,
+                        error_out=False
+                    )
+                else:
+                    # Re-raise if it's a different error
+                    raise
             
             # Serialize results
             # Get fields parameter for field selection
