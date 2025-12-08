@@ -1,6 +1,7 @@
 """
 Database initialization script.
 Run this script to create the database and tables.
+Usage: python init_db.py
 """
 
 import os
@@ -9,6 +10,27 @@ from dotenv import load_dotenv
 from app import create_app
 from common.database import db
 from sqlalchemy import text
+
+# Import all models to ensure db.create_all() creates all tables
+# This matches what app.py does with "from models import *"
+# Importing all models ensures all tables are created by db.create_all()
+from models import *  # Import all models from models package
+from models.shop import *  # Import all shop models
+from models.shop.shop_product_variant import ShopProductVariant, ShopVariantAttributeValue  # Shop variants
+from models.system_monitoring import SystemMonitoring
+from models.newsletter_subscription import NewsletterSubscription
+from models.visit_tracking import VisitTracking
+from models.customer_profile import CustomerProfile
+from models.user_address import UserAddress
+from models.wishlist_item import WishlistItem
+from models.cart import Cart, CartItem
+from models.order import Order, OrderItem, OrderStatusHistory
+from models.shipment import Shipment, ShipmentItem
+from models.support_ticket_model import SupportTicket, SupportTicketMessage
+from models.youtube_token import YouTubeToken
+from models.tax_rate import TaxRate
+from models.carousel import Carousel
+from models.reel_like import ReelLike
 
 # --- Auth models ---
 from auth.models.models import (
@@ -30,56 +52,6 @@ from auth.models.country_config import (
     CountryConfig,
     CountryCode
 )
-
-# --- Superadmin models ---
-from models.category import Category
-from models.brand import Brand
-from models.brand_request import BrandRequest
-from models.attribute import Attribute
-from models.attribute_value import AttributeValue
-from models.category_attribute import CategoryAttribute
-from models.promotion import Promotion
-from models.product_promotion import ProductPromotion
-from models.tax_category import TaxCategory
-from models.homepage import HomepageCategory
-from models.subscription import SubscriptionPlan
-
-from models.gst_rule import GSTRule
-
-from models.merchant_transaction import MerchantTransaction
-
-# --- Merchant models ---
-from models.product import Product
-from models.product_meta import ProductMeta
-from models.product_tax import ProductTax
-from models.product_shipping import ProductShipping
-from models.product_media import ProductMedia
-from models.product_stock import ProductStock
-from models.review import Review
-from models.product_attribute import ProductAttribute
-from models.recently_viewed import RecentlyViewed
-
-# --- Shop models ---
-from models.shop.shop import Shop
-
-# --- Live Streaming models ---
-from models.live_stream import LiveStream, LiveStreamComment, LiveStreamViewer, StreamStatus
-
-# --- Payment models ---
-from models.payment_card import PaymentCard
-from models.enums import CardTypeEnum, CardStatusEnum
-
-# --- Monitoring models ---
-from models.system_monitoring import SystemMonitoring
-
-# --- Newsletter models ---
-from models.newsletter_subscription import NewsletterSubscription
-
-# --- Reels models ---
-from models.reel import Reel
-from models.user_reel_like import UserReelLike
-from models.user_reel_view import UserReelView
-from models.user_reel_share import UserReelShare
 
 
 # Load environment variables
@@ -584,10 +556,33 @@ def init_database():
             admin.save()
             print("Super admin user created.")
         
-        print("\nDatabase initialization completed successfully!")
+        print("\n" + "=" * 50)
+        print("✓ Database initialization completed successfully!")
+        print("=" * 50)
+        print("\nYou can now start the application with: python app.py")
+        print("Or run the Flask development server with: flask run")
 
 
 if __name__ == "__main__":
-    create_database()
-    init_database()
-    print("Database initialization completed.")
+    try:
+        print("=" * 50)
+        print("DATABASE INITIALIZATION SCRIPT")
+        print("=" * 50)
+        print("\nThis script will:")
+        print("  1. Create the database if it doesn't exist")
+        print("  2. Create all tables")
+        print("  3. Run migrations")
+        print("  4. Initialize default data")
+        print("  5. Create super admin user (if configured)")
+        print("\nStarting initialization...\n")
+        
+        init_database()
+        
+    except Exception as e:
+        print("\n" + "=" * 50)
+        print("✗ ERROR: Database initialization failed!")
+        print("=" * 50)
+        print(f"Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        exit(1)
