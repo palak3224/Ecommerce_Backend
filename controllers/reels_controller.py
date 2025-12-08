@@ -1,5 +1,5 @@
 from flask import request, jsonify, current_app
-from flask_jwt_extended import get_jwt_identity
+from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 from common.database import db
 from common.cache import get_redis_client
 from models.reel import Reel
@@ -536,25 +536,44 @@ class ReelsController:
             JSON response with paginated reel list
         """
         try:
-            # Get current user
-            current_user_id = get_jwt_identity()
-            user = User.get_by_id(current_user_id)
-            if not user:
-                return jsonify({'error': 'User not found'}), HTTPStatus.NOT_FOUND
+            # Get current user (optional JWT for public endpoints)
+            current_user_id = None
+            is_own_reels = False
             
-            # Determine merchant_id
+            # If merchant_id is None, we need JWT to get current user's merchant profile
             if merchant_id is None:
-                merchant = MerchantProfile.query.filter_by(user_id=current_user_id).first()
-                if not merchant:
-                    return jsonify({'error': 'Merchant profile not found'}), HTTPStatus.NOT_FOUND
-                merchant_id = merchant.id
-                is_own_reels = True
+                # JWT is required when getting own reels
+                try:
+                    verify_jwt_in_request()
+                    current_user_id = get_jwt_identity()
+                    user = User.get_by_id(current_user_id)
+                    if not user:
+                        return jsonify({'error': 'User not found'}), HTTPStatus.NOT_FOUND
+                    
+                    merchant = MerchantProfile.query.filter_by(user_id=current_user_id).first()
+                    if not merchant:
+                        return jsonify({'error': 'Merchant profile not found'}), HTTPStatus.NOT_FOUND
+                    merchant_id = merchant.id
+                    is_own_reels = True
+                except Exception as e:
+                    return jsonify({'error': 'Authentication required to view own reels'}), HTTPStatus.UNAUTHORIZED
             else:
-                # Check if requesting own reels
+                # For public endpoint, JWT is optional - check if user is authenticated
+                try:
+                    verify_jwt_in_request(optional=True)
+                    current_user_id = get_jwt_identity()
+                except Exception:
+                    # No JWT token present, which is fine for public endpoint
+                    current_user_id = None
+                
+                # Check if requesting own reels (only if authenticated)
                 merchant = MerchantProfile.query.filter_by(id=merchant_id).first()
                 if not merchant:
                     return jsonify({'error': 'Merchant not found'}), HTTPStatus.NOT_FOUND
-                is_own_reels = (merchant.user_id == current_user_id)
+                
+                # Only check if own reels if user is authenticated
+                if current_user_id:
+                    is_own_reels = (merchant.user_id == current_user_id)
             
             # Build query with eager loading to prevent N+1 queries
             query = Reel.query.options(
