@@ -29,8 +29,11 @@ from models.shipment import Shipment, ShipmentItem
 from models.support_ticket_model import SupportTicket, SupportTicketMessage
 from models.youtube_token import YouTubeToken
 from models.tax_rate import TaxRate
+from models.tax_category import TaxCategory
 from models.carousel import Carousel
-from models.reel_like import ReelLike
+from models.live_stream import LiveStream, LiveStreamComment, LiveStreamViewer
+from models.recently_viewed import RecentlyViewed
+from models.homepage import HomepageCategory
 
 # --- Auth models ---
 from auth.models.models import (
@@ -505,6 +508,121 @@ def migrate_profile_img_column():
     else:
         print("✗ users table does not exist")
 
+def migrate_auth_provider_enum():
+    """Fix auth_provider enum values from uppercase to lowercase."""
+    print("\nMigrating auth_provider enum:")
+    print("----------------------------")
+    
+    inspector = db.inspect(db.engine)
+    
+    if 'users' in inspector.get_table_names():
+        try:
+            with db.engine.connect() as conn:
+                # First, update any uppercase values to lowercase
+                conn.execute(text("""
+                    UPDATE users 
+                    SET auth_provider = LOWER(auth_provider)
+                    WHERE auth_provider IN ('LOCAL', 'GOOGLE', 'PHONE')
+                """))
+                
+                # Then, modify the column to use lowercase enum values
+                conn.execute(text("""
+                    ALTER TABLE users 
+                    MODIFY COLUMN auth_provider ENUM('local', 'google', 'phone') 
+                    NOT NULL DEFAULT 'local'
+                """))
+                
+                conn.commit()
+            print("✓ auth_provider enum values fixed successfully")
+        except Exception as e:
+            # If the column doesn't exist or is already correct, that's okay
+            if "doesn't exist" in str(e) or "Duplicate column" in str(e):
+                print("✓ auth_provider enum already correct")
+            else:
+                print(f"⚠ Could not migrate auth_provider enum (may already be correct): {str(e)}")
+    else:
+        print("⚠ users table does not exist, skipping auth_provider migration")
+
+def verify_all_tables():
+    """Verify that all expected tables are created in the database."""
+    print("\nVerifying all tables:")
+    print("-------------------")
+    
+    # Expected tables from all models (based on __tablename__)
+    expected_tables = {
+        # Auth tables
+        'users', 'merchant_profiles', 'refresh_tokens', 
+        'email_verifications', 'phone_verifications', 'merchant_documents',
+        'country_configs',
+        
+        # Core product tables
+        'products', 'categories', 'brands', 'attributes', 'attribute_values',
+        'category_attributes', 'product_attributes', 'product_media', 
+        'product_stock', 'product_tax', 'product_shipping', 'product_meta',
+        'product_promotions', 'product_placements', 'reviews', 'review_images',
+        'brand_requests',
+        
+        # Shop tables
+        'shops', 'shop_categories', 'shop_brands', 'shop_attributes', 
+        'shop_attribute_values', 'shop_products', 'shop_product_attributes',
+        'shop_product_media', 'shop_product_stock', 'shop_product_taxes',
+        'shop_product_shipping', 'shop_product_meta', 'shop_product_promotions',
+        'shop_product_placements', 'shop_product_variants', 
+        'shop_variant_attribute_values', 'shop_gst_rules', 'shop_reviews',
+        'shop_review_images', 'shop_wishlist_items',
+        
+        # Order and cart tables
+        'carts', 'cart_items', 'orders', 'order_items', 'order_status_history',
+        'shipments', 'shipment_items',
+        'shop_carts', 'shop_cart_items', 'shop_orders', 'shop_order_items',
+        'shop_order_status_history', 'shop_shipments', 'shop_shipment_items',
+        
+        # User-related tables
+        'customer_profiles', 'user_addresses', 'wishlist_items',
+        'visit_tracking', 'user_category_preferences', 'user_merchant_follows',
+        
+        # Reel tables
+        'reels', 'user_reel_likes', 'user_reel_views', 'user_reel_shares',
+        
+        # Other tables
+        'subscription_plans', 'subscription_histories', 'promotions', 'game_plays',
+        'payment_cards', 'support_tickets', 'support_ticket_messages',
+        'newsletter_subscriptions', 'merchant_transactions',
+        'live_streams', 'live_stream_comments', 'live_stream_viewers',
+        'homepage_categories', 'recently_viewed', 'carousels',
+        'tax_rates', 'tax_categories', 'youtube_tokens', 'system_monitoring'
+    }
+    
+    inspector = db.inspect(db.engine)
+    actual_tables = set(inspector.get_table_names())
+    
+    # Find missing tables
+    missing_tables = expected_tables - actual_tables
+    
+    # Find extra tables (not in expected list - might be system tables)
+    extra_tables = actual_tables - expected_tables
+    
+    if missing_tables:
+        print(f"⚠ Missing tables ({len(missing_tables)}):")
+        for table in sorted(missing_tables):
+            print(f"  - {table}")
+    else:
+        print(f"✓ All expected tables exist ({len(expected_tables)} tables)")
+    
+    if extra_tables:
+        # Filter out common MySQL system tables
+        system_tables = {'alembic_version'}  # Add other system tables if needed
+        user_extra_tables = extra_tables - system_tables
+        if user_extra_tables:
+            print(f"\nℹ Additional tables found ({len(user_extra_tables)}):")
+            for table in sorted(user_extra_tables):
+                print(f"  - {table}")
+    
+    print(f"\nTotal tables in database: {len(actual_tables)}")
+    print(f"Expected tables: {len(expected_tables)}")
+    
+    return len(missing_tables) == 0
+
 def init_database():
     """Initialize the database with all tables and initial data."""
     app = create_app()
@@ -520,8 +638,12 @@ def init_database():
         db.create_all()
         print("✓ All tables created successfully.")
         
+        # Verify all tables are created
+        verify_all_tables()
+        
         # Run migrations
         migrate_profile_img_column()
+        migrate_auth_provider_enum()
         
         # Initialize data
         init_country_configs()

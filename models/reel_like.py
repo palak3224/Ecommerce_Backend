@@ -18,8 +18,8 @@ class ReelLike(BaseModel):
     deleted_at = db.Column(db.DateTime, nullable=True)
     
     # Relationships
-    user = db.relationship('User', backref=db.backref('reel_likes', lazy='dynamic'))
-    reel = db.relationship('Reel', backref=db.backref('user_likes', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('reel_likes_legacy', lazy='dynamic'))
+    reel = db.relationship('Reel', backref=db.backref('reel_likes_legacy_users', lazy='dynamic'))
     
     # Unique constraint: one user can only like a reel once
     __table_args__ = (

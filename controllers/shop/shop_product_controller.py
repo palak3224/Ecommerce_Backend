@@ -1156,7 +1156,7 @@ class ShopProductController:
                     ShopProduct.deleted_at.is_(None)
                 ).first()
                 if existing_product:
-                    return jsonify({'status': 'error', 'message': f'SKU \"{data['sku']}\" already exists'}), 400
+                    return jsonify({'status': 'error', 'message': f"SKU \"{data['sku']}\" already exists"}), 400
 
             # Update fields
             for field in ['shop_id', 'category_id', 'brand_id', 'sku', 'product_name', 'product_description', 'cost_price', 'selling_price', 'special_price', 'special_start', 'special_end']:
