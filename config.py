@@ -45,7 +45,7 @@ class Config:
     MAIL_PASSWORD = os.getenv('MAIL_PASSWORD')
     MAIL_DEFAULT_SENDER = (os.getenv('MAIL_SENDER_NAME', 'AOIN'), os.getenv('MAIL_USERNAME'))
 
-    FRONTEND_URL = 'https://aoinstore.com'
+    FRONTEND_URL = 'http://localhost:5173'
 
     EXCHANGE_RATE_API_KEY = os.getenv('EXCHANGE_RATE_API_KEY', 'f60545f362ec1fdd1e5e7338')
     CARD_ENCRYPTION_KEY = os.getenv('CARD_ENCRYPTION_KEY')
