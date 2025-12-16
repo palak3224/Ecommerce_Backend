@@ -166,7 +166,8 @@ def send_email(to_email, subject, template_str, context):
         message['To'] = to_email
         message.attach(MIMEText(full_html_content, 'html', 'utf-8'))
         
-        with smtplib.SMTP(current_app.config['MAIL_SERVER'], current_app.config['MAIL_PORT']) as server:
+        # Add timeout to prevent hanging connections (10 seconds)
+        with smtplib.SMTP(current_app.config['MAIL_SERVER'], current_app.config['MAIL_PORT'], timeout=10) as server:
             if current_app.config['MAIL_USE_TLS']:
                 server.starttls()
             if current_app.config['MAIL_USERNAME'] and current_app.config['MAIL_PASSWORD']:

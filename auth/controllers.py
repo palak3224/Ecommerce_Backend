@@ -51,7 +51,12 @@ def register_user(data):
         db.session.commit()
         
         # Send verification email (after successful commit)
-        send_verification_email(user, token)
+        # Wrap in try-except to prevent email failures from blocking registration
+        try:
+            send_verification_email(user, token)
+        except Exception as email_error:
+            # Log the error but don't fail the registration
+            current_app.logger.error(f"Failed to send verification email to {user.email}: {str(email_error)}")
         
         return {
             "message": "User registered successfully. Please check your email to verify your account.",
@@ -125,7 +130,12 @@ def register_merchant(data):
         db.session.commit()
         
         # Send verification email (after successful commit)
-        send_verification_email(user, token)
+        # Wrap in try-except to prevent email failures from blocking registration
+        try:
+            send_verification_email(user, token)
+        except Exception as email_error:
+            # Log the error but don't fail the registration
+            current_app.logger.error(f"Failed to send verification email to {user.email}: {str(email_error)}")
         
         return {
             "message": "Merchant registered successfully. Please check your email to verify your account.",
