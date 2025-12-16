@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 import cloudinary
 import cloudinary.uploader
+import uuid
 from flask import current_app, jsonify, request
 from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt_identity
 from sqlalchemy.exc import IntegrityError
@@ -21,6 +22,7 @@ def register_user(data):
     try:
         # Check if user already exists
         if User.get_by_email(data['email']):
+            db.session.rollback()  # Ensure clean state
             return {"error": "Email already registered"}, 409
         
         # Create new user
@@ -32,21 +34,37 @@ def register_user(data):
             role=UserRole.USER
         )
         user.set_password(data['password'])
-        user.save()
+        db.session.add(user)
+        db.session.flush()  # Flush to get user.id without committing
         
-        # Create email verification token
+        # Create email verification token (inline to avoid premature commit)
         expires_at = datetime.utcnow() + timedelta(days=1)
-        token = EmailVerification.create_token(user.id, expires_at)
+        token = str(uuid.uuid4())
+        verification = EmailVerification(
+            token=token,
+            user_id=user.id,
+            expires_at=expires_at
+        )
+        db.session.add(verification)
         
-        # Send verification email
+        # Commit everything together in a single transaction
+        db.session.commit()
+        
+        # Send verification email (after successful commit)
         send_verification_email(user, token)
         
         return {
             "message": "User registered successfully. Please check your email to verify your account.",
             "user_id": user.id
         }, 201
-    except IntegrityError:
+    except IntegrityError as e:
         db.session.rollback()
+        error_str = str(e).lower()
+        # Check if it's a duplicate email constraint violation
+        if 'email' in error_str or 'unique constraint' in error_str or 'duplicate' in error_str:
+            current_app.logger.warning(f"Duplicate email attempt during user registration: {data.get('email')}")
+            return {"error": "Email already registered"}, 409
+        current_app.logger.error(f"Database error during user registration: {str(e)}")
         return {"error": "Database error occurred"}, 500
     except Exception as e:
         db.session.rollback()
@@ -58,6 +76,7 @@ def register_merchant(data):
     try:
         # Check if user already exists with business email
         if User.get_by_email(data['business_email']):
+            db.session.rollback()  # Ensure clean state
             return {"error": "Business email already registered"}, 409
         
         # Create new user with merchant role
@@ -69,7 +88,10 @@ def register_merchant(data):
             role=UserRole.MERCHANT
         )
         user.set_password(data['password'])
-        user.save()
+        
+        # Use session.add instead of save() to delay commit until everything is ready
+        db.session.add(user)
+        db.session.flush()  # Flush to get user.id without committing
         
         # Create merchant profile
         merchant = MerchantProfile(
@@ -87,19 +109,22 @@ def register_merchant(data):
         
         # Initialize required documents based on country
         merchant.update_required_documents()
+        db.session.add(merchant)
         
-        try:
-            merchant.save()
-        except Exception as e:
-            # If merchant profile creation fails, delete the user
-            user.delete()
-            raise e
-        
-        # Create email verification token
+        # Create email verification token (inline to avoid premature commit)
         expires_at = datetime.utcnow() + timedelta(days=1)
-        token = EmailVerification.create_token(user.id, expires_at)
+        token = str(uuid.uuid4())
+        verification = EmailVerification(
+            token=token,
+            user_id=user.id,
+            expires_at=expires_at
+        )
+        db.session.add(verification)
         
-        # Send verification email
+        # Commit everything together in a single transaction
+        db.session.commit()
+        
+        # Send verification email (after successful commit)
         send_verification_email(user, token)
         
         return {
@@ -109,6 +134,11 @@ def register_merchant(data):
         }, 201
     except IntegrityError as e:
         db.session.rollback()
+        error_str = str(e).lower()
+        # Check if it's a duplicate email constraint violation
+        if 'email' in error_str or 'unique constraint' in error_str or 'duplicate' in error_str:
+            current_app.logger.warning(f"Duplicate email attempt during merchant registration: {data.get('business_email')}")
+            return {"error": "Business email already registered"}, 409
         current_app.logger.error(f"Database error during merchant registration: {str(e)}")
         return {"error": "Database error occurred", "details": str(e)}, 500
     except Exception as e:
