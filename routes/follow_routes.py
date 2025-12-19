@@ -3,6 +3,7 @@ from controllers.follow_controller import FollowController
 from flask_jwt_extended import jwt_required
 from flask_cors import cross_origin
 from http import HTTPStatus
+from auth.utils import merchant_role_required
 
 follow_bp = Blueprint('follow', __name__)
 
@@ -104,4 +105,78 @@ def get_following():
         description: Server error
     """
     return FollowController.get_followed_merchants()
+
+
+@follow_bp.route('/api/merchants/followers', methods=['GET', 'OPTIONS'])
+@cross_origin()
+@jwt_required()
+@merchant_role_required
+def get_merchant_followers():
+    """
+    Get list of followers for the current merchant
+    ---
+    tags:
+      - Follow
+    security:
+      - Bearer: []
+    parameters:
+      - in: query
+        name: page
+        type: integer
+        required: false
+        default: 1
+        description: Page number
+      - in: query
+        name: per_page
+        type: integer
+        required: false
+        default: 20
+        description: Items per page (max 100)
+    responses:
+      200:
+        description: List of followers retrieved successfully
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+            total_followers:
+              type: integer
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  user_id:
+                    type: integer
+                  first_name:
+                    type: string
+                  last_name:
+                    type: string
+                  profile_img:
+                    type: string
+                  followed_at:
+                    type: string
+                    format: date-time
+            pagination:
+              type: object
+              properties:
+                page:
+                  type: integer
+                per_page:
+                  type: integer
+                total:
+                  type: integer
+                pages:
+                  type: integer
+      401:
+        description: Unauthorized (authentication required)
+      403:
+        description: Merchant access required
+      404:
+        description: Merchant profile not found
+      500:
+        description: Server error
+    """
+    return FollowController.get_merchant_followers()
 

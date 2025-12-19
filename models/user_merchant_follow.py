@@ -51,4 +51,9 @@ class UserMerchantFollow(BaseModel):
     def get_followed_merchants(cls, user_id):
         """Get all merchants that a user follows."""
         return cls.query.filter_by(user_id=user_id).order_by(cls.followed_at.desc()).all()
+    
+    @classmethod
+    def get_merchant_followers(cls, merchant_id):
+        """Get all users that follow a merchant."""
+        return cls.query.filter_by(merchant_id=merchant_id).order_by(cls.followed_at.desc()).all()
 

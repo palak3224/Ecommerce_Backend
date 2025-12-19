@@ -204,4 +204,68 @@ class FollowController:
         except Exception as e:
             current_app.logger.error(f"Get followed merchants failed: {str(e)}")
             return jsonify({'error': f'Failed to get followed merchants: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+    
+    @staticmethod
+    def get_merchant_followers():
+        """
+        Get list of followers for the current merchant.
+        
+        Returns:
+            JSON response with paginated list of followers and total count
+        """
+        try:
+            # Get current user (merchant)
+            current_user_id = get_jwt_identity()
+            user = User.get_by_id(current_user_id)
+            if not user:
+                return jsonify({'error': 'User not found'}), HTTPStatus.NOT_FOUND
+            
+            # Get merchant profile
+            merchant = MerchantProfile.get_by_user_id(current_user_id)
+            if not merchant:
+                return jsonify({'error': 'Merchant profile not found'}), HTTPStatus.NOT_FOUND
+            
+            # Get all followers for this merchant
+            follows = UserMerchantFollow.get_merchant_followers(merchant.id)
+            
+            # Pagination
+            page = request.args.get('page', 1, type=int)
+            per_page = request.args.get('per_page', 20, type=int)
+            per_page = min(per_page, 100)  # Max 100 per page
+            
+            # Calculate pagination
+            total = len(follows)
+            pages = (total + per_page - 1) // per_page if total > 0 else 0
+            start = (page - 1) * per_page
+            end = start + per_page
+            paginated_follows = follows[start:end]
+            
+            # Serialize follower data with basic user details
+            followers_data = []
+            for follow in paginated_follows:
+                follower_user = follow.user
+                if follower_user:
+                    followers_data.append({
+                        'user_id': follower_user.id,
+                        'first_name': follower_user.first_name,
+                        'last_name': follower_user.last_name,
+                        'profile_img': follower_user.profile_img,
+                        'followed_at': follow.followed_at.isoformat() if follow.followed_at else None
+                    })
+            
+            return jsonify({
+                'status': 'success',
+                'total_followers': total,
+                'data': followers_data,
+                'pagination': {
+                    'page': page,
+                    'per_page': per_page,
+                    'total': total,
+                    'pages': pages
+                }
+            }), HTTPStatus.OK
+            
+        except Exception as e:
+            current_app.logger.error(f"Get merchant followers failed: {str(e)}")
+            return jsonify({'error': f'Failed to get merchant followers: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
