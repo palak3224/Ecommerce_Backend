@@ -648,6 +648,14 @@ class ReelsController:
                 include_product=True
             ) for reel in pagination.items]
             
+            # Add is_liked status to each reel if user is authenticated
+            for reel_data in reels_data:
+                if current_user_id:
+                    is_liked = UserReelLike.user_has_liked(current_user_id, reel_data['reel_id'])
+                    reel_data['is_liked'] = is_liked
+                else:
+                    reel_data['is_liked'] = False
+            
             return jsonify({
                 'status': 'success',
                 'data': reels_data,
@@ -760,6 +768,23 @@ class ReelsController:
                 include_product=True,
                 fields=fields
             ) for reel in pagination.items]
+            
+            # Check if user is authenticated and add is_liked status
+            current_user_id = None
+            try:
+                verify_jwt_in_request(optional=True)
+                current_user_id = get_jwt_identity()
+            except Exception:
+                # No JWT token present, which is fine for public endpoint
+                current_user_id = None
+            
+            # Add is_liked status to each reel
+            for reel_data in reels_data:
+                if current_user_id:
+                    is_liked = UserReelLike.user_has_liked(current_user_id, reel_data['reel_id'])
+                    reel_data['is_liked'] = is_liked
+                else:
+                    reel_data['is_liked'] = False
             
             return jsonify({
                 'status': 'success',
@@ -1324,6 +1349,9 @@ class ReelsController:
                     reel_data = reel.serialize(include_reasons=False, include_product=True, fields=fields)
                     if not fields or 'shared_at' in fields:
                         reel_data['shared_at'] = share_record.shared_at.isoformat() if share_record.shared_at else None
+                    # Add is_liked status (user is authenticated in this endpoint)
+                    is_liked = UserReelLike.user_has_liked(current_user_id, reel.reel_id)
+                    reel_data['is_liked'] = is_liked
                     reels_data.append(reel_data)
             
             return jsonify({
@@ -1508,6 +1536,23 @@ class ReelsController:
                 include_product=True,
                 fields=fields
             ) for reel in pagination.items]
+            
+            # Check if user is authenticated and add is_liked status
+            current_user_id = None
+            try:
+                verify_jwt_in_request(optional=True)
+                current_user_id = get_jwt_identity()
+            except Exception:
+                # No JWT token present, which is fine for public search
+                current_user_id = None
+            
+            # Add is_liked status to each reel
+            for reel_data in reels_data:
+                if current_user_id:
+                    is_liked = UserReelLike.user_has_liked(current_user_id, reel_data['reel_id'])
+                    reel_data['is_liked'] = is_liked
+                else:
+                    reel_data['is_liked'] = False
             
             return jsonify({
                 'status': 'success',
