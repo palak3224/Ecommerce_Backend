@@ -10,6 +10,7 @@ from models.user_merchant_follow import UserMerchantFollow
 from models.user_category_preference import UserCategoryPreference
 from models.product import Product
 from models.product_stock import ProductStock
+from models.merchant_notification import MerchantNotification
 from auth.models.models import User, MerchantProfile
 from services.storage.storage_factory import get_storage_service
 from werkzeug.utils import secure_filename
@@ -1006,6 +1007,24 @@ class ReelsController:
                     current_app.logger.warning(f"Failed to update category preference: {str(e)}")
                     # Don't fail the like operation if preference update fails
                 
+                # Create or update notification for merchant (aggregated by reel)
+                # Use savepoint to ensure notification failure doesn't affect like operation
+                savepoint = db.session.begin_nested()
+                try:
+                    user_name = f"{user.first_name} {user.last_name}".strip()
+                    MerchantNotification.get_or_create_reel_like_notification(
+                        merchant_id=reel.merchant_id,
+                        reel_id=reel.reel_id,
+                        user_id=current_user_id,
+                        user_name=user_name
+                    )
+                    savepoint.commit()
+                except Exception as e:
+                    savepoint.rollback()
+                    current_app.logger.warning(f"Failed to create notification for reel like: {str(e)}")
+                    # Don't fail the like operation if notification creation fails
+                
+                # Commit all changes together (like + notification if successful)
                 db.session.commit()
                 
                 # Invalidate recommendation cache

@@ -76,6 +76,13 @@ class Config:
     TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
     TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
     TWILIO_PHONE_NUMBER = os.getenv('TWILIO_PHONE_NUMBER')
+    
+    # Notification Cleanup Configuration
+    NOTIFICATION_CLEANUP_ENABLED = os.getenv('NOTIFICATION_CLEANUP_ENABLED', 'true').lower() in ('1', 'true', 'yes')
+    NOTIFICATION_CLEANUP_DAYS_OLD = int(os.getenv('NOTIFICATION_CLEANUP_DAYS_OLD', '90'))
+    NOTIFICATION_CLEANUP_INTERVAL_HOURS = int(os.getenv('NOTIFICATION_CLEANUP_INTERVAL_HOURS', '6'))
+    NOTIFICATION_CLEANUP_BATCH_SIZE = int(os.getenv('NOTIFICATION_CLEANUP_BATCH_SIZE', '100'))
+    NOTIFICATION_CLEANUP_MAX_BATCHES = int(os.getenv('NOTIFICATION_CLEANUP_MAX_BATCHES', '10'))
 
 class DevelopmentConfig(Config):
     """Configuration for development environment."""

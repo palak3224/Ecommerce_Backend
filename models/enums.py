@@ -169,3 +169,7 @@ class StreamStatus(Enum):
     ENDED = 'ended'
     CANCELLED = 'cancelled'
 
+class NotificationType(Enum):
+    REEL_LIKED = 'reel_liked'
+    MERCHANT_FOLLOWED = 'merchant_followed'
+

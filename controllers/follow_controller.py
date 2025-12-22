@@ -3,6 +3,7 @@ from flask_jwt_extended import get_jwt_identity
 from common.database import db
 from common.cache import get_redis_client
 from models.user_merchant_follow import UserMerchantFollow
+from models.merchant_notification import MerchantNotification
 from auth.models.models import User, MerchantProfile
 from sqlalchemy import desc
 from datetime import datetime, timezone
@@ -35,6 +36,16 @@ class FollowController:
             if not merchant:
                 return jsonify({'error': 'Merchant not found'}), HTTPStatus.NOT_FOUND
             
+            # Prevent self-follow
+            if merchant.user_id == current_user_id:
+                return jsonify({
+                    'error': 'You cannot follow yourself',
+                    'data': {
+                        'merchant_id': merchant_id,
+                        'business_name': merchant.business_name
+                    }
+                }), HTTPStatus.BAD_REQUEST
+            
             # Check if already following
             if UserMerchantFollow.is_following(current_user_id, merchant_id):
                 return jsonify({
@@ -48,6 +59,23 @@ class FollowController:
             # Create follow record
             follow = UserMerchantFollow.follow(current_user_id, merchant_id)
             if follow:
+                # Create notification for merchant
+                # Use savepoint to ensure notification failure doesn't affect follow operation
+                savepoint = db.session.begin_nested()
+                try:
+                    user_name = f"{user.first_name} {user.last_name}".strip()
+                    MerchantNotification.create_follow_notification(
+                        merchant_id=merchant_id,
+                        follower_user_id=current_user_id,
+                        follower_name=user_name
+                    )
+                    savepoint.commit()
+                except Exception as e:
+                    savepoint.rollback()
+                    current_app.logger.warning(f"Failed to create notification for merchant follow: {str(e)}")
+                    # Don't fail the follow operation if notification creation fails
+                
+                # Commit all changes together (follow + notification if successful)
                 db.session.commit()
                 
                 # Invalidate recommendation cache

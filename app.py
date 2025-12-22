@@ -72,6 +72,7 @@ from routes.ai_image_upload import ai_image_upload_bp
 from routes.reels_routes import reels_bp
 from routes.follow_routes import follow_bp
 from routes.recommendation_routes import recommendation_bp
+from routes.notification_routes import notification_bp
 
 
 from flasgger import Swagger
@@ -82,6 +83,7 @@ import traceback
 from datetime import datetime, timezone, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 import threading
+from services.notification_cleanup_service import NotificationCleanupService
 from controllers.newsletter_public_controller import newsletter_public_bp
 from flask import send_from_directory as flask_send_from_directory
 
@@ -248,6 +250,7 @@ def create_app(config_name='default'):
     app.register_blueprint(reels_bp)
     app.register_blueprint(follow_bp)
     app.register_blueprint(recommendation_bp)
+    app.register_blueprint(notification_bp)
 
     # Optional: Translation endpoints behind feature flag
     if app.config.get('FEATURE_TRANSLATION'):
@@ -425,6 +428,61 @@ def create_app(config_name='default'):
     @app.errorhandler(500)
     def server_error(error):
         return {"error": "Internal server error"}, 500
+
+    # Initialize background scheduler for notification cleanup
+    def start_notification_cleanup_scheduler():
+        """Start background scheduler for automatic notification cleanup."""
+        # Check if cleanup is enabled
+        if not app.config.get('NOTIFICATION_CLEANUP_ENABLED', True):
+            current_app.logger.info("Notification cleanup is disabled")
+            return
+        
+        scheduler = BackgroundScheduler()
+        
+        # Get configuration
+        interval_hours = app.config.get('NOTIFICATION_CLEANUP_INTERVAL_HOURS', 6)
+        days_old = app.config.get('NOTIFICATION_CLEANUP_DAYS_OLD', 90)
+        batch_size = app.config.get('NOTIFICATION_CLEANUP_BATCH_SIZE', 100)
+        max_batches = app.config.get('NOTIFICATION_CLEANUP_MAX_BATCHES', 10)
+        
+        # Run cleanup at specified interval
+        # Processes notifications in small batches to avoid heavy load
+        def cleanup_job():
+            with app.app_context():
+                result = NotificationCleanupService.cleanup_incremental(
+                    days_old=days_old,
+                    batch_size=batch_size,
+                    max_batches=max_batches
+                )
+                if result.get('success'):
+                    current_app.logger.info(
+                        f"Notification cleanup completed: {result['total_deleted']} deleted "
+                        f"in {result['batches_processed']} batches"
+                    )
+                else:
+                    current_app.logger.error(f"Notification cleanup failed: {result.get('error')}")
+        
+        scheduler.add_job(
+            cleanup_job,
+            'interval',
+            hours=interval_hours,
+            id='notification_cleanup',
+            replace_existing=True,
+            max_instances=1  # Prevent multiple instances running simultaneously
+        )
+        
+        # Start scheduler in a daemon thread
+        scheduler.start()
+        current_app.logger.info(
+            f"Notification cleanup scheduler started "
+            f"(runs every {interval_hours} hours, deletes notifications older than {days_old} days)"
+        )
+    
+    # Start scheduler after app is created
+    try:
+        start_notification_cleanup_scheduler()
+    except Exception as e:
+        current_app.logger.error(f"Failed to start notification cleanup scheduler: {str(e)}")
 
     return app
 
