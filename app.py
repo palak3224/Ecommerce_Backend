@@ -473,7 +473,7 @@ def create_app(config_name='default'):
         
         # Start scheduler in a daemon thread
         scheduler.start()
-        current_app.logger.info(
+        app.logger.info(
             f"Notification cleanup scheduler started "
             f"(runs every {interval_hours} hours, deletes notifications older than {days_old} days)"
         )
@@ -482,7 +482,7 @@ def create_app(config_name='default'):
     try:
         start_notification_cleanup_scheduler()
     except Exception as e:
-        current_app.logger.error(f"Failed to start notification cleanup scheduler: {str(e)}")
+        app.logger.error(f"Failed to start notification cleanup scheduler: {str(e)}")
 
     return app
 
