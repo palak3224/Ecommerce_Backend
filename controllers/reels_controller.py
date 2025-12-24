@@ -1752,6 +1752,50 @@ class ReelsController:
             )
     
     @staticmethod
+    def get_merchant_reel_stats(merchant_id):
+        """
+        Get aggregated reel statistics for a merchant (public endpoint).
+        Returns total counts of reels, likes, views, and shares.
+        
+        Args:
+            merchant_id: Merchant ID to get stats for
+            
+        Returns:
+            JSON response with aggregated stats
+        """
+        try:
+            # Check if merchant exists
+            merchant = MerchantProfile.query.filter_by(id=merchant_id).first()
+            if not merchant:
+                return jsonify({'error': 'Merchant not found'}), HTTPStatus.NOT_FOUND
+            
+            # Get all visible reels for this merchant using the get_visible_reels filter
+            base_query = Reel.query.filter_by(merchant_id=merchant_id)
+            visible_reels_query = Reel.get_visible_reels(base_query)
+            visible_reels = visible_reels_query.all()
+            
+            # Calculate aggregated stats
+            total_reels = len(visible_reels)
+            total_views = sum(reel.views_count for reel in visible_reels)
+            total_likes = sum(reel.likes_count for reel in visible_reels)
+            total_shares = sum(reel.shares_count for reel in visible_reels)
+            
+            return jsonify({
+                'status': 'success',
+                'data': {
+                    'merchant_id': merchant_id,
+                    'total_reels': total_reels,
+                    'total_likes': total_likes,
+                    'total_views': total_views,
+                    'total_shares': total_shares
+                }
+            }), HTTPStatus.OK
+            
+        except Exception as e:
+            current_app.logger.error(f"Get merchant reel stats failed: {str(e)}")
+            return jsonify({'error': f'Failed to get reel stats: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+    
+    @staticmethod
     def batch_delete_reels():
         """
         Delete multiple reels in a batch operation.

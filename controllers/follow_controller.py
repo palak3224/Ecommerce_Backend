@@ -296,4 +296,34 @@ class FollowController:
         except Exception as e:
             current_app.logger.error(f"Get merchant followers failed: {str(e)}")
             return jsonify({'error': f'Failed to get merchant followers: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+    
+    @staticmethod
+    def get_merchant_follower_count(merchant_id):
+        """
+        Get follower count for a merchant (public endpoint).
+        
+        Args:
+            merchant_id: Merchant ID to get follower count for
+            
+        Returns:
+            JSON response with follower count
+        """
+        try:
+            # Check if merchant exists
+            merchant = MerchantProfile.query.filter_by(id=merchant_id).first()
+            if not merchant:
+                return jsonify({'error': 'Merchant not found'}), HTTPStatus.NOT_FOUND
+            
+            # Get follower count
+            follower_count = UserMerchantFollow.query.filter_by(merchant_id=merchant_id).count()
+            
+            return jsonify({
+                'status': 'success',
+                'merchant_id': merchant_id,
+                'follower_count': follower_count
+            }), HTTPStatus.OK
+            
+        except Exception as e:
+            current_app.logger.error(f"Get merchant follower count failed: {str(e)}")
+            return jsonify({'error': f'Failed to get follower count: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
 

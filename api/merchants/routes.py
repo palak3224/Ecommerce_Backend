@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_cors import cross_origin
 from marshmallow import Schema, fields, validate, ValidationError
 from werkzeug.utils import secure_filename
 import os
@@ -12,6 +13,7 @@ from auth.models import User, MerchantProfile
 from auth.models.merchant_document import VerificationStatus, DocumentType, MerchantDocument
 from auth.models.country_config import CountryConfig, CountryCode
 from common.database import db
+from http import HTTPStatus
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -410,6 +412,90 @@ def get_profile():
             "submitted_documents": merchant_profile.submitted_documents
         }
     }), 200
+
+@merchants_bp.route('/<int:merchant_id>/public-profile', methods=['GET', 'OPTIONS'])
+@cross_origin()
+def get_public_profile(merchant_id):
+    """
+    Get public merchant profile information (for users to view).
+    ---
+    tags:
+      - Merchant
+    parameters:
+      - in: path
+        name: merchant_id
+        type: integer
+        required: true
+        description: Merchant ID
+    responses:
+      200:
+        description: Merchant profile retrieved successfully
+        schema:
+          type: object
+          properties:
+            merchant_id:
+              type: integer
+            business_name:
+              type: string
+            business_description:
+              type: string
+            business_email:
+              type: string
+            business_phone:
+              type: string
+            business_address:
+              type: string
+            location:
+              type: object
+              properties:
+                country_code:
+                  type: string
+                state_province:
+                  type: string
+                city:
+                  type: string
+                postal_code:
+                  type: string
+            is_verified:
+              type: boolean
+            verification_status:
+              type: string
+            gstin:
+              type: string
+              nullable: true
+      404:
+        description: Merchant not found
+      500:
+        description: Internal server error
+    """
+    try:
+        merchant_profile = MerchantProfile.get_by_id(merchant_id)
+        
+        if not merchant_profile:
+            return jsonify({"error": "Merchant not found"}), HTTPStatus.NOT_FOUND
+        
+        return jsonify({
+            "merchant_id": merchant_profile.id,
+            "business_name": merchant_profile.business_name,
+            "business_description": merchant_profile.business_description,
+            "business_email": merchant_profile.business_email,
+            "business_phone": merchant_profile.business_phone,
+            "business_address": merchant_profile.business_address,
+            "location": {
+                "country_code": merchant_profile.country_code,
+                "state_province": merchant_profile.state_province,
+                "city": merchant_profile.city,
+                "postal_code": merchant_profile.postal_code
+            },
+            "is_verified": merchant_profile.is_verified,
+            "verification_status": merchant_profile.verification_status.value if merchant_profile.verification_status else "pending",
+            "gstin": merchant_profile.gstin,
+            "tax_id": merchant_profile.tax_id
+        }), HTTPStatus.OK
+        
+    except Exception as e:
+        logger.error(f"Error getting public merchant profile: {str(e)}")
+        return jsonify({"error": "Failed to retrieve merchant profile"}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @merchants_bp.route('/profile', methods=['PUT'])
 @jwt_required()

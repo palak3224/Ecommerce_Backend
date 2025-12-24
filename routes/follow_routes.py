@@ -180,3 +180,36 @@ def get_merchant_followers():
     """
     return FollowController.get_merchant_followers()
 
+
+@follow_bp.route('/api/merchants/<int:merchant_id>/followers/count', methods=['GET', 'OPTIONS'])
+@cross_origin()
+def get_merchant_follower_count(merchant_id):
+    """
+    Get follower count for a merchant (public endpoint).
+    ---
+    tags:
+      - Follow
+    parameters:
+      - in: path
+        name: merchant_id
+        type: integer
+        required: true
+        description: Merchant ID
+    responses:
+      200:
+        description: Follower count retrieved successfully
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+            merchant_id:
+              type: integer
+            follower_count:
+              type: integer
+      404:
+        description: Merchant not found
+      500:
+        description: Server error
+    """
+    return FollowController.get_merchant_follower_count(merchant_id)

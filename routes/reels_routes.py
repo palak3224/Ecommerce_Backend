@@ -184,6 +184,49 @@ def get_merchant_public_reels(merchant_id):
     return ReelsController.get_merchant_reels(merchant_id=merchant_id, include_all=False)
 
 
+@reels_bp.route('/api/reels/merchant/<int:merchant_id>/stats', methods=['GET', 'OPTIONS'])
+@cross_origin()
+def get_merchant_reel_stats(merchant_id):
+    """
+    Get aggregated reel statistics for a merchant (public endpoint).
+    ---
+    tags:
+      - Reels
+    parameters:
+      - in: path
+        name: merchant_id
+        type: integer
+        required: true
+        description: Merchant ID
+    responses:
+      200:
+        description: Merchant reel statistics retrieved successfully
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+            data:
+              type: object
+              properties:
+                merchant_id:
+                  type: integer
+                total_reels:
+                  type: integer
+                total_likes:
+                  type: integer
+                total_views:
+                  type: integer
+                total_shares:
+                  type: integer
+      404:
+        description: Merchant not found
+      500:
+        description: Server error
+    """
+    return ReelsController.get_merchant_reel_stats(merchant_id)
+
+
 @reels_bp.route('/api/reels/public', methods=['GET', 'OPTIONS'])
 @cross_origin()
 def get_public_reels():
