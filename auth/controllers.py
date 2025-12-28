@@ -199,10 +199,23 @@ def logout_user(token):
 def verify_email(token):
     """Verify user email with token."""
     try:
-        # Find verification token
-        verification = EmailVerification.get_by_token(token)
+        # Find verification token - query directly to handle is_used check manually
+        verification = EmailVerification.query.filter_by(token=token).first()
+        
         if not verification:
             return {"error": "Invalid verification token"}, 400
+        
+        # If token is already used, check if user is verified
+        if verification.is_used:
+            user = User.get_by_id(verification.user_id)
+            if user and user.is_email_verified:
+                # Idempotency: Return success if already verified
+                return {
+                    "message": "Email already verified",
+                    "user_id": user.id
+                }, 200
+            else:
+                return {"error": "Verification token already used"}, 400
         
         if verification.expires_at < datetime.utcnow():
             return {"error": "Verification token expired"}, 400
@@ -216,16 +229,16 @@ def verify_email(token):
         
         # Mark verification token as used
         verification.is_used = True
-        db.session.commit()  # Commit both changes
         
         # If user is a merchant, update merchant verification status
         if user.role == UserRole.MERCHANT:
             merchant_profile = MerchantProfile.get_by_user_id(user.id)
             if merchant_profile:
-                merchant_profile.verification_status = 'email_verified'
-                merchant_profile.is_verified = True
+                # Only update if not already verified to avoid overwriting other statuses
+                if merchant_profile.verification_status != 'approved': 
+                    merchant_profile.verification_status = 'email_verified'
+                    merchant_profile.is_verified = True
         
-        verification.use()
         db.session.commit()
         
         return {
@@ -233,6 +246,7 @@ def verify_email(token):
             "user_id": user.id
         }, 200
     except Exception as e:
+        db.session.rollback()
         current_app.logger.error(f"Email verification error: {str(e)}")
         return {"error": "Email verification failed"}, 500
     
