@@ -119,26 +119,63 @@ def register_merchant(data):
 def login_user(data):
     """Login a user with email and password."""
     try:
-        login_email = data['email']
-        password = data['password']
+        login_email = data.get('email', '').strip().lower()
+        password = data.get('password', '')
         is_business_login = 'business_email' in data and data['business_email'] is True
+        
+        current_app.logger.info(f"Login attempt - Email: {login_email}, Is Business Login: {is_business_login}")
+        
         user_to_check = None
+        merchant_profile = None
+        
         if is_business_login:
+            current_app.logger.info(f"Business login attempt for email: {login_email}")
             merchant_profile = MerchantProfile.query.filter_by(business_email=login_email).first()
+            
             if merchant_profile:
+                current_app.logger.info(f"Merchant profile found - ID: {merchant_profile.id}, User ID: {merchant_profile.user_id}")
                 user_to_check = User.get_by_id(merchant_profile.user_id)
+                if user_to_check:
+                    current_app.logger.info(f"User found for merchant - User ID: {user_to_check.id}, Role: {user_to_check.role.value if user_to_check.role else 'None'}, Active: {user_to_check.is_active}, Email Verified: {user_to_check.is_email_verified}")
+                else:
+                    current_app.logger.warning(f"User not found for merchant profile ID: {merchant_profile.id}, User ID: {merchant_profile.user_id}")
+            else:
+                current_app.logger.warning(f"Merchant profile not found for business_email: {login_email}")
         else:
+            current_app.logger.info(f"Regular login attempt for email: {login_email}")
             user_to_check = User.get_by_email(login_email)
-            # Prevent merchant login via regular login
-            if user_to_check and user_to_check.role == UserRole.MERCHANT:
-                return {"error": "Merchants must sign in through the merchant dashboard."}, 403
-        if not user_to_check or not user_to_check.check_password(password):
+            if user_to_check:
+                current_app.logger.info(f"User found - User ID: {user_to_check.id}, Role: {user_to_check.role.value if user_to_check.role else 'None'}, Active: {user_to_check.is_active}, Email Verified: {user_to_check.is_email_verified}")
+                # Prevent merchant login via regular login
+                if user_to_check.role == UserRole.MERCHANT:
+                    current_app.logger.warning(f"Merchant attempted to login via regular login - User ID: {user_to_check.id}")
+                    return {"error": "Merchants must sign in through the merchant dashboard."}, 403
+            else:
+                current_app.logger.warning(f"User not found for email: {login_email}")
+        
+        if not user_to_check:
+            current_app.logger.error(f"Login failed - User not found for email: {login_email}, Is Business Login: {is_business_login}")
             return {"error": "Invalid email or password"}, 401
+        
+        # Check password
+        password_check_result = user_to_check.check_password(password)
+        current_app.logger.info(f"Password check result for User ID {user_to_check.id}: {password_check_result}")
+        
+        if not password_check_result:
+            current_app.logger.error(f"Login failed - Invalid password for User ID: {user_to_check.id}, Email: {login_email}")
+            return {"error": "Invalid email or password"}, 401
+        
         if not user_to_check.is_active:
+            current_app.logger.warning(f"Login failed - Account disabled for User ID: {user_to_check.id}, Email: {login_email}")
             return {"error": "Account is disabled"}, 403
+        
         # Email verification check
         if not user_to_check.is_email_verified:
+            current_app.logger.warning(f"Login failed - Email not verified for User ID: {user_to_check.id}, Email: {login_email}")
             return {"error_code": "EMAIL_NOT_VERIFIED", "message": "Please verify your email address to log in.", "email": user_to_check.email}, 403
+        
+        current_app.logger.info(f"Login successful - User ID: {user_to_check.id}, Email: {login_email}, Role: {user_to_check.role.value if user_to_check.role else 'None'}")
+        
         user_to_check.update_last_login()
         additional_claims = {"role": user_to_check.role.value}
         access_token = create_access_token(identity=str(user_to_check.id), additional_claims=additional_claims)
@@ -158,8 +195,8 @@ def login_user(data):
             }
         }, 200
     except Exception as e:
-        current_app.logger.error(f"Login error: {str(e)}")
-        return {"error": "Login failed"}, 500
+        current_app.logger.error(f"Login error - Email: {data.get('email', 'N/A')}, Is Business Login: {data.get('business_email', False)}, Error: {str(e)}", exc_info=True)
+        return {"error": "Login failed", "details": str(e) if current_app.debug else None}, 500
     
 def refresh_access_token(token):
     """Refresh access token using refresh token."""

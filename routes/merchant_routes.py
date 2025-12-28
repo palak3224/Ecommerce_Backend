@@ -18,6 +18,7 @@ from controllers.merchant.product_meta_controller  import MerchantProductMetaCon
 from controllers.merchant.product_tax_controller   import MerchantProductTaxController
 from controllers.merchant.product_shipping_controller import MerchantProductShippingController
 from controllers.merchant.product_media_controller import MerchantProductMediaController
+from controllers.merchant.dimension_preset_controller import MerchantDimensionPresetController
 from controllers.merchant.product_attribute_controller import MerchantProductAttributeController
 from controllers.merchant.product_placement_controller import MerchantProductPlacementController
 from controllers.merchant.tax_category_controller  import MerchantTaxCategoryController
@@ -1408,6 +1409,219 @@ def upsert_product_shipping(pid):
     data = request.get_json()
     s = MerchantProductShippingController.upsert(pid, data)
     return jsonify(s.serialize()), 200
+
+# DIMENSION PRESETS
+@merchant_dashboard_bp.route('/dimension-presets', methods=['GET'])
+@merchant_role_required
+@jwt_required()
+def list_dimension_presets():
+    """
+    Get all dimension presets for the current merchant
+    ---
+    tags:
+      - Merchant - Dimension Presets
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of dimension presets retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              preset_id:
+                type: integer
+              merchant_id:
+                type: integer
+              name:
+                type: string
+              length_cm:
+                type: number
+              width_cm:
+                type: number
+              height_cm:
+                type: number
+              weight_kg:
+                type: number
+              shipping_class:
+                type: string
+              description:
+                type: string
+              created_at:
+                type: string
+              updated_at:
+                type: string
+      500:
+        description: Internal server error
+    """
+    presets = MerchantDimensionPresetController.list_all()
+    return jsonify([preset.serialize() for preset in presets]), 200
+
+@merchant_dashboard_bp.route('/dimension-presets/<int:preset_id>', methods=['GET'])
+@merchant_role_required
+@jwt_required()
+def get_dimension_preset(preset_id):
+    """
+    Get a specific dimension preset by ID
+    ---
+    tags:
+      - Merchant - Dimension Presets
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: preset_id
+        type: integer
+        required: true
+        description: Dimension preset ID
+    responses:
+      200:
+        description: Dimension preset retrieved successfully
+      404:
+        description: Preset not found
+      500:
+        description: Internal server error
+    """
+    preset = MerchantDimensionPresetController.get(preset_id)
+    return jsonify(preset.serialize()), 200
+
+@merchant_dashboard_bp.route('/dimension-presets', methods=['POST'])
+@merchant_role_required
+@jwt_required()
+def create_dimension_preset():
+    """
+    Create a new dimension preset
+    ---
+    tags:
+      - Merchant - Dimension Presets
+    security:
+      - Bearer: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - name
+              - length_cm
+              - width_cm
+              - height_cm
+              - weight_kg
+            properties:
+              name:
+                type: string
+                description: Name of the dimension preset
+              length_cm:
+                type: number
+                description: Length in centimeters
+              width_cm:
+                type: number
+                description: Width in centimeters
+              height_cm:
+                type: number
+                description: Height in centimeters
+              weight_kg:
+                type: number
+                description: Weight in kilograms
+              shipping_class:
+                type: string
+                description: Shipping class (optional)
+              description:
+                type: string
+                description: Optional description
+    responses:
+      201:
+        description: Dimension preset created successfully
+      400:
+        description: Invalid request data
+      500:
+        description: Internal server error
+    """
+    data = request.get_json()
+    preset = MerchantDimensionPresetController.create(data)
+    return jsonify(preset.serialize()), 201
+
+@merchant_dashboard_bp.route('/dimension-presets/<int:preset_id>', methods=['PUT'])
+@merchant_role_required
+@jwt_required()
+def update_dimension_preset(preset_id):
+    """
+    Update an existing dimension preset
+    ---
+    tags:
+      - Merchant - Dimension Presets
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: preset_id
+        type: integer
+        required: true
+        description: Dimension preset ID
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              name:
+                type: string
+              length_cm:
+                type: number
+              width_cm:
+                type: number
+              height_cm:
+                type: number
+              weight_kg:
+                type: number
+              shipping_class:
+                type: string
+              description:
+                type: string
+    responses:
+      200:
+        description: Dimension preset updated successfully
+      400:
+        description: Invalid request data
+      404:
+        description: Preset not found
+      500:
+        description: Internal server error
+    """
+    data = request.get_json()
+    preset = MerchantDimensionPresetController.update(preset_id, data)
+    return jsonify(preset.serialize()), 200
+
+@merchant_dashboard_bp.route('/dimension-presets/<int:preset_id>', methods=['DELETE'])
+@merchant_role_required
+@jwt_required()
+def delete_dimension_preset(preset_id):
+    """
+    Delete a dimension preset (soft delete)
+    ---
+    tags:
+      - Merchant - Dimension Presets
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: preset_id
+        type: integer
+        required: true
+        description: Dimension preset ID
+    responses:
+      200:
+        description: Dimension preset deleted successfully
+      404:
+        description: Preset not found
+      500:
+        description: Internal server error
+    """
+    preset = MerchantDimensionPresetController.delete(preset_id)
+    return jsonify({'message': 'Dimension preset deleted successfully', 'preset': preset.serialize()}), 200
 
 # PRODUCT MEDIA
 @merchant_dashboard_bp.route('/products/<int:pid>/media', methods=['GET'])
