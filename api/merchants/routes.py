@@ -227,19 +227,33 @@ def create_profile():
         if existing_profile:
             return jsonify({"error": "Merchant profile already exists"}), 400
         
-        # Validate country-specific fields
+        # Validate country-specific fields (relaxed requirements)
         country_code = data.get('country_code')
         if country_code == CountryCode.INDIA.value:
-            if not data.get('gstin') or not data.get('pan_number') or not data.get('bank_ifsc_code'):
+            missing = []
+            if not data.get('pan_number'):
+                missing.append('pan_number')
+            if not data.get('bank_account_number'):
+                missing.append('bank_account_number')
+            if not data.get('bank_name'):
+                missing.append('bank_name')
+            if not data.get('bank_ifsc_code'):
+                missing.append('bank_ifsc_code')
+            if missing:
                 return jsonify({
                     "error": "Validation error",
-                    "details": "GSTIN, PAN number, and IFSC code are required for Indian merchants"
+                    "details": f"Missing required fields: {', '.join(missing)}"
                 }), 400
-        else:  # Global
-            if not data.get('tax_id') or not data.get('bank_swift_code'):
+        else:  # Non-India: require core bank details only
+            missing = []
+            if not data.get('bank_account_number'):
+                missing.append('bank_account_number')
+            if not data.get('bank_name'):
+                missing.append('bank_name')
+            if missing:
                 return jsonify({
                     "error": "Validation error",
-                    "details": "Tax ID and SWIFT code are required for international merchants"
+                    "details": f"Missing required fields: {', '.join(missing)}"
                 }), 400
         
         # Create new merchant profile
@@ -291,7 +305,6 @@ def create_profile():
 @merchants_bp.route('/profile', methods=['GET'])
 @jwt_required()
 @merchant_role_required
-@cache_response(timeout=60, key_prefix='merchant_profile')
 def get_profile():
     """
     Get merchant profile.
@@ -374,44 +387,49 @@ def get_profile():
       404:
         description: Merchant profile not found
     """
-    merchant_id = get_jwt_identity()
-    merchant_profile = MerchantProfile.get_by_user_id(merchant_id)
-    
-    if not merchant_profile:
-        return jsonify({"error": "Merchant profile not found"}), 404
-    
-    return jsonify({
-        "profile": {
-            "business_name": merchant_profile.business_name,
-            "business_description": merchant_profile.business_description,
-            "business_email": merchant_profile.business_email,
-            "business_phone": merchant_profile.business_phone,
-            "business_address": merchant_profile.business_address,
-            "country_code": merchant_profile.country_code,
-            "state_province": merchant_profile.state_province,
-            "city": merchant_profile.city,
-            "postal_code": merchant_profile.postal_code,
-            "gstin": merchant_profile.gstin,
-            "pan_number": merchant_profile.pan_number,
-            "tax_id": merchant_profile.tax_id,
-            "vat_number": merchant_profile.vat_number,
-            "sales_tax_number": merchant_profile.sales_tax_number,
-            "bank_account_number": merchant_profile.bank_account_number,
-            "bank_name": merchant_profile.bank_name,
-            "bank_branch": merchant_profile.bank_branch,
-            "bank_ifsc_code": merchant_profile.bank_ifsc_code,
-            "bank_swift_code": merchant_profile.bank_swift_code,
-            "bank_routing_number": merchant_profile.bank_routing_number,
-            "bank_iban": merchant_profile.bank_iban,
-            "is_verified": merchant_profile.is_verified,
-            "verification_status": merchant_profile.verification_status.value,
-            "verification_submitted_at": merchant_profile.verification_submitted_at.isoformat() if merchant_profile.verification_submitted_at else None,
-            "verification_completed_at": merchant_profile.verification_completed_at.isoformat() if merchant_profile.verification_completed_at else None,
-            "verification_notes": merchant_profile.verification_notes,
-            "required_documents": merchant_profile.required_documents,
-            "submitted_documents": merchant_profile.submitted_documents
-        }
-    }), 200
+    try:
+        merchant_id = get_jwt_identity()
+        merchant_profile = MerchantProfile.get_by_user_id(merchant_id)
+        
+        if not merchant_profile:
+            return jsonify({"error": "Merchant profile not found"}), 404
+        
+        return jsonify({
+            "profile": {
+                "business_name": merchant_profile.business_name,
+                "business_description": merchant_profile.business_description,
+                "business_email": merchant_profile.business_email,
+                "business_phone": merchant_profile.business_phone,
+                "business_address": merchant_profile.business_address,
+                "country_code": merchant_profile.country_code,
+                "state_province": merchant_profile.state_province,
+                "city": merchant_profile.city,
+                "postal_code": merchant_profile.postal_code,
+                "gstin": merchant_profile.gstin,
+                "pan_number": merchant_profile.pan_number,
+                "tax_id": merchant_profile.tax_id,
+                "vat_number": merchant_profile.vat_number,
+                "sales_tax_number": merchant_profile.sales_tax_number,
+                "bank_account_number": merchant_profile.bank_account_number,
+                "bank_name": merchant_profile.bank_name,
+                "bank_branch": merchant_profile.bank_branch,
+                "bank_ifsc_code": merchant_profile.bank_ifsc_code,
+                "bank_swift_code": merchant_profile.bank_swift_code,
+                "bank_routing_number": merchant_profile.bank_routing_number,
+                "bank_iban": merchant_profile.bank_iban,
+                "is_verified": merchant_profile.is_verified,
+                "verification_status": merchant_profile.verification_status.value,
+                "verification_submitted_at": merchant_profile.verification_submitted_at.isoformat() if merchant_profile.verification_submitted_at else None,
+                "verification_completed_at": merchant_profile.verification_completed_at.isoformat() if merchant_profile.verification_completed_at else None,
+                "verification_notes": merchant_profile.verification_notes,
+                "required_documents": merchant_profile.required_documents,
+                "submitted_documents": merchant_profile.submitted_documents
+            }
+        }), 200
+    except Exception as e:
+        from flask import current_app
+        current_app.logger.error(f"Error fetching merchant profile: {str(e)}", exc_info=True)
+        return jsonify({"error": f"Failed to fetch profile: {str(e)}"}), 500
 
 @merchants_bp.route('/<int:merchant_id>/public-profile', methods=['GET', 'OPTIONS'])
 @cross_origin()
@@ -632,16 +650,16 @@ def update_profile():
         if 'country_code' in data:
             country_code = data['country_code']
             logger.debug(f"Validating country-specific fields for country: {country_code}")
-            
             if country_code == CountryCode.INDIA.value:
                 missing_fields = []
-                if not merchant_profile.gstin:
-                    missing_fields.append('gstin')
                 if not merchant_profile.pan_number:
                     missing_fields.append('pan_number')
+                if not merchant_profile.bank_account_number:
+                    missing_fields.append('bank_account_number')
+                if not merchant_profile.bank_name:
+                    missing_fields.append('bank_name')
                 if not merchant_profile.bank_ifsc_code:
                     missing_fields.append('bank_ifsc_code')
-                
                 if missing_fields:
                     error_msg = f"Missing required fields for Indian merchant: {', '.join(missing_fields)}"
                     logger.error(error_msg)
@@ -649,13 +667,12 @@ def update_profile():
                         "error": "Validation error",
                         "details": error_msg
                     }), 400
-            else:  # Global
+            else:
                 missing_fields = []
-                if not merchant_profile.tax_id:
-                    missing_fields.append('tax_id')
-                if not merchant_profile.bank_swift_code:
-                    missing_fields.append('bank_swift_code')
-                
+                if not merchant_profile.bank_account_number:
+                    missing_fields.append('bank_account_number')
+                if not merchant_profile.bank_name:
+                    missing_fields.append('bank_name')
                 if missing_fields:
                     error_msg = f"Missing required fields for international merchant: {', '.join(missing_fields)}"
                     logger.error(error_msg)
@@ -721,18 +738,32 @@ def submit_for_verification():
         if not merchant_profile:
             return jsonify({"error": "Merchant profile not found"}), 404
             
-        # Validate required fields based on country
+        # Validate required fields based on country (relaxed)
         if merchant_profile.country_code == CountryCode.INDIA.value:
-            if not merchant_profile.gstin or not merchant_profile.pan_number or not merchant_profile.bank_ifsc_code:
+            missing = []
+            if not merchant_profile.pan_number:
+                missing.append('pan_number')
+            if not merchant_profile.bank_account_number:
+                missing.append('bank_account_number')
+            if not merchant_profile.bank_name:
+                missing.append('bank_name')
+            if not merchant_profile.bank_ifsc_code:
+                missing.append('bank_ifsc_code')
+            if missing:
                 return jsonify({
                     "error": "Validation error",
-                    "details": "GSTIN, PAN number, and IFSC code are required for Indian merchants"
+                    "details": f"Missing required fields: {', '.join(missing)}"
                 }), 400
-        else:  # Global
-            if not merchant_profile.tax_id or not merchant_profile.bank_swift_code:
+        else:
+            missing = []
+            if not merchant_profile.bank_account_number:
+                missing.append('bank_account_number')
+            if not merchant_profile.bank_name:
+                missing.append('bank_name')
+            if missing:
                 return jsonify({
                     "error": "Validation error",
-                    "details": "Tax ID and SWIFT code are required for international merchants"
+                    "details": f"Missing required fields: {', '.join(missing)}"
                 }), 400
             
         merchant_profile.submit_for_verification()

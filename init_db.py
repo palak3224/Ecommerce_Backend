@@ -56,6 +56,50 @@ from auth.models.country_config import (
     CountryCode
 )
 
+# --- Superadmin models ---
+from models.category import Category
+from models.brand import Brand
+from models.brand_request import BrandRequest
+from models.attribute import Attribute
+from models.attribute_value import AttributeValue
+from models.category_attribute import CategoryAttribute
+from models.promotion import Promotion
+from models.product_promotion import ProductPromotion
+from models.tax_category import TaxCategory
+from models.homepage import HomepageCategory
+from models.subscription import SubscriptionPlan
+
+from models.gst_rule import GSTRule
+
+from models.merchant_transaction import MerchantTransaction
+
+# --- Merchant models ---
+from models.product import Product
+from models.product_meta import ProductMeta
+from models.product_tax import ProductTax
+from models.product_shipping import ProductShipping
+from models.product_media import ProductMedia
+from models.product_stock import ProductStock
+from models.review import Review
+from models.product_attribute import ProductAttribute
+from models.recently_viewed import RecentlyViewed
+from models.merchant_dimension_preset import MerchantDimensionPreset
+
+# --- Shop models ---
+from models.shop.shop import Shop
+
+# --- Live Streaming models ---
+from models.live_stream import LiveStream, LiveStreamComment, LiveStreamViewer, StreamStatus
+
+# --- Payment models ---
+from models.payment_card import PaymentCard
+from models.enums import CardTypeEnum, CardStatusEnum
+
+# --- Monitoring models ---
+from models.system_monitoring import SystemMonitoring
+
+# --- Newsletter models ---
+from models.newsletter_subscription import NewsletterSubscription
 
 # Load environment variables
 load_dotenv()
@@ -665,18 +709,22 @@ def init_database():
         admin_last_name = os.getenv("SUPER_ADMIN_LAST_NAME")
         admin_password = os.getenv("SUPER_ADMIN_PASSWORD")
 
-        admin = User.get_by_email(admin_email)
-        if not admin:
-            admin = User(
-                email=admin_email,
-                first_name=admin_first_name,
-                last_name=admin_last_name,
-                role=UserRole.SUPER_ADMIN,
-                is_email_verified=True
-            )
-            admin.set_password(admin_password)
-            admin.save()
-            print("Super admin user created.")
+        try:
+            admin = User.get_by_email(admin_email)
+            if not admin:
+                admin = User(
+                    email=admin_email,
+                    first_name=admin_first_name,
+                    last_name=admin_last_name,
+                    role=UserRole.SUPER_ADMIN,
+                    is_email_verified=True
+                )
+                admin.set_password(admin_password)
+                admin.save()
+                print("Super admin user created.")
+        except Exception as e:
+            print(f"⚠ Warning: Could not check/create super admin user: {e}")
+            print("   You may need to create the admin user manually or fix enum values in the database.")
         
         print("\n" + "=" * 50)
         print("✓ Database initialization completed successfully!")

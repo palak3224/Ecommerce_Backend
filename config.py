@@ -26,10 +26,11 @@ class Config:
     GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
     GOOGLE_DISCOVERY_URL = 'https://accounts.google.com/.well-known/openid-configuration'
 
-    # Redis Cache
-    REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
-    CACHE_TYPE = 'redis'
+    # Redis Cache - DISABLED by default to avoid connection errors
+    # Set CACHE_TYPE='redis' and REDIS_URL in environment if you want to use Redis
+    CACHE_TYPE = 'null'  # Always use null cache - no Redis connection attempts
     CACHE_DEFAULT_TIMEOUT = 300  # 5 minutes
+    # Don't set REDIS_URL or CACHE_REDIS_URL - this prevents Flask-Caching from trying to connect
 
     # Cloudinary
     CLOUDINARY_CLOUD_NAME = os.getenv('CLOUDINARY_CLOUD_NAME')
