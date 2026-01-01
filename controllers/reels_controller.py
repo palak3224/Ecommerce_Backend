@@ -12,7 +12,7 @@ from models.product import Product
 from models.product_stock import ProductStock
 from models.merchant_notification import MerchantNotification
 from auth.models.models import User, MerchantProfile
-from services.storage.storage_factory import get_storage_service
+from services.reels_s3_service import get_reels_s3_service
 from werkzeug.utils import secure_filename
 from sqlalchemy import desc, and_, or_
 from sqlalchemy.orm import joinedload, selectinload
@@ -28,16 +28,13 @@ from controllers.reels_errors import (
 )
 
 
-# Allowed video extensions
-ALLOWED_VIDEO_EXTENSIONS = {'mp4', 'mov', 'avi', 'mkv'}
+# Allowed video extensions (only mp4, webm, mov for reels)
+ALLOWED_VIDEO_EXTENSIONS = {'mp4', 'webm', 'mov'}
 # Allowed MIME types for videos
 ALLOWED_VIDEO_MIME_TYPES = {
     'video/mp4',
+    'video/webm',
     'video/quicktime',  # MOV
-    'video/x-msvideo',  # AVI
-    'video/x-matroska',  # MKV
-    'video/mpeg',
-    'video/webm'
 }
 MAX_VIDEO_SIZE = 100 * 1024 * 1024  # 100MB
 MAX_VIDEO_DURATION = 60  # 60 seconds
@@ -182,7 +179,7 @@ class ReelsController:
                     HTTPStatus.BAD_REQUEST
                 )
             
-            # Validate video file extension
+            # Validate video file extension (only mp4, webm, mov)
             if not allowed_file(video_file.filename, ALLOWED_VIDEO_EXTENSIONS):
                 return create_error_response(
                     FILE_VALIDATION_ERROR,
@@ -194,6 +191,13 @@ class ReelsController:
                     },
                     HTTPStatus.BAD_REQUEST
                 )
+            
+            # Get file extension for S3 upload
+            file_extension = 'mp4'  # Default
+            if '.' in video_file.filename:
+                file_extension = video_file.filename.rsplit('.', 1)[1].lower()
+                if file_extension not in ALLOWED_VIDEO_EXTENSIONS:
+                    file_extension = 'mp4'  # Fallback to mp4
             
             # Check file size before processing
             video_file.seek(0, os.SEEK_END)
@@ -226,29 +230,26 @@ class ReelsController:
             file_header = video_file.read(12)
             video_file.seek(0)  # Reset for upload
             
-            # Detect MIME type from file header
+            # Detect MIME type from file header (only for allowed formats)
             detected_mime = None
             if file_header.startswith(b'\x00\x00\x00\x20ftyp'):
                 detected_mime = 'video/mp4'
             elif file_header.startswith(b'\x00\x00\x00\x18ftypqt'):
                 detected_mime = 'video/quicktime'
-            elif file_header.startswith(b'RIFF') and b'AVI ' in file_header[:12]:
-                detected_mime = 'video/x-msvideo'
             elif file_header.startswith(b'\x1a\x45\xdf\xa3'):
-                detected_mime = 'video/x-matroska'
-            elif file_header.startswith(b'\x00\x00\x01\xba') or file_header.startswith(b'\x00\x00\x01\xb3'):
-                detected_mime = 'video/mpeg'
+                # WebM starts with this header
+                detected_mime = 'video/webm'
             else:
                 # Fallback to mimetypes guess
                 guessed_mime, _ = mimetypes.guess_type(video_file.filename)
-                if guessed_mime:
+                if guessed_mime and guessed_mime in ALLOWED_VIDEO_MIME_TYPES:
                     detected_mime = guessed_mime
             
-            # Validate MIME type matches allowed types
+            # Validate MIME type matches allowed types (only if detected)
             if detected_mime and detected_mime not in ALLOWED_VIDEO_MIME_TYPES:
                 return create_error_response(
                     FILE_VALIDATION_ERROR,
-                    f'Invalid video file type. Detected MIME type: {detected_mime}',
+                    f'Invalid video file type. Detected MIME type: {detected_mime}. Allowed: {", ".join(sorted(ALLOWED_VIDEO_MIME_TYPES))}',
                     {
                         'field': 'video',
                         'detected_mime_type': detected_mime,
@@ -257,22 +258,6 @@ class ReelsController:
                     },
                     HTTPStatus.BAD_REQUEST
                 )
-            
-            # Additional validation: ensure extension matches MIME type
-            if detected_mime:
-                extension_to_mime = {
-                    'mp4': 'video/mp4',
-                    'mov': 'video/quicktime',
-                    'avi': 'video/x-msvideo',
-                    'mkv': 'video/x-matroska'
-                }
-                file_ext = video_file.filename.rsplit('.', 1)[1].lower() if '.' in video_file.filename else ''
-                expected_mime = extension_to_mime.get(file_ext)
-                if expected_mime and detected_mime != expected_mime:
-                    current_app.logger.warning(
-                        f"MIME type mismatch: extension suggests {expected_mime}, but file is {detected_mime}"
-                    )
-                    # Don't reject, but log warning
             
             # Validate product
             is_valid, product, error_message = ReelsController.validate_product_for_reel(
@@ -286,73 +271,139 @@ class ReelsController:
                     HTTPStatus.BAD_REQUEST
                 )
             
-            # Get storage service (abstraction layer)
-            storage_service = get_storage_service()
-            
-            # Upload video to storage (Cloudinary or AWS)
-            # Note: If this fails, we return error before creating DB record
-            folder = f"reels/merchant_{merchant.id}/product_{product_id}"
+            # Get reels S3 service (with proper error handling)
             try:
-                upload_result = storage_service.upload_video(
-                    video_file,
-                    folder=folder,
-                    resource_type='video',
-                    allowed_formats=list(ALLOWED_VIDEO_EXTENSIONS)
+                reels_s3_service = get_reels_s3_service()
+            except ValueError as ve:
+                # Missing environment variables
+                current_app.logger.error(f"S3 service initialization failed (missing config): {str(ve)}")
+                return create_error_response(
+                    STORAGE_ERROR,
+                    'Storage service not configured properly',
+                    {
+                        'error_details': str(ve),
+                        'suggestion': 'Please check AWS environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, CLOUDFRONT_REELS_BASE_URL)'
+                    },
+                    HTTPStatus.INTERNAL_SERVER_ERROR
                 )
             except Exception as e:
-                current_app.logger.error(f"Video upload to storage failed: {str(e)}")
+                # Other initialization errors
+                current_app.logger.error(f"S3 service initialization failed: {str(e)}", exc_info=True)
+                return create_error_response(
+                    STORAGE_ERROR,
+                    'Failed to initialize storage service',
+                    {
+                        'error_details': str(e),
+                        'suggestion': 'Please check AWS configuration and try again'
+                    },
+                    HTTPStatus.INTERNAL_SERVER_ERROR
+                )
+            
+            # Create reel record first (without video URL) to get reel_id
+            # This is needed because S3 key requires reel_id
+            reel = None
+            try:
+                reel = Reel(
+                    merchant_id=merchant.id,
+                    product_id=product_id,
+                    video_url='',  # Temporary, will be updated after upload
+                    video_public_id='',  # Temporary, will be updated after upload
+                    description=description,
+                    approval_status='approved',
+                    is_active=True
+                )
+                
+                db.session.add(reel)
+                db.session.flush()  # Flush to get reel_id without committing
+                reel_id = reel.reel_id
+                
+                if not reel_id:
+                    raise ValueError("Failed to generate reel_id")
+                    
+            except Exception as e:
+                db.session.rollback()
+                current_app.logger.error(f"Failed to create reel record: {str(e)}", exc_info=True)
+                return create_error_response(
+                    TRANSACTION_ERROR,
+                    'Failed to create reel record',
+                    {
+                        'error_details': str(e),
+                        'suggestion': 'Please try again or contact support'
+                    },
+                    HTTPStatus.INTERNAL_SERVER_ERROR
+                )
+            
+            # Upload video to S3 using the reel_id
+            # Note: If this fails, we rollback the DB transaction
+            upload_result = None
+            try:
+                upload_result = reels_s3_service.upload_reel_video(
+                    video_file,
+                    merchant_id=merchant.id,
+                    product_id=product_id,
+                    reel_id=reel_id,
+                    file_extension=file_extension
+                )
+                
+                # Validate upload result
+                if not upload_result or 'url' not in upload_result or 's3_key' not in upload_result:
+                    raise ValueError("Invalid upload result from S3 service")
+                    
+            except ValueError as ve:
+                # Validation errors from S3 service
+                db.session.rollback()
+                current_app.logger.error(f"Video upload validation failed: {str(ve)}")
+                return create_error_response(
+                    STORAGE_ERROR,
+                    'Video upload validation failed',
+                    {
+                        'error_details': str(ve),
+                        'suggestion': 'Please check your file and try again'
+                    },
+                    HTTPStatus.BAD_REQUEST
+                )
+            except Exception as e:
+                # Upload failed - rollback DB transaction
+                db.session.rollback()
+                current_app.logger.error(f"Video upload to S3 failed: {str(e)}", exc_info=True)
                 return create_error_response(
                     STORAGE_ERROR,
                     'Video upload to storage failed',
                     {
                         'error_details': str(e),
-                        'folder': folder,
                         'suggestion': 'Please try again or contact support if the problem persists'
                     },
                     HTTPStatus.INTERNAL_SERVER_ERROR
                 )
             
-            # Generate thumbnail if not provided
-            thumbnail_url = upload_result.get('thumbnail_url')
-            if not thumbnail_url and upload_result.get('public_id'):
-                try:
-                    thumbnail_url = storage_service.generate_thumbnail(
-                        upload_result['public_id']
-                    )
-                except Exception as e:
-                    current_app.logger.warning(f"Failed to generate thumbnail: {str(e)}")
-            
-            # Create reel record in transaction
+            # Update reel with upload results
             try:
-                reel = Reel(
-                    merchant_id=merchant.id,
-                    product_id=product_id,
-                    video_url=upload_result['url'],
-                    video_public_id=upload_result['public_id'],
-                    thumbnail_url=thumbnail_url,
-                    description=description,
-                    duration_seconds=upload_result.get('duration'),
-                    file_size_bytes=upload_result.get('bytes'),
-                    video_format=upload_result.get('format'),
-                    approval_status='approved',  # Reels don't require approval - active immediately
-                    is_active=True
-                )
+                reel.video_url = upload_result['url']
+                reel.video_public_id = upload_result['s3_key']  # Store S3 key in video_public_id
+                reel.file_size_bytes = upload_result.get('bytes', 0)
+                reel.video_format = file_extension
                 
-                db.session.add(reel)
+                # Commit the transaction
                 db.session.commit()
             except Exception as e:
-                # If DB operation fails, try to delete uploaded video from storage
+                # If DB commit fails, try to delete uploaded video from S3
                 db.session.rollback()
-                try:
-                    if upload_result.get('public_id'):
-                        storage_service.delete_video(upload_result['public_id'])
-                except Exception as cleanup_error:
-                    current_app.logger.error(f"Failed to cleanup uploaded video: {str(cleanup_error)}")
+                current_app.logger.error(f"Failed to update reel record: {str(e)}", exc_info=True)
                 
-                current_app.logger.error(f"Failed to create reel record: {str(e)}")
+                # Attempt cleanup of uploaded video (non-critical)
+                if upload_result and upload_result.get('s3_key'):
+                    try:
+                        reels_s3_service.delete_reel_video(upload_result['s3_key'])
+                        current_app.logger.info(f"Cleaned up uploaded video from S3: {upload_result['s3_key']}")
+                    except Exception as cleanup_error:
+                        current_app.logger.error(
+                            f"Failed to cleanup uploaded video from S3: {str(cleanup_error)}",
+                            exc_info=True
+                        )
+                
                 return create_error_response(
                     TRANSACTION_ERROR,
-                    'Failed to create reel record',
+                    'Failed to save reel record',
                     {
                         'error_details': str(e),
                         'suggestion': 'The video was uploaded but the record creation failed. Please contact support.'
@@ -907,13 +958,16 @@ class ReelsController:
                 current_app.logger.error(f"Failed to delete reel in database: {str(e)}")
                 return jsonify({'error': f'Failed to delete reel: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
             
-            # Delete from storage (non-critical, log but don't fail)
-            if reel.video_public_id:
+            # Delete from S3 (non-critical, log but don't fail)
+            # video_public_id stores the S3 key, but we can also extract from video_url
+            if reel.video_url or reel.video_public_id:
                 try:
-                    storage_service = get_storage_service()
-                    storage_service.delete_video(reel.video_public_id)
+                    reels_s3_service = get_reels_s3_service()
+                    # Try video_public_id first (S3 key), then fallback to extracting from video_url
+                    delete_key = reel.video_public_id if reel.video_public_id else reel.video_url
+                    reels_s3_service.delete_reel_video(delete_key)
                 except Exception as e:
-                    current_app.logger.warning(f"Failed to delete video from storage: {str(e)}")
+                    current_app.logger.warning(f"Failed to delete video from S3: {str(e)}")
                     # Don't fail the request if storage deletion fails
             
             return jsonify({
@@ -1890,7 +1944,7 @@ class ReelsController:
             
             # Process deletion in transaction
             results = []
-            storage_service = get_storage_service()
+            reels_s3_service = get_reels_s3_service()
             
             try:
                 for reel in reels:
@@ -1899,12 +1953,14 @@ class ReelsController:
                         reel.deleted_at = datetime.now(timezone.utc)
                         reel.updated_at = datetime.now(timezone.utc)
                         
-                        # Delete from storage (non-critical)
-                        if reel.video_public_id:
+                        # Delete from S3 (non-critical)
+                        # video_public_id stores the S3 key, but we can also extract from video_url
+                        if reel.video_url or reel.video_public_id:
                             try:
-                                storage_service.delete_video(reel.video_public_id)
+                                delete_key = reel.video_public_id if reel.video_public_id else reel.video_url
+                                reels_s3_service.delete_reel_video(delete_key)
                             except Exception as e:
-                                current_app.logger.warning(f"Failed to delete video from storage for reel {reel.reel_id}: {str(e)}")
+                                current_app.logger.warning(f"Failed to delete video from S3 for reel {reel.reel_id}: {str(e)}")
                         
                         results.append({
                             'reel_id': reel.reel_id,

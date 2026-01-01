@@ -11,6 +11,7 @@ redis
 marshmallow
 bcrypt
 PyJWT
+waitress
 gunicorn
 pytest
 Flask-Caching

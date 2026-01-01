@@ -650,66 +650,97 @@ if __name__ == "__main__":
     print("Accessible from: http://127.0.0.1:5110 or http://localhost:5110")
     print("=" * 60)
     
-    # Use gunicorn for development - it doesn't have the WERKZEUG_SERVER_FD issue
-    # This is more reliable than patching Werkzeug's bug
+    # Use Waitress as primary server (works on Windows, Linux, and Mac)
+    # Waitress is a pure Python WSGI server - no platform-specific dependencies
+    # This is the best cross-platform solution
     try:
-        from gunicorn.app.base import BaseApplication
-        
-        class StandaloneApplication(BaseApplication):
-            def __init__(self, app, options=None):
-                self.options = options or {}
-                self.application = app
-                super().__init__()
-            
-            def load_config(self):
-                for key, value in self.options.items():
-                    self.cfg.set(key.lower(), value)
-            
-            def load(self):
-                return self.application
-        
-        options = {
-            'bind': '0.0.0.0:5110',
-            'workers': 1,  # Single worker for development
-            'threads': 4,  # Multiple threads for concurrent requests
-            'timeout': 600,  # 10 minutes for large file uploads
-            'keepalive': 5,
-            'accesslog': '-',  # Log to stdout
-            'errorlog': '-',   # Log to stderr
-        }
-        
-        StandaloneApplication(app, options).run()
+        from waitress import serve
+        print("✅ Using Waitress server (cross-platform compatible)")
+        print("=" * 60)
+        print("Server running on: http://0.0.0.0:5110")
+        print("Accessible from: http://127.0.0.1:5110 or http://localhost:5110")
+        print("=" * 60)
+        serve(
+            app,
+            host='0.0.0.0',
+            port=5110,
+            threads=4,  # Multiple threads for concurrent requests
+            channel_timeout=600,  # 10 minutes timeout for large file uploads
+            cleanup_interval=30,
+            asyncore_use_poll=True
+        )
     except ImportError:
-        # Fallback to Flask dev server if gunicorn not available
-        print("⚠️  Gunicorn not available, using Flask development server")
-        print("⚠️  Note: You may encounter WERKZEUG_SERVER_FD issues")
-        print("💡 Install gunicorn for better reliability: pip install gunicorn")
-        print()
-        
-        import werkzeug.serving
-        werkzeug.serving.WSGIRequestHandler.timeout = 600
-        
-        # Remove WERKZEUG_SERVER_FD to avoid issues
-        os.environ.pop('WERKZEUG_SERVER_FD', None)
-        
-        # Try app.run() - if it fails, provide helpful error message
+        # Fallback 1: Try Gunicorn (Linux/Mac only - doesn't work on Windows)
         try:
-            app.run(
-                host='0.0.0.0',
-                port=5110,
-                threaded=True,
-                use_reloader=False,
-                debug=False
-            )
-        except (KeyError, OSError) as e:
-            if 'WERKZEUG_SERVER_FD' in str(e) or 'Bad file descriptor' in str(e):
-                print("\n" + "=" * 60)
-                print("❌ ERROR: Werkzeug development server has a known bug")
+            from gunicorn.app.base import BaseApplication
+            
+            class StandaloneApplication(BaseApplication):
+                def __init__(self, app, options=None):
+                    self.options = options or {}
+                    self.application = app
+                    super().__init__()
+                
+                def load_config(self):
+                    for key, value in self.options.items():
+                        self.cfg.set(key.lower(), value)
+                
+                def load(self):
+                    return self.application
+            
+            options = {
+                'bind': '0.0.0.0:5110',
+                'workers': 1,  # Single worker for development
+                'threads': 4,  # Multiple threads for concurrent requests
+                'timeout': 600,  # 10 minutes for large file uploads
+                'keepalive': 5,
+                'accesslog': '-',  # Log to stdout
+                'errorlog': '-',   # Log to stderr
+            }
+            
+            print("⚠️  Waitress not available, using Gunicorn server")
+            print("💡 For best cross-platform support, install waitress: pip install waitress")
+            print("=" * 60)
+            StandaloneApplication(app, options).run()
+        except (ImportError, ModuleNotFoundError):
+            # Fallback 2: Flask dev server (last resort - has known bugs)
+            print("⚠️  Waitress and Gunicorn not available, using Flask development server")
+            print("⚠️  Note: Flask dev server has known issues with WERKZEUG_SERVER_FD")
+            print("💡 Recommended: Install waitress for best experience: pip install waitress")
+            print()
+            
+            import werkzeug.serving
+            werkzeug.serving.WSGIRequestHandler.timeout = 600
+            
+            # Remove WERKZEUG_SERVER_FD to avoid issues (critical fix)
+            if 'WERKZEUG_SERVER_FD' in os.environ:
+                del os.environ['WERKZEUG_SERVER_FD']
+            
+            # Also remove any other problematic Werkzeug environment variables
+            for key in list(os.environ.keys()):
+                if key.startswith('WERKZEUG_'):
+                    del os.environ[key]
+            
+            # Try app.run() - if it fails, provide helpful error message
+            try:
+                print("✅ Using Flask development server (fallback)")
                 print("=" * 60)
-                print("Root Cause: Werkzeug checks WERKZEUG_SERVER_FD before use_reloader")
-                print("Solution: Use gunicorn instead (recommended):")
-                print("  pip install gunicorn")
-                print("  gunicorn -w 1 --threads 4 -b 0.0.0.0:5110 --timeout 600 app:app")
-                print("=" * 60)
-                sys.exit(1)
-            raise
+                app.run(
+                    host='0.0.0.0',
+                    port=5110,
+                    threaded=True,
+                    use_reloader=False,
+                    debug=False
+                )
+            except (KeyError, OSError, ValueError) as e:
+                error_str = str(e)
+                if 'WERKZEUG_SERVER_FD' in error_str or 'Bad file descriptor' in error_str or 'fcntl' in error_str:
+                    print("\n" + "=" * 60)
+                    print("❌ ERROR: Flask development server has a known bug")
+                    print("=" * 60)
+                    print("Root Cause: Werkzeug checks WERKZEUG_SERVER_FD before use_reloader")
+                    print("Solution: Install waitress (works on all platforms):")
+                    print("  pip install waitress")
+                    print("  Then restart the server")
+                    print("=" * 60)
+                    sys.exit(1)
+                raise
