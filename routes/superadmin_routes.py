@@ -3858,6 +3858,12 @@ def carousels_handler():
         type: string
         required: false
         description: Optional shareable link for the carousel
+      - in: formData
+        name: orientation
+        type: string
+        required: false
+        default: horizontal
+        description: Banner orientation - 'horizontal' for main carousel (1920x450px) or 'vertical' for side banners (368x564px)
     responses:
       200:
         description: List of carousels retrieved successfully
@@ -3880,6 +3886,8 @@ def carousels_handler():
                 type: boolean
               shareable_link:
                 type: string
+              orientation:
+                type: string
       201:
         description: Carousel created successfully
         schema:
@@ -3898,7 +3906,9 @@ def carousels_handler():
             is_active:
               type: boolean
             shareable_link:
-              type: string
+                type: string
+            orientation:
+                type: string
       400:
         description: Missing required fields
       500:
@@ -3912,11 +3922,14 @@ def carousels_handler():
         return '', HTTPStatus.OK
     if request.method == 'GET':
         try:
-            carousels = CarouselController.list_all()
+            # Get orientation filter from query parameter
+            orientation = request.args.get('orientation')
+            carousels = CarouselController.list_all(orientation=orientation)
             return jsonify([
                 {
                     'id': c.id,
                     'type': c.type,
+                    'orientation': c.orientation,
                     'image_url': c.image_url,
                     'target_id': c.target_id,
                     'display_order': c.display_order,
@@ -3935,12 +3948,19 @@ def carousels_handler():
             shareable_link = request.form.get('shareable_link')
             display_order = request.form.get('display_order', 0)
             is_active = request.form.get('is_active', 'true').lower() == 'true'
+            orientation = request.form.get('orientation', 'horizontal')  # Default to horizontal
             image_file = request.files.get('image')
+            
+            # Validate orientation
+            if orientation not in ['horizontal', 'vertical']:
+                return jsonify({'message': 'orientation must be either "horizontal" or "vertical".'}), HTTPStatus.BAD_REQUEST
+            
             if not type_ or not target_id or not image_file:
                 return jsonify({'message': 'type, target_id, and image are required.'}), HTTPStatus.BAD_REQUEST
             data = {
                 'type': type_,
                 'target_id': int(target_id),
+                'orientation': orientation,
                 'display_order': int(display_order),
                 'is_active': is_active,
                 'shareable_link': shareable_link

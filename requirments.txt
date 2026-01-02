@@ -12,6 +12,7 @@ marshmallow
 bcrypt
 PyJWT
 gunicorn
+waitress
 pytest
 Flask-Caching
 cloudinary

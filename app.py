@@ -558,22 +558,12 @@ def create_app(config_name='default'):
 
 if __name__ == "__main__":
     """
-    Root Cause Analysis:
-    --------------------
-    Werkzeug's run_simple() has a bug where it checks WERKZEUG_SERVER_FD at line 1091:
-        fd = int(os.environ["WERKZEUG_SERVER_FD"])
-    
-    This happens BEFORE checking use_reloader, causing:
-    - KeyError if variable doesn't exist (even with use_reloader=False)
-    - OSError if variable is invalid because Werkzeug tries socket.fromfd(fd)
-    
-    The core issue: Werkzeug checks the variable unconditionally, then tries to USE it
-    if it exists, regardless of use_reloader setting.
-    
-    Proper Solution:
-    ----------------
-    Use gunicorn for development instead of Flask's dev server. Gunicorn doesn't have
-    this issue and is more production-ready. This is the cleanest solution.
+    Cross-platform server startup:
+    ------------------------------
+    Tries servers in order of preference:
+    1. Waitress (works on Windows, Linux, Mac) - Recommended for all OS
+    2. Gunicorn (works on Linux, Mac) - Alternative for Unix-like systems
+    3. Flask dev server (works everywhere but has limitations) - Last resort
     """
     import os
     import sys
@@ -587,66 +577,75 @@ if __name__ == "__main__":
     print("Accessible from: http://127.0.0.1:5110 or http://localhost:5110")
     print("=" * 60)
     
-    # Use gunicorn for development - it doesn't have the WERKZEUG_SERVER_FD issue
-    # This is more reliable than patching Werkzeug's bug
+    # Try waitress first (works on all OS: Windows, Linux, Mac)
     try:
-        from gunicorn.app.base import BaseApplication
-        
-        class StandaloneApplication(BaseApplication):
-            def __init__(self, app, options=None):
-                self.options = options or {}
-                self.application = app
-                super().__init__()
-            
-            def load_config(self):
-                for key, value in self.options.items():
-                    self.cfg.set(key.lower(), value)
-            
-            def load(self):
-                return self.application
-        
-        options = {
-            'bind': '0.0.0.0:5110',
-            'workers': 1,  # Single worker for development
-            'threads': 4,  # Multiple threads for concurrent requests
-            'timeout': 600,  # 10 minutes for large file uploads
-            'keepalive': 5,
-            'accesslog': '-',  # Log to stdout
-            'errorlog': '-',   # Log to stderr
-        }
-        
-        StandaloneApplication(app, options).run()
+        from waitress import serve
+        print("✅ Using Waitress server (cross-platform)")
+        print("=" * 60)
+        serve(app, host='0.0.0.0', port=5110, threads=4)
     except ImportError:
-        # Fallback to Flask dev server if gunicorn not available
-        print("⚠️  Gunicorn not available, using Flask development server")
-        print("⚠️  Note: You may encounter WERKZEUG_SERVER_FD issues")
-        print("💡 Install gunicorn for better reliability: pip install gunicorn")
-        print()
-        
-        import werkzeug.serving
-        werkzeug.serving.WSGIRequestHandler.timeout = 600
-        
-        # Remove WERKZEUG_SERVER_FD to avoid issues
-        os.environ.pop('WERKZEUG_SERVER_FD', None)
-        
-        # Try app.run() - if it fails, provide helpful error message
+        # Fallback to gunicorn (works on Linux/Mac, not Windows)
         try:
-            app.run(
-                host='0.0.0.0',
-                port=5110,
-                threaded=True,
-                use_reloader=False,
-                debug=False
-            )
-        except (KeyError, OSError) as e:
-            if 'WERKZEUG_SERVER_FD' in str(e) or 'Bad file descriptor' in str(e):
-                print("\n" + "=" * 60)
-                print("❌ ERROR: Werkzeug development server has a known bug")
-                print("=" * 60)
-                print("Root Cause: Werkzeug checks WERKZEUG_SERVER_FD before use_reloader")
-                print("Solution: Use gunicorn instead (recommended):")
-                print("  pip install gunicorn")
-                print("  gunicorn -w 1 --threads 4 -b 0.0.0.0:5110 --timeout 600 app:app")
-                print("=" * 60)
-                sys.exit(1)
-            raise
+            from gunicorn.app.base import BaseApplication
+            
+            class StandaloneApplication(BaseApplication):
+                def __init__(self, app, options=None):
+                    self.options = options or {}
+                    self.application = app
+                    super().__init__()
+                
+                def load_config(self):
+                    for key, value in self.options.items():
+                        self.cfg.set(key.lower(), value)
+                
+                def load(self):
+                    return self.application
+            
+            options = {
+                'bind': '0.0.0.0:5110',
+                'workers': 1,
+                'threads': 4,
+                'timeout': 600,
+                'keepalive': 5,
+                'accesslog': '-',
+                'errorlog': '-',
+            }
+            
+            print("✅ Using Gunicorn server")
+            print("=" * 60)
+            StandaloneApplication(app, options).run()
+        except ImportError:
+            # Last resort: Flask development server (works everywhere but has limitations)
+            print("⚠️  Waitress and Gunicorn not available, using Flask development server")
+            print("⚠️  Note: Flask dev server has known limitations")
+            print("💡 For better reliability, install waitress (works on all OS):")
+            print("   pip install waitress")
+            print("   OR for Linux/Mac: pip install gunicorn")
+            print()
+            
+            import werkzeug.serving
+            werkzeug.serving.WSGIRequestHandler.timeout = 600
+            
+            # Remove WERKZEUG_SERVER_FD to avoid issues
+            if 'WERKZEUG_SERVER_FD' in os.environ:
+                del os.environ['WERKZEUG_SERVER_FD']
+            
+            try:
+                app.run(
+                    host='0.0.0.0',
+                    port=5110,
+                    threaded=True,
+                    use_reloader=False,
+                    debug=False
+                )
+            except (KeyError, OSError) as e:
+                if 'WERKZEUG_SERVER_FD' in str(e) or 'Bad file descriptor' in str(e):
+                    print("\n" + "=" * 60)
+                    print("❌ ERROR: Flask development server encountered an issue")
+                    print("=" * 60)
+                    print("Solution: Install a production WSGI server:")
+                    print("  For all OS (recommended): pip install waitress")
+                    print("  For Linux/Mac only: pip install gunicorn")
+                    print("=" * 60)
+                    sys.exit(1)
+                raise

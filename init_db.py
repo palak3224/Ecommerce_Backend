@@ -477,6 +477,33 @@ def migrate_profile_img_column():
     else:
         print("✗ users table does not exist")
 
+def migrate_carousel_orientation():
+    """Add orientation column to carousels table if it doesn't exist."""
+    print("\nMigrating carousel orientation column:")
+    print("--------------------------------------")
+    
+    inspector = db.inspect(db.engine)
+    
+    if 'carousels' in inspector.get_table_names():
+        existing_columns = [col['name'] for col in inspector.get_columns('carousels')]
+        
+        if 'orientation' not in existing_columns:
+            print("Adding orientation column to carousels table...")
+            try:
+                with db.engine.connect() as conn:
+                    # Add column with default value
+                    conn.execute(text("ALTER TABLE carousels ADD COLUMN orientation VARCHAR(20) NOT NULL DEFAULT 'horizontal' AFTER type"))
+                    # Update existing records
+                    conn.execute(text("UPDATE carousels SET orientation = 'horizontal' WHERE orientation IS NULL OR orientation = ''"))
+                    conn.commit()
+                print("✓ orientation column added successfully")
+            except Exception as e:
+                print(f"✗ Failed to add orientation column: {str(e)}")
+        else:
+            print("✓ orientation column already exists")
+    else:
+        print("✗ carousels table does not exist")
+
 def init_database():
     """Initialize the database with all tables and initial data."""
     app = create_app()
@@ -494,6 +521,7 @@ def init_database():
         
         # Run migrations
         migrate_profile_img_column()
+        migrate_carousel_orientation()
         
         # Initialize data
         init_country_configs()

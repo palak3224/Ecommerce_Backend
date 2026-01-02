@@ -6,13 +6,18 @@ from datetime import datetime
 
 class CarouselController:
     @staticmethod
-    def list_all():
+    def list_all(orientation=None):
         """
-        Get all active carousel items.
+        Get all active carousel items, optionally filtered by orientation.
+        Args:
+            orientation (str, optional): Filter by 'horizontal' or 'vertical'
         Returns:
             List[Carousel]: List of all active carousel items
         """
-        return Carousel.query.filter_by(deleted_at=None).order_by(Carousel.display_order).all()
+        query = Carousel.query.filter_by(deleted_at=None)
+        if orientation:
+            query = query.filter_by(orientation=orientation)
+        return query.order_by(Carousel.display_order).all()
 
     @staticmethod
     def create(data, image_file=None):
@@ -60,6 +65,7 @@ class CarouselController:
                 raise Exception(f"Failed to upload carousel image: {str(e)}")
         carousel = Carousel(
             type=data['type'],
+            orientation=data.get('orientation', 'horizontal'),
             image_url=image_url,
             target_id=data['target_id'],
             display_order=data.get('display_order', 0),
@@ -107,6 +113,8 @@ class CarouselController:
         carousel = Carousel.query.get_or_404(carousel_id)
         if 'type' in data:
             carousel.type = data['type']
+        if 'orientation' in data:
+            carousel.orientation = data['orientation']
         if 'target_id' in data:
             carousel.target_id = data['target_id']
         if 'display_order' in data:
