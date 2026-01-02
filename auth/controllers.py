@@ -577,19 +577,25 @@ def upload_profile_image(user_id):
         user = User.get_by_id(user_id)
         if not user:
             return {"error": "User not found"}, 404
-        cloudinary.config(
-            cloud_name=current_app.config.get('CLOUDINARY_CLOUD_NAME'),
-            api_key=current_app.config.get('CLOUDINARY_API_KEY'),
-            api_secret=current_app.config.get('CLOUDINARY_API_SECRET'),
-            secure=True
-        )
-        upload_result = cloudinary.uploader.upload(
-            file, folder="profile_images", public_id=str(user.id),
-            overwrite=True, resource_type='image'
-        )
-        secure_url = upload_result.get('secure_url')
+        
+        # Delete old profile image from S3 if it exists
+        if user.profile_img:
+            try:
+                from services.s3_service import get_s3_service
+                s3_service = get_s3_service()
+                s3_service.delete_profile_image(user.profile_img)
+            except Exception as e:
+                current_app.logger.warning(f"Failed to delete old profile image from S3: {str(e)}")
+        
+        # Upload to S3
+        from services.s3_service import get_s3_service
+        s3_service = get_s3_service()
+        upload_result = s3_service.upload_profile_image(file, user_id)
+        
+        secure_url = upload_result.get('url')
         if not secure_url:
-            return {"error": "Failed to get secure URL from upload result"}, 500
+            return {"error": "Failed to get URL from S3 upload result"}, 500
+        
         user.profile_img = secure_url
         db.session.commit()
         redis_client = get_redis_client()
