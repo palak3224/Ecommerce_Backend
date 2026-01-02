@@ -557,8 +557,8 @@ def upload_category_icon(cid):
         description: "Internal server error."
     """    
     try:
-        
-        category = Category.query.filter_by(id=cid).first()
+        # Category model uses category_id as primary key, not id
+        category = Category.query.filter_by(category_id=cid).first()
         if not category:
             return jsonify({'message': 'Category not found or has been deleted'}), HTTPStatus.NOT_FOUND
 
