@@ -312,6 +312,21 @@ def create_app(config_name='default'):
     if app.config.get('FEATURE_TRANSLATION'):
         app.register_blueprint(translate_bp)
 
+    # Simple health check endpoint (register early)
+    @app.route("/health", methods=['GET', 'OPTIONS'])
+    def health():
+        """Simple health check endpoint for basic status."""
+        if request.method == "OPTIONS":
+            response = jsonify({})
+            origin = request.headers.get('Origin')
+            if origin in ALLOWED_ORIGINS:
+                response.headers.add("Access-Control-Allow-Origin", origin)
+            response.headers.add('Access-Control-Allow-Headers', "Content-Type, Authorization")
+            response.headers.add('Access-Control-Allow-Methods', "GET, OPTIONS")
+            response.headers.add('Access-Control-Allow-Credentials', 'true')
+            return response
+        return jsonify({"status": "ok"}), 200
+
     # Serve static files (temporary uploads for AI processing)
     @app.route('/static/temp_uploads/<path:filename>')
     def serve_temp_upload(filename):
@@ -515,11 +530,6 @@ def create_app(config_name='default'):
         return jsonify({
             'services': [service.serialize() for service in services]
         })
-
-    @app.route("/health", methods=['GET'])
-    def health():
-        """Simple health check endpoint for basic status."""
-        return {"status": "ok"}, 200
 
     @app.route('/api/health', methods=['GET', 'OPTIONS'])
     def health_check():
