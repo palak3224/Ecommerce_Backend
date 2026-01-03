@@ -105,7 +105,9 @@ def get_homepage_carousels():
         carousel_types = request.args.get('type', '').split(',')
         # Remove any empty strings from the list
         carousel_types = [t.strip() for t in carousel_types if t.strip()]
-        items = HomepageController.get_homepage_carousels(carousel_types)
+        # Get orientation filter (horizontal or vertical)
+        orientation = request.args.get('orientation')
+        items = HomepageController.get_homepage_carousels(carousel_types, orientation=orientation)
         return jsonify(items), 200
     except Exception as e:
         current_app.logger.error(

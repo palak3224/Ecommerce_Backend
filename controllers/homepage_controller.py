@@ -138,16 +138,30 @@ class HomepageController:
             }), 500
 
     @staticmethod
-    def get_homepage_carousels(carousel_types=None):
+    def get_homepage_carousels(carousel_types=None, orientation=None):
         """
-        Get all active carousel items for homepage (optionally filter by types).
+        Get all active carousel items for homepage (optionally filter by types and orientation).
         Args:
             carousel_types (list): List of types to filter by ('brand', 'promo', 'new', 'featured')
+            orientation (str): Filter by 'horizontal' or 'vertical'
         Returns:
             list: List of carousel items (dicts)
         """
         try:
             query = Carousel.query.filter_by(is_active=True, deleted_at=None)
+            
+            # Filter by orientation if provided
+            if orientation:
+                # Safely get orientation, default to 'horizontal' if column doesn't exist
+                try:
+                    query = query.filter_by(orientation=orientation)
+                except Exception as e:
+                    logging.warning(f"Could not filter by orientation (column may not exist): {str(e)}")
+                    # If orientation column doesn't exist, only return horizontal by default
+                    if orientation == 'horizontal':
+                        pass  # Return all (backward compatibility)
+                    else:
+                        return []  # Return empty for vertical if column doesn't exist
             
             if carousel_types:
                 # Create a list of conditions for each type
