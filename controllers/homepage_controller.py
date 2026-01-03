@@ -156,7 +156,36 @@ class HomepageController:
                 query = query.filter(or_(*type_conditions))
             
             items = query.order_by(Carousel.display_order).all()
-            return [item.serialize() for item in items]
+            
+            # Serialize items with error handling for each item
+            result = []
+            for item in items:
+                try:
+                    serialized = item.serialize()
+                    result.append(serialized)
+                except Exception as serialize_error:
+                    logging.error(f"Error serializing carousel item {item.id}: {str(serialize_error)}", exc_info=True)
+                    # Try to create a basic serialization without orientation
+                    try:
+                        basic_serialized = {
+                            'id': item.id,
+                            'type': item.type,
+                            'image_url': item.image_url,
+                            'target_id': item.target_id,
+                            'display_order': item.display_order,
+                            'is_active': item.is_active,
+                            'shareable_link': item.shareable_link,
+                            'orientation': getattr(item, 'orientation', 'horizontal'),  # Default if column doesn't exist
+                            'created_at': item.created_at.isoformat() if item.created_at else None,
+                            'updated_at': item.updated_at.isoformat() if item.updated_at else None
+                        }
+                        result.append(basic_serialized)
+                    except Exception as basic_error:
+                        logging.error(f"Error in basic serialization for carousel {item.id}: {str(basic_error)}", exc_info=True)
+                        # Skip this item if even basic serialization fails
+                        continue
+            
+            return result
         except Exception as e:
-            logging.error(f"Error in get_homepage_carousels: {str(e)}")
+            logging.error(f"Error in get_homepage_carousels: {str(e)}", exc_info=True)
             return [] 

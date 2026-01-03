@@ -108,5 +108,12 @@ def get_homepage_carousels():
         items = HomepageController.get_homepage_carousels(carousel_types)
         return jsonify(items), 200
     except Exception as e:
-        current_app.logger.error(f"Error fetching homepage carousels: {e}")
-        return jsonify({'message': 'Failed to fetch homepage carousels.'}), 500
+        current_app.logger.error(
+            f"Error fetching homepage carousels: {str(e)}",
+            exc_info=True
+        )
+        return jsonify({
+            'message': 'Failed to fetch homepage carousels.',
+            'error': str(e),
+            'error_type': type(e).__name__
+        }), 500

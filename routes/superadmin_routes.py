@@ -401,7 +401,8 @@ def update_category(cid):
 
             try:
                 # Get existing category to delete old icon
-                existing_category = Category.query.filter_by(id=cid).first()
+                # Category model uses category_id as primary key, not id
+                existing_category = Category.query.filter_by(category_id=cid).first()
                 if existing_category and existing_category.icon_url:
                     try:
                         s3_service = get_s3_service()
@@ -497,7 +498,8 @@ def delete_category(cid):
     """
     try:
         # Get category to delete associated icon
-        category = Category.query.filter_by(id=cid).first()
+        # Category model uses category_id as primary key, not id
+        category = Category.query.filter_by(category_id=cid).first()
         if category and category.icon_url:
             try:
                 s3_service = get_s3_service()
@@ -3925,21 +3927,59 @@ def carousels_handler():
             # Get orientation filter from query parameter
             orientation = request.args.get('orientation')
             carousels = CarouselController.list_all(orientation=orientation)
-            return jsonify([
-                {
-                    'id': c.id,
-                    'type': c.type,
-                    'orientation': c.orientation,
-                    'image_url': c.image_url,
-                    'target_id': c.target_id,
-                    'display_order': c.display_order,
-                    'is_active': c.is_active,
-                    'shareable_link': c.shareable_link
-                } for c in carousels
-            ]), HTTPStatus.OK
+            
+            # Serialize carousels with error handling
+            result = []
+            for c in carousels:
+                try:
+                    # Try to get orientation, default to 'horizontal' if column doesn't exist
+                    carousel_orientation = getattr(c, 'orientation', 'horizontal')
+                    result.append({
+                        'id': c.id,
+                        'type': c.type,
+                        'orientation': carousel_orientation,
+                        'image_url': c.image_url,
+                        'target_id': c.target_id,
+                        'display_order': c.display_order,
+                        'is_active': c.is_active,
+                        'shareable_link': c.shareable_link
+                    })
+                except Exception as serialize_error:
+                    current_app.logger.error(
+                        f"Error serializing carousel {c.id}: {str(serialize_error)}",
+                        exc_info=True
+                    )
+                    # Try basic serialization without orientation
+                    try:
+                        result.append({
+                            'id': c.id,
+                            'type': c.type,
+                            'orientation': 'horizontal',  # Default value
+                            'image_url': c.image_url,
+                            'target_id': c.target_id,
+                            'display_order': c.display_order,
+                            'is_active': c.is_active,
+                            'shareable_link': c.shareable_link
+                        })
+                    except Exception as basic_error:
+                        current_app.logger.error(
+                            f"Error in basic serialization for carousel {c.id}: {str(basic_error)}",
+                            exc_info=True
+                        )
+                        # Skip this carousel if serialization fails completely
+                        continue
+            
+            return jsonify(result), HTTPStatus.OK
         except Exception as e:
-            current_app.logger.error(f"Error listing carousels: {e}")
-            return jsonify({'message': 'Failed to retrieve carousels.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+            current_app.logger.error(
+                f"Error listing carousels: {str(e)}",
+                exc_info=True
+            )
+            return jsonify({
+                'message': 'Failed to retrieve carousels.',
+                'error': str(e),
+                'error_type': type(e).__name__
+            }), HTTPStatus.INTERNAL_SERVER_ERROR
     if request.method == 'POST':
         try:
             # Accept multipart/form-data

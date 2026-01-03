@@ -20,10 +20,20 @@ class Carousel(db.Model):
         return f'<Carousel {self.id}: {self.type} - {self.target_id}>'
 
     def serialize(self):
+        """
+        Serialize carousel item to dict.
+        Handles missing 'orientation' column gracefully for backward compatibility.
+        """
+        try:
+            # Try to get orientation, default to 'horizontal' if column doesn't exist
+            orientation = getattr(self, 'orientation', 'horizontal')
+        except Exception:
+            orientation = 'horizontal'
+        
         return {
             'id': self.id,
             'type': self.type,
-            'orientation': self.orientation,
+            'orientation': orientation,
             'image_url': self.image_url,
             'target_id': self.target_id,
             'display_order': self.display_order,
