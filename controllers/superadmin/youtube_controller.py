@@ -45,7 +45,12 @@ def handle_oauth_callback(code: str):
         "redirect_uri": YOUTUBE_REDIRECT_URI,
         "grant_type": "authorization_code"
     }
-    resp = requests.post(token_url, data=data)
+    try:
+        resp = requests.post(token_url, data=data, timeout=10)
+    except requests.exceptions.Timeout:
+        return {"error": "Failed to get tokens from Google", "details": "Request timed out after 10 seconds"}
+    except requests.exceptions.RequestException as e:
+        return {"error": "Failed to get tokens from Google", "details": str(e)}
     if resp.status_code != 200:
         return {"error": "Failed to get tokens from Google", "details": resp.text}
     token_data = resp.json()
@@ -108,7 +113,12 @@ def refresh_token():
         "refresh_token": token.refresh_token,
         "grant_type": "refresh_token"
     }
-    resp = requests.post(token_url, data=data)
+    try:
+        resp = requests.post(token_url, data=data, timeout=10)
+    except requests.exceptions.Timeout:
+        return {"error": "Failed to refresh token", "details": "Request timed out after 10 seconds"}
+    except requests.exceptions.RequestException as e:
+        return {"error": "Failed to refresh token", "details": str(e)}
     if resp.status_code != 200:
         return {"error": "Failed to refresh token", "details": resp.text}
     token_data = resp.json()
@@ -127,7 +137,11 @@ def revoke_token():
         return {"error": "No token to revoke."}
     # Optionally call Google's revoke endpoint
     revoke_url = f"https://oauth2.googleapis.com/revoke?token={token.access_token}"
-    requests.post(revoke_url)
+    try:
+        requests.post(revoke_url, timeout=10)
+    except (requests.exceptions.Timeout, requests.exceptions.RequestException) as e:
+        # Log but don't fail - token will still be deactivated locally
+        print(f"Warning: Failed to revoke token at Google: {str(e)}")
     token.is_active = False
     db.session.commit()
     return {"message": "Token revoked and deactivated."}
@@ -138,7 +152,12 @@ def test_connection():
     if not token or not token.is_active:
         return {"status": "error", "message": "No active token."}
     headers = {"Authorization": f"Bearer {token.access_token}"}
-    resp = requests.get("https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true", headers=headers)
+    try:
+        resp = requests.get("https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true", headers=headers, timeout=10)
+    except requests.exceptions.Timeout:
+        return {"status": "error", "message": "Request timed out after 10 seconds"}
+    except requests.exceptions.RequestException as e:
+        return {"status": "error", "message": str(e)}
     if resp.status_code == 200:
         data = resp.json()
         channel_info = data["items"][0]["snippet"] if data.get("items") else {}

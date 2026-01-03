@@ -125,7 +125,13 @@ def get_google_provider_cfg():
     """Get Google OAuth provider configuration."""
     import requests
     try:
-        return requests.get(current_app.config['GOOGLE_DISCOVERY_URL']).json()
+        return requests.get(current_app.config['GOOGLE_DISCOVERY_URL'], timeout=10).json()
+    except requests.exceptions.Timeout:
+        current_app.logger.error(f"External API timeout: {current_app.config['GOOGLE_DISCOVERY_URL']}")
+        return None
+    except requests.exceptions.RequestException as e:
+        current_app.logger.error(f"External API error: {current_app.config['GOOGLE_DISCOVERY_URL']} - {str(e)}")
+        return None
     except Exception as e:
         current_app.logger.error(f"Error fetching Google provider config: {str(e)}")
         return None

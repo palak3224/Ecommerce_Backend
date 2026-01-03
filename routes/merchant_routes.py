@@ -5149,7 +5149,14 @@ def start_merchant_live_stream(stream_id):
                     'Authorization': f'Bearer {access_token}',
                     'Accept': 'application/json'
                 }
-                resp = requests.post(url, headers=headers, params=params)
+                try:
+                    resp = requests.post(url, headers=headers, params=params, timeout=10)
+                except requests.exceptions.Timeout:
+                    current_app.logger.error(f"External API timeout: {url}")
+                    raise Exception(f'YouTube API timeout: Request timed out after 10 seconds')
+                except requests.exceptions.RequestException as e:
+                    current_app.logger.error(f"External API error: {url} - {str(e)}")
+                    raise Exception(f'YouTube API error: {str(e)}')
                 if resp.status_code != 200:
                     # Check for redundantTransition error
                     try:

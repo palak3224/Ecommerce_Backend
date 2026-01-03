@@ -516,6 +516,11 @@ def create_app(config_name='default'):
             'services': [service.serialize() for service in services]
         })
 
+    @app.route("/health", methods=['GET'])
+    def health():
+        """Simple health check endpoint for basic status."""
+        return {"status": "ok"}, 200
+
     @app.route('/api/health', methods=['GET', 'OPTIONS'])
     def health_check():
         """
@@ -692,21 +697,69 @@ if __name__ == "__main__":
     # Try waitress first (works on all OS: Windows, Linux, Mac)
     try:
         from waitress import serve
+        import socket
+        import sys
+        
+        # Check if port is available before starting
+        port = 5110
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind(('0.0.0.0', port))
+            sock.close()
+        except OSError:
+            print("=" * 60)
+            print("❌ ERROR: Port 5110 is already in use!")
+            print("=" * 60)
+            print("To fix this, run one of these commands:")
+            print()
+            print("  Option 1 - Kill processes using port 5110:")
+            print("    lsof -ti:5110 | xargs kill -9")
+            print()
+            print("  Option 2 - Find and kill manually:")
+            print("    lsof -i:5110")
+            print("    kill -9 <PID>")
+            print()
+            print("  Option 3 - Use a different port (edit app.py):")
+            print("    Change port=5110 to port=5111 (or another port)")
+            print("=" * 60)
+            sys.exit(1)
+        
         print("✅ Using Waitress server (cross-platform)")
         print("=" * 60)
         # Optimized Waitress configuration for production scalability
-        serve(
-            app,
-            host='0.0.0.0',
-            port=5110,
-            threads=8,  # Increased from 4 to handle more concurrent requests
-            channel_timeout=120,  # 2 minute connection timeout
-            cleanup_interval=30,  # Clean up idle connections every 30 seconds
-            connection_limit=100,  # Maximum concurrent connections
-            asyncore_use_poll=True,  # Better for high concurrency
-            recv_bytes=8192,  # Buffer size for receiving
-            send_bytes=8192  # Buffer size for sending
-        )
+        try:
+            serve(
+                app,
+                host='0.0.0.0',
+                port=port,
+                threads=16,  # Increased from 8 to handle more concurrent requests
+                channel_timeout=120,  # 2 minute connection timeout
+                cleanup_interval=30,  # Clean up idle connections every 30 seconds
+                connection_limit=100,  # Maximum concurrent connections
+                asyncore_use_poll=True,  # Better for high concurrency
+                recv_bytes=8192,  # Buffer size for receiving
+                send_bytes=8192  # Buffer size for sending
+            )
+        except OSError as e:
+            if "Address already in use" in str(e) or e.errno == 48:
+                print("=" * 60)
+                print("❌ ERROR: Port 5110 is already in use!")
+                print("=" * 60)
+                print("To fix this, run one of these commands:")
+                print()
+                print("  Option 1 - Kill processes using port 5110:")
+                print("    lsof -ti:5110 | xargs kill -9")
+                print()
+                print("  Option 2 - Find and kill manually:")
+                print("    lsof -i:5110")
+                print("    kill -9 <PID>")
+                print()
+                print("  Option 3 - Use a different port (edit app.py):")
+                print("    Change port=5110 to port=5111 (or another port)")
+                print("=" * 60)
+                sys.exit(1)
+            raise
     except ImportError:
         # Fallback to gunicorn (works on Linux/Mac, not Windows)
         try:
@@ -728,7 +781,7 @@ if __name__ == "__main__":
             options = {
                 'bind': '0.0.0.0:5110',
                 'workers': 1,
-                'threads': 4,
+                'threads': 8,  # Increased from 4 to match improved concurrency
                 'timeout': 600,
                 'keepalive': 5,
                 'accesslog': '-',

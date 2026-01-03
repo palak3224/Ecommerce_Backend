@@ -71,7 +71,8 @@ def get_exchange_rates():
         
         response = requests.get(
             f'https://api.freecurrencyapi.com/v1/latest?apikey={api_key}&base_currency={base_currency}',
-            headers={'Accept': 'application/json'}
+            headers={'Accept': 'application/json'},
+            timeout=10
         )
         
         if response.status_code == 401:
@@ -93,6 +94,11 @@ def get_exchange_rates():
             'last_updated': data.get('meta', {}).get('last_updated_at', '')
         })
         
+    except requests.exceptions.Timeout:
+        return jsonify({
+            'error': 'API request timeout',
+            'message': 'External API request timed out after 10 seconds'
+        }), 500
     except requests.exceptions.RequestException as e:
         return jsonify({
             'error': 'API request failed',

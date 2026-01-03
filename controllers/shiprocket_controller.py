@@ -36,8 +36,15 @@ class ShipRocketController:
                 "password": self.password
             }
             
-            response = requests.post(url, json=payload)
-            response.raise_for_status()
+            try:
+                response = requests.post(url, json=payload, timeout=10)
+                response.raise_for_status()
+            except requests.exceptions.Timeout:
+                current_app.logger.error(f"ShipRocket authentication timeout: {url}")
+                raise Exception("Failed to authenticate with ShipRocket: Request timed out after 10 seconds")
+            except requests.exceptions.RequestException as e:
+                current_app.logger.error(f"ShipRocket authentication failed: {str(e)}")
+                raise Exception("Failed to authenticate with ShipRocket")
             
             data = response.json()
             self.token = data.get('token')
@@ -46,9 +53,11 @@ class ShipRocketController:
             
             return self.token
             
-        except requests.exceptions.RequestException as e:
-            current_app.logger.error(f"ShipRocket authentication failed: {str(e)}")
-            raise Exception("Failed to authenticate with ShipRocket")
+        except Exception as e:
+            if "Failed to authenticate" not in str(e):
+                current_app.logger.error(f"ShipRocket authentication error: {str(e)}")
+                raise Exception("Failed to authenticate with ShipRocket")
+            raise
     
     def _make_request(self, method, endpoint, data=None, params=None):
         """Make authenticated request to ShipRocket API"""
@@ -67,12 +76,19 @@ class ShipRocketController:
             if data:
                 current_app.logger.info(f"Request data: {data}")
             
-            if method.upper() == 'GET':
-                response = requests.get(url, headers=headers, params=params)
-            elif method.upper() == 'POST':
-                response = requests.post(url, headers=headers, json=data)
-            else:
-                raise ValueError(f"Unsupported HTTP method: {method}")
+            try:
+                if method.upper() == 'GET':
+                    response = requests.get(url, headers=headers, params=params, timeout=10)
+                elif method.upper() == 'POST':
+                    response = requests.post(url, headers=headers, json=data, timeout=10)
+                else:
+                    raise ValueError(f"Unsupported HTTP method: {method}")
+            except requests.exceptions.Timeout:
+                current_app.logger.error(f"ShipRocket API timeout: {method} {url}")
+                raise Exception(f"ShipRocket API request timed out after 10 seconds")
+            except requests.exceptions.RequestException as e:
+                current_app.logger.error(f"ShipRocket API error: {method} {url} - {str(e)}")
+                raise
             
             # Log response status only, not the full content
             current_app.logger.info(f"ShipRocket API response status: {response.status_code}")
