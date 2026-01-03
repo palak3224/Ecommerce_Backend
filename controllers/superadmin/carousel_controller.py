@@ -60,21 +60,40 @@ class CarouselController:
                     raise Exception("S3 upload returned no URL")
                 image_url = upload_result.get('url')
                 current_app.logger.info(f"Carousel image uploaded successfully to S3: {image_url}")
+                
+                # Close file handle if possible (Flask FileStorage handles this, but being explicit)
+                if hasattr(image_file, 'close'):
+                    try:
+                        image_file.close()
+                    except:
+                        pass  # FileStorage might not allow explicit close
             except Exception as e:
                 current_app.logger.error(f"Failed to upload carousel image to S3: {str(e)}", exc_info=True)
+                # Ensure file is closed even on error
+                if hasattr(image_file, 'close'):
+                    try:
+                        image_file.close()
+                    except:
+                        pass
                 raise Exception(f"Failed to upload carousel image: {str(e)}")
-        carousel = Carousel(
-            type=data['type'],
-            orientation=data.get('orientation', 'horizontal'),
-            image_url=image_url,
-            target_id=data['target_id'],
-            display_order=data.get('display_order', 0),
-            is_active=data.get('is_active', True),
-            shareable_link=data.get('shareable_link')
-        )
-        db.session.add(carousel)
-        db.session.commit()
-        return carousel
+        
+        try:
+            carousel = Carousel(
+                type=data['type'],
+                orientation=data.get('orientation', 'horizontal'),
+                image_url=image_url,
+                target_id=data['target_id'],
+                display_order=data.get('display_order', 0),
+                is_active=data.get('is_active', True),
+                shareable_link=data.get('shareable_link')
+            )
+            db.session.add(carousel)
+            db.session.commit()
+            return carousel
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Failed to create carousel in database: {str(e)}", exc_info=True)
+            raise Exception(f"Failed to save carousel: {str(e)}")
 
     @staticmethod
     def delete(carousel_id):

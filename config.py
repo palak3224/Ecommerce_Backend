@@ -15,6 +15,15 @@ class Config:
     # Database
     SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URI', 'mysql+pymysql://root:nihalsql@localhost:3306/ecommerce_db')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    # Database connection pool configuration to prevent connection exhaustion
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        'pool_size': 10,  # Number of connections to maintain in the pool
+        'max_overflow': 20,  # Maximum number of connections to allow beyond pool_size
+        'pool_recycle': 3600,  # Recycle connections after 1 hour (MySQL default wait_timeout is 8 hours)
+        'pool_pre_ping': True,  # Verify connections before using them (prevents stale connections)
+        'pool_timeout': 30,  # Timeout for getting a connection from the pool
+        'echo': False  # Don't log all SQL queries (set to True for debugging)
+    }
 
     # JWT
     JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'jwt_dev_key_not_for_production')

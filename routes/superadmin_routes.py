@@ -410,6 +410,10 @@ def update_category(cid):
                     except Exception as e:
                         current_app.logger.warning(f"Failed to delete old category icon from S3: {str(e)}")
                 
+                # Ensure file pointer is at beginning
+                if hasattr(file, 'seek'):
+                    file.seek(0)
+                
                 # Upload new icon to S3
                 s3_service = get_s3_service()
                 upload_result = s3_service.upload_generic_asset(file)
@@ -417,8 +421,21 @@ def update_category(cid):
                 if not new_url:
                     raise ValueError("No URL from S3")
                 update_data['icon_url'] = new_url
+                
+                # Close file handle if possible (Flask FileStorage handles this, but being explicit)
+                if hasattr(file, 'close'):
+                    try:
+                        file.close()
+                    except:
+                        pass  # FileStorage might not allow explicit close
             except Exception as e:
-                current_app.logger.error(f"S3 upload failed in update: {e}")
+                current_app.logger.error(f"S3 upload failed in update: {e}", exc_info=True)
+                # Ensure file is closed even on error
+                if hasattr(file, 'close'):
+                    try:
+                        file.close()
+                    except:
+                        pass
                 return jsonify({'message': f'Icon upload failed: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
     else:
         return jsonify({'message': 'Unsupported Content-Type. Use JSON or multipart/form-data.'}), HTTPStatus.UNSUPPORTED_MEDIA_TYPE

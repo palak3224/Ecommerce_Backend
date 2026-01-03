@@ -204,6 +204,34 @@ def create_app(config_name='default'):
     # Initialize extensions
     db.init_app(app)
     
+    # Add teardown handler to ensure database sessions are properly closed after each request
+    # This is CRITICAL to prevent connection leaks that cause ALL APIs to hang
+    @app.teardown_appcontext
+    def close_db(error):
+        """
+        Close database session after each request to prevent connection leaks.
+        This runs after EVERY request (success or failure) and ensures sessions are cleaned up.
+        Without this, database connections accumulate and eventually ALL APIs stop responding.
+        """
+        try:
+            # Always rollback any pending transactions first
+            if db.session.is_active:
+                try:
+                    db.session.rollback()
+                except Exception as rollback_error:
+                    app.logger.warning(f"Error during rollback in teardown: {str(rollback_error)}")
+            
+            # Always remove the session to return connection to pool
+            # This is the most important step - it releases the connection back to the pool
+            db.session.remove()
+        except Exception as e:
+            app.logger.error(f"Critical error closing database session: {str(e)}", exc_info=True)
+            # Force remove even if there's an error - we MUST release the connection
+            try:
+                db.session.remove()
+            except:
+                pass
+    
     # Initialize cache - use null cache (no Redis required)
     # Set CACHE_TYPE to null BEFORE init_app to prevent any Redis connection attempts
     app.config['CACHE_TYPE'] = 'null'
@@ -400,6 +428,19 @@ def create_app(config_name='default'):
 
     @app.errorhandler(Exception)
     def handle_error(error):
+        # CRITICAL: Always ensure database session cleanup on ANY error
+        try:
+            if db.session.is_active:
+                db.session.rollback()
+        except Exception as rollback_error:
+            app.logger.error(f"Error during rollback in error handler: {str(rollback_error)}")
+        finally:
+            # Ensure session is removed even if rollback fails
+            try:
+                db.session.remove()
+            except:
+                pass
+        
         # Get error details
         error_type = type(error).__name__
         error_message = str(error)
@@ -426,8 +467,9 @@ def create_app(config_name='default'):
         print(error_stack)
         print("=" * 80)
         
-        # Create error monitoring record
+        # Create error monitoring record (use a new session to avoid conflicts)
         try:
+            # Use a separate session for monitoring to avoid conflicts
             monitoring = SystemMonitoring.create_error_record(
                 service_name=request.endpoint or 'unknown',
                 error_type=error_type,
@@ -441,7 +483,13 @@ def create_app(config_name='default'):
             db.session.commit()
         except Exception as e:
             db.session.rollback()
-            print(f"Error saving error monitoring data: {str(e)}")
+            app.logger.error(f"Error saving error monitoring data: {str(e)}")
+        finally:
+            # Always remove monitoring session too
+            try:
+                db.session.remove()
+            except:
+                pass
         
         # Return error response
         return jsonify({
