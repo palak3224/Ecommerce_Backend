@@ -152,7 +152,12 @@ class RecommendationService:
             float: Trending score
         """
         now = datetime.now(timezone.utc)
-        hours_old = (now - reel.created_at).total_seconds() / 3600
+        # Ensure created_at is timezone-aware (handle timezone-naive datetimes from DB)
+        created_at = reel.created_at
+        if created_at.tzinfo is None:
+            # If timezone-naive, assume UTC
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        hours_old = (now - created_at).total_seconds() / 3600
         
         # Only consider reels within time window
         if hours_old > time_window_hours:
