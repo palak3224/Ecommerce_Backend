@@ -17,8 +17,6 @@ from sqlalchemy import text
 from models import *  # Import all models from models package
 from models.shop import *  # Import all shop models
 from models.shop.shop_product_variant import ShopProductVariant, ShopVariantAttributeValue  # Shop variants
-from models.system_monitoring import SystemMonitoring
-from models.newsletter_subscription import NewsletterSubscription
 from models.visit_tracking import VisitTracking
 from models.customer_profile import CustomerProfile
 from models.user_address import UserAddress
@@ -29,11 +27,7 @@ from models.shipment import Shipment, ShipmentItem
 from models.support_ticket_model import SupportTicket, SupportTicketMessage
 from models.youtube_token import YouTubeToken
 from models.tax_rate import TaxRate
-from models.tax_category import TaxCategory
 from models.carousel import Carousel
-from models.live_stream import LiveStream, LiveStreamComment, LiveStreamViewer
-from models.recently_viewed import RecentlyViewed
-from models.homepage import HomepageCategory
 
 # --- Auth models ---
 from auth.models.models import (
@@ -667,6 +661,33 @@ def verify_all_tables():
     
     return len(missing_tables) == 0
 
+def migrate_carousel_orientation():
+    """Add orientation column to carousels table if it doesn't exist."""
+    print("\nMigrating carousel orientation column:")
+    print("--------------------------------------")
+    
+    inspector = db.inspect(db.engine)
+    
+    if 'carousels' in inspector.get_table_names():
+        existing_columns = [col['name'] for col in inspector.get_columns('carousels')]
+        
+        if 'orientation' not in existing_columns:
+            print("Adding orientation column to carousels table...")
+            try:
+                with db.engine.connect() as conn:
+                    # Add column with default value
+                    conn.execute(text("ALTER TABLE carousels ADD COLUMN orientation VARCHAR(20) NOT NULL DEFAULT 'horizontal' AFTER type"))
+                    # Update existing records
+                    conn.execute(text("UPDATE carousels SET orientation = 'horizontal' WHERE orientation IS NULL OR orientation = ''"))
+                    conn.commit()
+                print("✓ orientation column added successfully")
+            except Exception as e:
+                print(f"✗ Failed to add orientation column: {str(e)}")
+        else:
+            print("✓ orientation column already exists")
+    else:
+        print("✗ carousels table does not exist")
+
 def init_database():
     """Initialize the database with all tables and initial data."""
     app = create_app()
@@ -688,6 +709,7 @@ def init_database():
         # Run migrations
         migrate_profile_img_column()
         migrate_auth_provider_enum()
+        migrate_carousel_orientation()
         
         # Initialize data
         init_country_configs()

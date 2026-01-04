@@ -105,8 +105,17 @@ def get_homepage_carousels():
         carousel_types = request.args.get('type', '').split(',')
         # Remove any empty strings from the list
         carousel_types = [t.strip() for t in carousel_types if t.strip()]
-        items = HomepageController.get_homepage_carousels(carousel_types)
+        # Get orientation filter (horizontal or vertical)
+        orientation = request.args.get('orientation')
+        items = HomepageController.get_homepage_carousels(carousel_types, orientation=orientation)
         return jsonify(items), 200
     except Exception as e:
-        current_app.logger.error(f"Error fetching homepage carousels: {e}")
-        return jsonify({'message': 'Failed to fetch homepage carousels.'}), 500
+        current_app.logger.error(
+            f"Error fetching homepage carousels: {str(e)}",
+            exc_info=True
+        )
+        return jsonify({
+            'message': 'Failed to fetch homepage carousels.',
+            'error': str(e),
+            'error_type': type(e).__name__
+        }), 500

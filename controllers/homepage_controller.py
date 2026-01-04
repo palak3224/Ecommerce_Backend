@@ -138,16 +138,30 @@ class HomepageController:
             }), 500
 
     @staticmethod
-    def get_homepage_carousels(carousel_types=None):
+    def get_homepage_carousels(carousel_types=None, orientation=None):
         """
-        Get all active carousel items for homepage (optionally filter by types).
+        Get all active carousel items for homepage (optionally filter by types and orientation).
         Args:
             carousel_types (list): List of types to filter by ('brand', 'promo', 'new', 'featured')
+            orientation (str): Filter by 'horizontal' or 'vertical'
         Returns:
             list: List of carousel items (dicts)
         """
         try:
             query = Carousel.query.filter_by(is_active=True, deleted_at=None)
+            
+            # Filter by orientation if provided
+            if orientation:
+                # Safely get orientation, default to 'horizontal' if column doesn't exist
+                try:
+                    query = query.filter_by(orientation=orientation)
+                except Exception as e:
+                    logging.warning(f"Could not filter by orientation (column may not exist): {str(e)}")
+                    # If orientation column doesn't exist, only return horizontal by default
+                    if orientation == 'horizontal':
+                        pass  # Return all (backward compatibility)
+                    else:
+                        return []  # Return empty for vertical if column doesn't exist
             
             if carousel_types:
                 # Create a list of conditions for each type
@@ -156,7 +170,36 @@ class HomepageController:
                 query = query.filter(or_(*type_conditions))
             
             items = query.order_by(Carousel.display_order).all()
-            return [item.serialize() for item in items]
+            
+            # Serialize items with error handling for each item
+            result = []
+            for item in items:
+                try:
+                    serialized = item.serialize()
+                    result.append(serialized)
+                except Exception as serialize_error:
+                    logging.error(f"Error serializing carousel item {item.id}: {str(serialize_error)}", exc_info=True)
+                    # Try to create a basic serialization without orientation
+                    try:
+                        basic_serialized = {
+                            'id': item.id,
+                            'type': item.type,
+                            'image_url': item.image_url,
+                            'target_id': item.target_id,
+                            'display_order': item.display_order,
+                            'is_active': item.is_active,
+                            'shareable_link': item.shareable_link,
+                            'orientation': getattr(item, 'orientation', 'horizontal'),  # Default if column doesn't exist
+                            'created_at': item.created_at.isoformat() if item.created_at else None,
+                            'updated_at': item.updated_at.isoformat() if item.updated_at else None
+                        }
+                        result.append(basic_serialized)
+                    except Exception as basic_error:
+                        logging.error(f"Error in basic serialization for carousel {item.id}: {str(basic_error)}", exc_info=True)
+                        # Skip this item if even basic serialization fails
+                        continue
+            
+            return result
         except Exception as e:
-            logging.error(f"Error in get_homepage_carousels: {str(e)}")
+            logging.error(f"Error in get_homepage_carousels: {str(e)}", exc_info=True)
             return [] 

@@ -15,6 +15,20 @@ class Config:
     # Database
     SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URI', 'mysql+pymysql://root:nihalsql@localhost:3306/ecommerce_db')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    # Database connection pool configuration optimized for production scalability
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        'pool_size': 15,  # Increased base pool size for better concurrency
+        'max_overflow': 25,  # More overflow capacity (total: 40 connections max)
+        'pool_recycle': 1800,  # Recycle connections after 30 minutes (more aggressive to prevent stale connections)
+        'pool_pre_ping': True,  # Verify connections before using them (prevents stale connections)
+        'pool_timeout': 20,  # Reduced timeout to fail faster if pool is exhausted
+        'connect_args': {
+            'connect_timeout': 10,  # MySQL connection timeout (seconds)
+            'read_timeout': 30,  # Read timeout (seconds)
+            'write_timeout': 30,  # Write timeout (seconds)
+        },
+        'echo': False  # Don't log all SQL queries (set to True for debugging)
+    }
 
     # JWT
     JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'jwt_dev_key_not_for_production')
@@ -46,7 +60,7 @@ class Config:
     MAIL_PASSWORD = os.getenv('MAIL_PASSWORD')
     MAIL_DEFAULT_SENDER = (os.getenv('MAIL_SENDER_NAME', 'AOIN'), os.getenv('MAIL_USERNAME'))
 
-    FRONTEND_URL = 'http://localhost:5173'
+    FRONTEND_URL = 'https://aoinstore.com/'
 
     EXCHANGE_RATE_API_KEY = os.getenv('EXCHANGE_RATE_API_KEY', 'f60545f362ec1fdd1e5e7338')
     CARD_ENCRYPTION_KEY = os.getenv('CARD_ENCRYPTION_KEY')

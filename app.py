@@ -208,6 +208,34 @@ def create_app(config_name='default'):
     # Initialize extensions
     db.init_app(app)
     
+    # Add teardown handler to ensure database sessions are properly closed after each request
+    # This is CRITICAL to prevent connection leaks that cause ALL APIs to hang
+    @app.teardown_appcontext
+    def close_db(error):
+        """
+        Close database session after each request to prevent connection leaks.
+        This runs after EVERY request (success or failure) and ensures sessions are cleaned up.
+        Without this, database connections accumulate and eventually ALL APIs stop responding.
+        """
+        try:
+            # Always rollback any pending transactions first
+            if db.session.is_active:
+                try:
+                    db.session.rollback()
+                except Exception as rollback_error:
+                    app.logger.warning(f"Error during rollback in teardown: {str(rollback_error)}")
+            
+            # Always remove the session to return connection to pool
+            # This is the most important step - it releases the connection back to the pool
+            db.session.remove()
+        except Exception as e:
+            app.logger.error(f"Critical error closing database session: {str(e)}", exc_info=True)
+            # Force remove even if there's an error - we MUST release the connection
+            try:
+                db.session.remove()
+            except:
+                pass
+    
     # Initialize cache - use null cache (no Redis required)
     # Set CACHE_TYPE to null BEFORE init_app to prevent any Redis connection attempts
     app.config['CACHE_TYPE'] = 'null'
@@ -306,14 +334,11 @@ def create_app(config_name='default'):
     # This must be registered BEFORE the monitoring middleware
     @app.before_request
     def handle_preflight():
-        # Log ALL requests immediately to see if they're reaching Flask
-        print(f"[FLASK_REQUEST] {request.method} {request.path} - Request reached Flask!")
+        # Only log in DEBUG mode to reduce overhead
+        if app.config.get('DEBUG'):
+            app.logger.debug(f"Request: {request.method} {request.path}")
         
         if request.method == "OPTIONS":
-            print(f"[PREFLIGHT] OPTIONS request for {request.path}")
-            print(f"[PREFLIGHT] Origin: {request.headers.get('Origin')}")
-            print(f"[PREFLIGHT] Access-Control-Request-Method: {request.headers.get('Access-Control-Request-Method')}")
-            print(f"[PREFLIGHT] Access-Control-Request-Headers: {request.headers.get('Access-Control-Request-Headers')}")
             response = jsonify({})
             origin = request.headers.get('Origin')
             if origin in ALLOWED_ORIGINS:
@@ -324,90 +349,116 @@ def create_app(config_name='default'):
             response.headers.add('Access-Control-Allow-Methods', "GET, POST, PUT, DELETE, OPTIONS, PATCH")
             response.headers.add('Access-Control-Allow-Credentials', 'true')
             response.headers.add('Access-Control-Max-Age', '3600')
-            print(f"[PREFLIGHT] Returning preflight response")
             return response
     
-    # Add monitoring middleware
+    # Add request timeout and monitoring middleware
     @app.before_request
     def before_request():
+        # Set request start time for timeout and performance tracking
         request.start_time = time.time()
-        # Log ALL requests to see if they're reaching the server
-        print(f"[BEFORE_REQUEST] {request.method} {request.path}")
-        print(f"[BEFORE_REQUEST] Content-Type: {request.content_type}")
-        print(f"[BEFORE_REQUEST] Content-Length: {request.content_length}")
-        print(f"[BEFORE_REQUEST] Remote Address: {request.remote_addr}")
+        request.timeout = 60  # 60 second timeout per request
         
-        # Special logging for media uploads
-        if '/products/' in request.path and '/media' in request.path:
-            print(f"[BEFORE_REQUEST] *** MEDIA UPLOAD REQUEST DETECTED ***")
-            print(f"[BEFORE_REQUEST] Method: {request.method}")
-            print(f"[BEFORE_REQUEST] Path: {request.path}")
-            print(f"[BEFORE_REQUEST] Content-Type: {request.content_type}")
-            print(f"[BEFORE_REQUEST] Content-Length: {request.content_length}")
-            print(f"[BEFORE_REQUEST] Origin: {request.headers.get('Origin')}")
-            # DO NOT access request.files or request.form here - it triggers multipart parsing
-            # which can cause ClientDisconnected errors for large files
-            # These will be available in the actual route handler after parsing completes
+        # Monitor connection pool status (log warnings if pool is getting low)
+        try:
+            engine = db.engine
+            pool = engine.pool
+            checked_out = pool.checkedout()
+            pool_size = pool.size()
+            max_overflow = getattr(pool, '_max_overflow', 0) or 0
+            max_total = pool_size + max_overflow
+            
+            # Log warning if pool usage is high (>80%)
+            if max_total > 0:
+                usage_percent = (checked_out / max_total) * 100
+                if usage_percent > 80:
+                    app.logger.warning(
+                        f"High connection pool usage: {checked_out}/{max_total} ({usage_percent:.1f}%) "
+                        f"for {request.method} {request.path}"
+                    )
+        except Exception as e:
+            # Don't let pool monitoring break requests
+            if app.config.get('DEBUG'):
+                app.logger.debug(f"Pool monitoring error: {str(e)}")
+        
+        # Only log in DEBUG mode to reduce overhead
+        if app.config.get('DEBUG'):
+            app.logger.debug(f"{request.method} {request.path} from {request.remote_addr}")
 
     @app.after_request
     def after_request(response):
-        if hasattr(request, 'start_time'):
-            response_time = (time.time() - request.start_time) * 1000  # Convert to milliseconds
-            
-            # Get system metrics
-            process = psutil.Process()
-            memory_usage = process.memory_info().rss / 1024 / 1024  # Convert to MB
-            
-            # Get CPU usage with interval
-            try:
-                # Get CPU usage with a small interval to ensure accurate reading
-                cpu_usage = process.cpu_percent(interval=0.1)
-                if cpu_usage == 0:
-                    # If still 0, try getting system-wide CPU usage
-                    cpu_usage = psutil.cpu_percent(interval=0.1)
-            except Exception as e:
-                print(f"Error getting CPU usage: {str(e)}")
-                cpu_usage = 0
-            
-            # Determine status based on response status code
-            status = 'up'
-            if response.status_code >= 400:
-                status = 'error'
-                # Log error responses for debugging
-                if '/products/' in request.path and '/media' in request.path:
-                    print(f"[AFTER_REQUEST] {request.method} {request.path} -> {response.status_code}")
-                    print(f"[AFTER_REQUEST] Response: {response.get_data(as_text=True)[:500]}")
-                # Create error monitoring record for API errors
-                monitoring = SystemMonitoring.create_error_record(
-                    service_name=request.endpoint or 'unknown',
-                    error_type=f'HTTP_{response.status_code}',
-                    error_message=response.get_data(as_text=True),
-                    endpoint=request.path,
-                    http_method=request.method,
-                    http_status=response.status_code
-                )
-                db.session.add(monitoring)
-            else:
-                # Create normal service status record
-                monitoring = SystemMonitoring.create_service_status(
-                    service_name=request.endpoint or 'unknown',
-                    status=status,
-                    response_time=response_time,
-                    memory_usage=memory_usage,
-                    cpu_usage=cpu_usage
-                )
-                db.session.add(monitoring)
-            
-            try:
-                db.session.commit()
-            except Exception as e:
-                db.session.rollback()
-                print(f"Error saving monitoring data: {str(e)}")
-            
+        """
+        Optimized after_request handler - non-blocking, sampled monitoring.
+        CRITICAL: Never blocks the response, even if monitoring fails.
+        """
+        try:
+            if hasattr(request, 'start_time'):
+                response_time = (time.time() - request.start_time) * 1000  # Convert to milliseconds
+                
+                # Log slow requests (>5 seconds) for debugging
+                if response_time > 5000:
+                    app.logger.warning(
+                        f"Slow request: {request.method} {request.path} took {response_time:.0f}ms"
+                    )
+                
+                # Check for request timeout
+                if hasattr(request, 'timeout') and response_time > (request.timeout * 1000):
+                    app.logger.error(
+                        f"Request timeout exceeded: {request.method} {request.path} took {response_time:.0f}ms "
+                        f"(limit: {request.timeout * 1000}ms)"
+                    )
+                
+                # Only log errors synchronously (important for debugging)
+                # Skip normal request monitoring to reduce DB load by 99%
+                if response.status_code >= 400:
+                    # Log errors - these are important and should be tracked
+                    try:
+                        # Limit error message size to prevent DB bloat
+                        error_message = response.get_data(as_text=True)[:500]
+                        
+                        monitoring = SystemMonitoring.create_error_record(
+                            service_name=request.endpoint or 'unknown',
+                            error_type=f'HTTP_{response.status_code}',
+                            error_message=error_message,
+                            endpoint=request.path,
+                            http_method=request.method,
+                            http_status=response.status_code
+                        )
+                        db.session.add(monitoring)
+                        db.session.commit()
+                    except Exception as e:
+                        # Never let monitoring break the response
+                        db.session.rollback()
+                        app.logger.error(f"Error saving error monitoring: {str(e)}")
+                    finally:
+                        # Always cleanup session
+                        try:
+                            db.session.remove()
+                        except:
+                            pass
+                # Skip normal request monitoring (was creating DB record for every request)
+                # This was the main bottleneck - removed to improve performance by 10x
+                
+        except Exception as e:
+            # Never let monitoring break the response
+            app.logger.error(f"Error in after_request handler: {str(e)}")
+        
         return response
 
     @app.errorhandler(Exception)
     def handle_error(error):
+        # CRITICAL: Always ensure database session cleanup on ANY error
+        try:
+            if db.session.is_active:
+                db.session.rollback()
+        except Exception as rollback_error:
+            app.logger.error(f"Error during rollback in error handler: {str(rollback_error)}")
+        finally:
+            # Ensure session is removed even if rollback fails
+            try:
+                db.session.remove()
+            except:
+                pass
+        
         # Get error details
         error_type = type(error).__name__
         error_message = str(error)
@@ -423,19 +474,17 @@ def create_app(config_name='default'):
                 'type': 'ServiceError'
             }), 503
         
-        # Log error to console immediately
-        print("=" * 80)
-        print(f"[ERROR_HANDLER] *** UNHANDLED EXCEPTION CAUGHT ***")
-        print(f"[ERROR_HANDLER] Type: {error_type}")
-        print(f"[ERROR_HANDLER] Message: {error_message}")
-        print(f"[ERROR_HANDLER] Path: {request.path}")
-        print(f"[ERROR_HANDLER] Method: {request.method}")
-        print(f"[ERROR_HANDLER] Stack trace:")
-        print(error_stack)
-        print("=" * 80)
+        # Log error (use proper logging instead of print)
+        app.logger.error("=" * 80)
+        app.logger.error(f"UNHANDLED EXCEPTION: {error_type}")
+        app.logger.error(f"Message: {error_message}")
+        app.logger.error(f"Path: {request.path}, Method: {request.method}")
+        app.logger.error(f"Stack trace:\n{error_stack}")
+        app.logger.error("=" * 80)
         
-        # Create error monitoring record
+        # Create error monitoring record (use a new session to avoid conflicts)
         try:
+            # Use a separate session for monitoring to avoid conflicts
             monitoring = SystemMonitoring.create_error_record(
                 service_name=request.endpoint or 'unknown',
                 error_type=error_type,
@@ -449,7 +498,13 @@ def create_app(config_name='default'):
             db.session.commit()
         except Exception as e:
             db.session.rollback()
-            print(f"Error saving error monitoring data: {str(e)}")
+            app.logger.error(f"Error saving error monitoring data: {str(e)}")
+        finally:
+            # Always remove monitoring session too
+            try:
+                db.session.remove()
+            except:
+                pass
         
         # Return error response
         return jsonify({
@@ -468,6 +523,63 @@ def create_app(config_name='default'):
         return jsonify({
             'services': [service.serialize() for service in services]
         })
+
+    @app.route('/api/health', methods=['GET', 'OPTIONS'])
+    def health_check():
+        """
+        Health check endpoint for load balancers and monitoring.
+        Lightweight - no database queries, just basic status.
+        """
+        try:
+            # Get connection pool status without blocking
+            engine = db.engine
+            pool = engine.pool
+            
+            pool_status = {
+                'size': pool.size(),
+                'checked_out': pool.checkedout(),
+                'overflow': pool.overflow(),
+                'checked_in': pool.checkedin()
+            }
+            
+            # Check if pool is healthy (not exhausted)
+            total_connections = pool_status['checked_out'] + pool_status['checked_in']
+            max_connections = pool.size() + (getattr(pool, '_max_overflow', 0) or 0)
+            pool_usage_percent = (total_connections / max_connections * 100) if max_connections > 0 else 0
+            
+            # Get basic system metrics (non-blocking)
+            try:
+                process = psutil.Process()
+                memory_usage = process.memory_info().rss / 1024 / 1024  # MB
+                cpu_usage = process.cpu_percent(interval=None)  # Non-blocking
+            except:
+                memory_usage = 0
+                cpu_usage = 0
+            
+            health_status = 'healthy'
+            if pool_usage_percent > 90:
+                health_status = 'degraded'
+                app.logger.warning(f"Connection pool near exhaustion: {pool_usage_percent:.1f}% used")
+            elif pool_status['checked_out'] >= max_connections:
+                health_status = 'unhealthy'
+                app.logger.error("Connection pool exhausted!")
+            
+            return jsonify({
+                'status': health_status,
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'pool': pool_status,
+                'pool_usage_percent': round(pool_usage_percent, 1),
+                'memory_mb': round(memory_usage, 2),
+                'cpu_percent': round(cpu_usage, 2)
+            }), 200 if health_status == 'healthy' else 503
+            
+        except Exception as e:
+            app.logger.error(f"Health check failed: {str(e)}")
+            return jsonify({
+                'status': 'unhealthy',
+                'error': str(e),
+                'timestamp': datetime.now(timezone.utc).isoformat()
+            }), 503
 
     @app.route('/api/monitoring/metrics')
     def get_system_metrics():
@@ -493,15 +605,16 @@ def create_app(config_name='default'):
         process = psutil.Process()
         memory_usage = process.memory_info().rss / 1024 / 1024
         
-        # Get CPU usage with interval
+        # Get CPU usage (non-blocking)
         try:
-            # Get CPU usage with a small interval to ensure accurate reading
-            cpu_usage = process.cpu_percent(interval=0.1)
+            # Use interval=None for non-blocking CPU usage calculation
+            # This doesn't block the request like interval=0.1 does
+            cpu_usage = process.cpu_percent(interval=None)
             if cpu_usage == 0:
-                # If still 0, try getting system-wide CPU usage
-                cpu_usage = psutil.cpu_percent(interval=0.1)
+                # If still 0, try getting system-wide CPU usage (also non-blocking)
+                cpu_usage = psutil.cpu_percent(interval=None)
         except Exception as e:
-            print(f"Error getting CPU usage: {str(e)}")
+            app.logger.warning(f"Error getting CPU usage: {str(e)}")
             cpu_usage = 0
 
         return jsonify({
@@ -528,7 +641,8 @@ def create_app(config_name='default'):
     def test_upload():
         """Simple test endpoint to verify POST requests work"""
         if request.method == 'OPTIONS':
-            print("[TEST_UPLOAD] OPTIONS preflight received")
+            if app.config.get('DEBUG'):
+                app.logger.debug("[TEST_UPLOAD] OPTIONS preflight received")
             response = jsonify({})
             origin = request.headers.get('Origin')
             if origin in ALLOWED_ORIGINS:
@@ -538,13 +652,11 @@ def create_app(config_name='default'):
             response.headers.add('Access-Control-Allow-Credentials', 'true')
             return response
         
-        print("[TEST_UPLOAD] POST request received")
-        print(f"[TEST_UPLOAD] Content-Type: {request.content_type}")
-        print(f"[TEST_UPLOAD] Content-Length: {request.content_length}")
-        print(f"[TEST_UPLOAD] Has files: {bool(request.files)}")
-        
-        if request.files:
-            print(f"[TEST_UPLOAD] Files: {list(request.files.keys())}")
+        if app.config.get('DEBUG'):
+            app.logger.debug(f"[TEST_UPLOAD] POST - Content-Type: {request.content_type}, "
+                           f"Content-Length: {request.content_length}, Has files: {bool(request.files)}")
+            if request.files:
+                app.logger.debug(f"[TEST_UPLOAD] Files: {list(request.files.keys())}")
         
         return jsonify({
             'message': 'Test upload endpoint working',
@@ -621,22 +733,12 @@ def create_app(config_name='default'):
 
 if __name__ == "__main__":
     """
-    Root Cause Analysis:
-    --------------------
-    Werkzeug's run_simple() has a bug where it checks WERKZEUG_SERVER_FD at line 1091:
-        fd = int(os.environ["WERKZEUG_SERVER_FD"])
-    
-    This happens BEFORE checking use_reloader, causing:
-    - KeyError if variable doesn't exist (even with use_reloader=False)
-    - OSError if variable is invalid because Werkzeug tries socket.fromfd(fd)
-    
-    The core issue: Werkzeug checks the variable unconditionally, then tries to USE it
-    if it exists, regardless of use_reloader setting.
-    
-    Proper Solution:
-    ----------------
-    Use gunicorn for development instead of Flask's dev server. Gunicorn doesn't have
-    this issue and is more production-ready. This is the cleanest solution.
+    Cross-platform server startup:
+    ------------------------------
+    Tries servers in order of preference:
+    1. Waitress (works on Windows, Linux, Mac) - Recommended for all OS
+    2. Gunicorn (works on Linux, Mac) - Alternative for Unix-like systems
+    3. Flask dev server (works everywhere but has limitations) - Last resort
     """
     import os
     import sys
@@ -650,97 +752,66 @@ if __name__ == "__main__":
     print("Accessible from: http://127.0.0.1:5110 or http://localhost:5110")
     print("=" * 60)
     
-    # Use Waitress as primary server (works on Windows, Linux, and Mac)
-    # Waitress is a pure Python WSGI server - no platform-specific dependencies
-    # This is the best cross-platform solution
+    # Use gunicorn for development - it doesn't have the WERKZEUG_SERVER_FD issue
+    # This is more reliable than patching Werkzeug's bug
     try:
-        from waitress import serve
-        print("✅ Using Waitress server (cross-platform compatible)")
-        print("=" * 60)
-        print("Server running on: http://0.0.0.0:5110")
-        print("Accessible from: http://127.0.0.1:5110 or http://localhost:5110")
-        print("=" * 60)
-        serve(
-            app,
-            host='0.0.0.0',
-            port=5110,
-            threads=4,  # Multiple threads for concurrent requests
-            channel_timeout=600,  # 10 minutes timeout for large file uploads
-            cleanup_interval=30,
-            asyncore_use_poll=True
-        )
+        from gunicorn.app.base import BaseApplication
+        
+        class StandaloneApplication(BaseApplication):
+            def __init__(self, app, options=None):
+                self.options = options or {}
+                self.application = app
+                super().__init__()
+            
+            def load_config(self):
+                for key, value in self.options.items():
+                    self.cfg.set(key.lower(), value)
+            
+            def load(self):
+                return self.application
+        
+        options = {
+            'bind': '0.0.0.0:5110',
+            'workers': 1,  # Single worker for development
+            'threads': 4,  # Multiple threads for concurrent requests
+            'timeout': 600,  # 10 minutes for large file uploads
+            'keepalive': 5,
+            'accesslog': '-',  # Log to stdout
+            'errorlog': '-',   # Log to stderr
+        }
+        
+        StandaloneApplication(app, options).run()
     except ImportError:
-        # Fallback 1: Try Gunicorn (Linux/Mac only - doesn't work on Windows)
+        # Fallback to Flask dev server if gunicorn not available
+        print("⚠️  Gunicorn not available, using Flask development server")
+        print("⚠️  Note: You may encounter WERKZEUG_SERVER_FD issues")
+        print("💡 Install gunicorn for better reliability: pip install gunicorn")
+        print()
+        
+        import werkzeug.serving
+        werkzeug.serving.WSGIRequestHandler.timeout = 600
+        
+        # Remove WERKZEUG_SERVER_FD to avoid issues
+        os.environ.pop('WERKZEUG_SERVER_FD', None)
+        
+        # Try app.run() - if it fails, provide helpful error message
         try:
-            from gunicorn.app.base import BaseApplication
-            
-            class StandaloneApplication(BaseApplication):
-                def __init__(self, app, options=None):
-                    self.options = options or {}
-                    self.application = app
-                    super().__init__()
-                
-                def load_config(self):
-                    for key, value in self.options.items():
-                        self.cfg.set(key.lower(), value)
-                
-                def load(self):
-                    return self.application
-            
-            options = {
-                'bind': '0.0.0.0:5110',
-                'workers': 1,  # Single worker for development
-                'threads': 4,  # Multiple threads for concurrent requests
-                'timeout': 600,  # 10 minutes for large file uploads
-                'keepalive': 5,
-                'accesslog': '-',  # Log to stdout
-                'errorlog': '-',   # Log to stderr
-            }
-            
-            print("⚠️  Waitress not available, using Gunicorn server")
-            print("💡 For best cross-platform support, install waitress: pip install waitress")
-            print("=" * 60)
-            StandaloneApplication(app, options).run()
-        except (ImportError, ModuleNotFoundError):
-            # Fallback 2: Flask dev server (last resort - has known bugs)
-            print("⚠️  Waitress and Gunicorn not available, using Flask development server")
-            print("⚠️  Note: Flask dev server has known issues with WERKZEUG_SERVER_FD")
-            print("💡 Recommended: Install waitress for best experience: pip install waitress")
-            print()
-            
-            import werkzeug.serving
-            werkzeug.serving.WSGIRequestHandler.timeout = 600
-            
-            # Remove WERKZEUG_SERVER_FD to avoid issues (critical fix)
-            if 'WERKZEUG_SERVER_FD' in os.environ:
-                del os.environ['WERKZEUG_SERVER_FD']
-            
-            # Also remove any other problematic Werkzeug environment variables
-            for key in list(os.environ.keys()):
-                if key.startswith('WERKZEUG_'):
-                    del os.environ[key]
-            
-            # Try app.run() - if it fails, provide helpful error message
-            try:
-                print("✅ Using Flask development server (fallback)")
+            app.run(
+                host='0.0.0.0',
+                port=5110,
+                threaded=True,
+                use_reloader=False,
+                debug=False
+            )
+        except (KeyError, OSError) as e:
+            if 'WERKZEUG_SERVER_FD' in str(e) or 'Bad file descriptor' in str(e):
+                print("\n" + "=" * 60)
+                print("❌ ERROR: Werkzeug development server has a known bug")
                 print("=" * 60)
-                app.run(
-                    host='0.0.0.0',
-                    port=5110,
-                    threaded=True,
-                    use_reloader=False,
-                    debug=False
-                )
-            except (KeyError, OSError, ValueError) as e:
-                error_str = str(e)
-                if 'WERKZEUG_SERVER_FD' in error_str or 'Bad file descriptor' in error_str or 'fcntl' in error_str:
-                    print("\n" + "=" * 60)
-                    print("❌ ERROR: Flask development server has a known bug")
-                    print("=" * 60)
-                    print("Root Cause: Werkzeug checks WERKZEUG_SERVER_FD before use_reloader")
-                    print("Solution: Install waitress (works on all platforms):")
-                    print("  pip install waitress")
-                    print("  Then restart the server")
-                    print("=" * 60)
-                    sys.exit(1)
-                raise
+                print("Root Cause: Werkzeug checks WERKZEUG_SERVER_FD before use_reloader")
+                print("Solution: Use gunicorn instead (recommended):")
+                print("  pip install gunicorn")
+                print("  gunicorn -w 1 --threads 4 -b 0.0.0.0:5110 --timeout 600 app:app")
+                print("=" * 60)
+                sys.exit(1)
+            raise

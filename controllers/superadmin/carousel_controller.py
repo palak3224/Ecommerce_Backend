@@ -6,13 +6,18 @@ from datetime import datetime
 
 class CarouselController:
     @staticmethod
-    def list_all():
+    def list_all(orientation=None):
         """
-        Get all active carousel items.
+        Get all active carousel items, optionally filtered by orientation.
+        Args:
+            orientation (str, optional): Filter by 'horizontal' or 'vertical'
         Returns:
             List[Carousel]: List of all active carousel items
         """
-        return Carousel.query.filter_by(deleted_at=None).order_by(Carousel.display_order).all()
+        query = Carousel.query.filter_by(deleted_at=None)
+        if orientation:
+            query = query.filter_by(orientation=orientation)
+        return query.order_by(Carousel.display_order).all()
 
     @staticmethod
     def create(data, image_file=None):
@@ -55,20 +60,40 @@ class CarouselController:
                     raise Exception("S3 upload returned no URL")
                 image_url = upload_result.get('url')
                 current_app.logger.info(f"Carousel image uploaded successfully to S3: {image_url}")
+                
+                # Close file handle if possible (Flask FileStorage handles this, but being explicit)
+                if hasattr(image_file, 'close'):
+                    try:
+                        image_file.close()
+                    except:
+                        pass  # FileStorage might not allow explicit close
             except Exception as e:
                 current_app.logger.error(f"Failed to upload carousel image to S3: {str(e)}", exc_info=True)
+                # Ensure file is closed even on error
+                if hasattr(image_file, 'close'):
+                    try:
+                        image_file.close()
+                    except:
+                        pass
                 raise Exception(f"Failed to upload carousel image: {str(e)}")
-        carousel = Carousel(
-            type=data['type'],
-            image_url=image_url,
-            target_id=data['target_id'],
-            display_order=data.get('display_order', 0),
-            is_active=data.get('is_active', True),
-            shareable_link=data.get('shareable_link')
-        )
-        db.session.add(carousel)
-        db.session.commit()
-        return carousel
+        
+        try:
+            carousel = Carousel(
+                type=data['type'],
+                orientation=data.get('orientation', 'horizontal'),
+                image_url=image_url,
+                target_id=data['target_id'],
+                display_order=data.get('display_order', 0),
+                is_active=data.get('is_active', True),
+                shareable_link=data.get('shareable_link')
+            )
+            db.session.add(carousel)
+            db.session.commit()
+            return carousel
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Failed to create carousel in database: {str(e)}", exc_info=True)
+            raise Exception(f"Failed to save carousel: {str(e)}")
 
     @staticmethod
     def delete(carousel_id):
@@ -107,6 +132,8 @@ class CarouselController:
         carousel = Carousel.query.get_or_404(carousel_id)
         if 'type' in data:
             carousel.type = data['type']
+        if 'orientation' in data:
+            carousel.orientation = data['orientation']
         if 'target_id' in data:
             carousel.target_id = data['target_id']
         if 'display_order' in data:

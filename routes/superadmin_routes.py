@@ -401,13 +401,18 @@ def update_category(cid):
 
             try:
                 # Get existing category to delete old icon
-                existing_category = Category.query.filter_by(id=cid).first()
+                # Category model uses category_id as primary key, not id
+                existing_category = Category.query.filter_by(category_id=cid).first()
                 if existing_category and existing_category.icon_url:
                     try:
                         s3_service = get_s3_service()
                         s3_service.delete_generic_asset(existing_category.icon_url)
                     except Exception as e:
                         current_app.logger.warning(f"Failed to delete old category icon from S3: {str(e)}")
+                
+                # Ensure file pointer is at beginning
+                if hasattr(file, 'seek'):
+                    file.seek(0)
                 
                 # Upload new icon to S3
                 s3_service = get_s3_service()
@@ -416,8 +421,21 @@ def update_category(cid):
                 if not new_url:
                     raise ValueError("No URL from S3")
                 update_data['icon_url'] = new_url
+                
+                # Close file handle if possible (Flask FileStorage handles this, but being explicit)
+                if hasattr(file, 'close'):
+                    try:
+                        file.close()
+                    except:
+                        pass  # FileStorage might not allow explicit close
             except Exception as e:
-                current_app.logger.error(f"S3 upload failed in update: {e}")
+                current_app.logger.error(f"S3 upload failed in update: {e}", exc_info=True)
+                # Ensure file is closed even on error
+                if hasattr(file, 'close'):
+                    try:
+                        file.close()
+                    except:
+                        pass
                 return jsonify({'message': f'Icon upload failed: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
     else:
         return jsonify({'message': 'Unsupported Content-Type. Use JSON or multipart/form-data.'}), HTTPStatus.UNSUPPORTED_MEDIA_TYPE
@@ -497,7 +515,8 @@ def delete_category(cid):
     """
     try:
         # Get category to delete associated icon
-        category = Category.query.filter_by(id=cid).first()
+        # Category model uses category_id as primary key, not id
+        category = Category.query.filter_by(category_id=cid).first()
         if category and category.icon_url:
             try:
                 s3_service = get_s3_service()
@@ -560,8 +579,8 @@ def upload_category_icon(cid):
         description: "Internal server error."
     """    
     try:
-        
-        category = Category.query.filter_by(id=cid).first()
+        # Category model uses category_id as primary key, not id
+        category = Category.query.filter_by(category_id=cid).first()
         if not category:
             return jsonify({'message': 'Category not found or has been deleted'}), HTTPStatus.NOT_FOUND
 
@@ -3858,6 +3877,12 @@ def carousels_handler():
         type: string
         required: false
         description: Optional shareable link for the carousel
+      - in: formData
+        name: orientation
+        type: string
+        required: false
+        default: horizontal
+        description: Banner orientation - 'horizontal' for main carousel (1920x450px) or 'vertical' for side banners (368x564px)
     responses:
       200:
         description: List of carousels retrieved successfully
@@ -3880,6 +3905,8 @@ def carousels_handler():
                 type: boolean
               shareable_link:
                 type: string
+              orientation:
+                type: string
       201:
         description: Carousel created successfully
         schema:
@@ -3898,7 +3925,9 @@ def carousels_handler():
             is_active:
               type: boolean
             shareable_link:
-              type: string
+                type: string
+            orientation:
+                type: string
       400:
         description: Missing required fields
       500:
@@ -3912,21 +3941,62 @@ def carousels_handler():
         return '', HTTPStatus.OK
     if request.method == 'GET':
         try:
-            carousels = CarouselController.list_all()
-            return jsonify([
-                {
-                    'id': c.id,
-                    'type': c.type,
-                    'image_url': c.image_url,
-                    'target_id': c.target_id,
-                    'display_order': c.display_order,
-                    'is_active': c.is_active,
-                    'shareable_link': c.shareable_link
-                } for c in carousels
-            ]), HTTPStatus.OK
+            # Get orientation filter from query parameter
+            orientation = request.args.get('orientation')
+            carousels = CarouselController.list_all(orientation=orientation)
+            
+            # Serialize carousels with error handling
+            result = []
+            for c in carousels:
+                try:
+                    # Try to get orientation, default to 'horizontal' if column doesn't exist
+                    carousel_orientation = getattr(c, 'orientation', 'horizontal')
+                    result.append({
+                        'id': c.id,
+                        'type': c.type,
+                        'orientation': carousel_orientation,
+                        'image_url': c.image_url,
+                        'target_id': c.target_id,
+                        'display_order': c.display_order,
+                        'is_active': c.is_active,
+                        'shareable_link': c.shareable_link
+                    })
+                except Exception as serialize_error:
+                    current_app.logger.error(
+                        f"Error serializing carousel {c.id}: {str(serialize_error)}",
+                        exc_info=True
+                    )
+                    # Try basic serialization without orientation
+                    try:
+                        result.append({
+                            'id': c.id,
+                            'type': c.type,
+                            'orientation': 'horizontal',  # Default value
+                            'image_url': c.image_url,
+                            'target_id': c.target_id,
+                            'display_order': c.display_order,
+                            'is_active': c.is_active,
+                            'shareable_link': c.shareable_link
+                        })
+                    except Exception as basic_error:
+                        current_app.logger.error(
+                            f"Error in basic serialization for carousel {c.id}: {str(basic_error)}",
+                            exc_info=True
+                        )
+                        # Skip this carousel if serialization fails completely
+                        continue
+            
+            return jsonify(result), HTTPStatus.OK
         except Exception as e:
-            current_app.logger.error(f"Error listing carousels: {e}")
-            return jsonify({'message': 'Failed to retrieve carousels.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+            current_app.logger.error(
+                f"Error listing carousels: {str(e)}",
+                exc_info=True
+            )
+            return jsonify({
+                'message': 'Failed to retrieve carousels.',
+                'error': str(e),
+                'error_type': type(e).__name__
+            }), HTTPStatus.INTERNAL_SERVER_ERROR
     if request.method == 'POST':
         try:
             # Accept multipart/form-data
@@ -3935,12 +4005,19 @@ def carousels_handler():
             shareable_link = request.form.get('shareable_link')
             display_order = request.form.get('display_order', 0)
             is_active = request.form.get('is_active', 'true').lower() == 'true'
+            orientation = request.form.get('orientation', 'horizontal')  # Default to horizontal
             image_file = request.files.get('image')
+            
+            # Validate orientation
+            if orientation not in ['horizontal', 'vertical']:
+                return jsonify({'message': 'orientation must be either "horizontal" or "vertical".'}), HTTPStatus.BAD_REQUEST
+            
             if not type_ or not target_id or not image_file:
                 return jsonify({'message': 'type, target_id, and image are required.'}), HTTPStatus.BAD_REQUEST
             data = {
                 'type': type_,
                 'target_id': int(target_id),
+                'orientation': orientation,
                 'display_order': int(display_order),
                 'is_active': is_active,
                 'shareable_link': shareable_link

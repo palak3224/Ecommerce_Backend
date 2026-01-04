@@ -5,7 +5,8 @@ class Carousel(db.Model):
     __tablename__ = 'carousels'
 
     id = db.Column(db.Integer, primary_key=True)
-    type = db.Column(db.String(50), nullable=False)  # 'brand' or 'product'
+    type = db.Column(db.String(50), nullable=False)  # 'brand', 'product', 'promo', 'new', 'featured'
+    orientation = db.Column(db.String(20), nullable=False, default='horizontal')  # 'horizontal' or 'vertical'
     image_url = db.Column(db.String(255), nullable=False)
     target_id = db.Column(db.Integer, nullable=False)  # brand_id or product_id
     display_order = db.Column(db.Integer, default=0)
@@ -19,9 +20,20 @@ class Carousel(db.Model):
         return f'<Carousel {self.id}: {self.type} - {self.target_id}>'
 
     def serialize(self):
+        """
+        Serialize carousel item to dict.
+        Handles missing 'orientation' column gracefully for backward compatibility.
+        """
+        try:
+            # Try to get orientation, default to 'horizontal' if column doesn't exist
+            orientation = getattr(self, 'orientation', 'horizontal')
+        except Exception:
+            orientation = 'horizontal'
+        
         return {
             'id': self.id,
             'type': self.type,
+            'orientation': orientation,
             'image_url': self.image_url,
             'target_id': self.target_id,
             'display_order': self.display_order,
