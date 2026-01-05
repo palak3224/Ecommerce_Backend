@@ -546,6 +546,44 @@ def migrate_profile_img_column():
     else:
         print("✗ users table does not exist")
 
+def migrate_date_of_birth_gender_columns():
+    """Add date_of_birth and gender columns to users table if they don't exist."""
+    print("\nMigrating date_of_birth and gender columns:")
+    print("-------------------------------------------")
+    
+    inspector = db.inspect(db.engine)
+    
+    if 'users' in inspector.get_table_names():
+        existing_columns = [col['name'] for col in inspector.get_columns('users')]
+        
+        # Add date_of_birth column if it doesn't exist
+        if 'date_of_birth' not in existing_columns:
+            print("Adding date_of_birth column to users table...")
+            try:
+                with db.engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN date_of_birth DATE NULL"))
+                    conn.commit()
+                print("✓ date_of_birth column added successfully")
+            except Exception as e:
+                print(f"✗ Failed to add date_of_birth column: {str(e)}")
+        else:
+            print("✓ date_of_birth column already exists")
+        
+        # Add gender column if it doesn't exist
+        if 'gender' not in existing_columns:
+            print("Adding gender column to users table...")
+            try:
+                with db.engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN gender VARCHAR(20) NULL"))
+                    conn.commit()
+                print("✓ gender column added successfully")
+            except Exception as e:
+                print(f"✗ Failed to add gender column: {str(e)}")
+        else:
+            print("✓ gender column already exists")
+    else:
+        print("✗ users table does not exist")
+
 def migrate_auth_provider_enum():
     """Fix auth_provider enum values from uppercase to lowercase."""
     print("\nMigrating auth_provider enum:")
@@ -708,6 +746,7 @@ def init_database():
         
         # Run migrations
         migrate_profile_img_column()
+        migrate_date_of_birth_gender_columns()
         migrate_auth_provider_enum()
         migrate_carousel_orientation()
         

@@ -48,6 +48,10 @@ Create the database and initialize tables:
 ```bash
 python init_db.py
 ```
+
+**Note:** The `init_db.py` script automatically runs all necessary migrations, including adding any missing columns. If you encounter database schema errors after pulling updates, you can either:
+- Run `python init_db.py` again (it's safe to run multiple times)
+- Or run the migration script: `python run_migrations.py`
 ### Running the Backend
 
 Start the application server:
