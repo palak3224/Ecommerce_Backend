@@ -232,7 +232,8 @@ def login_user(data):
                 "email": user_to_check.email,
                 "first_name": user_to_check.first_name,
                 "last_name": user_to_check.last_name,
-                "role": user_to_check.role.value
+                "role": user_to_check.role.value,
+                "is_email_verified": user_to_check.is_email_verified
             }
         }, 200
     except Exception as e:
