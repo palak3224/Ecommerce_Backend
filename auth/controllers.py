@@ -84,6 +84,26 @@ def register_merchant(data):
             db.session.rollback()  # Ensure clean state
             return {"error": "Business email already registered"}, 409
         
+        # Handle username: validate if provided, auto-generate if not
+        username = None
+        if data.get('username'):
+            # Username provided - validate format and check uniqueness
+            username = data['username'].strip().lower()
+            # Format validation (should be done by schema, but double-check)
+            import re
+            if not re.match(r'^[a-zA-Z0-9_]{3,30}$', username):
+                return {"error": "Invalid username format. Username must be 3-30 characters, alphanumeric and underscores only"}, 400
+            
+            # Check uniqueness
+            if not MerchantProfile.is_username_available(username):
+                return {"error": "Username already taken"}, 409
+        else:
+            # Auto-generate username from business_name or first_name
+            username = MerchantProfile.generate_username(
+                business_name=data.get('business_name'),
+                first_name=data.get('first_name')
+            )
+        
         # Create new user with merchant role
         user = User(
             email=data['business_email'],  # Use business email as primary email
@@ -101,6 +121,7 @@ def register_merchant(data):
         # Create merchant profile
         merchant = MerchantProfile(
             user_id=user.id,
+            username=username,  # Set username (auto-generated or provided)
             business_name=data['business_name'],
             business_description=data.get('business_description'),
             business_email=data['business_email'],
@@ -140,7 +161,8 @@ def register_merchant(data):
         return {
             "message": "Merchant registered successfully. Please check your email to verify your account.",
             "user_id": user.id,
-            "merchant_id": merchant.id
+            "merchant_id": merchant.id,
+            "username": merchant.username  # Return generated/provided username
         }, 201
     except IntegrityError as e:
         db.session.rollback()

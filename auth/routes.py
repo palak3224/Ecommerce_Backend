@@ -27,6 +27,7 @@ class RegisterMerchantSchema(Schema):
     first_name = fields.Str(required=True)
     last_name = fields.Str(required=True)
     phone = fields.Str()
+    username = fields.Str(required=False, validate=validate.Regexp(r'^[a-zA-Z0-9_]{3,30}$', error="Username must be 3-30 characters, alphanumeric and underscores only"))
     business_name = fields.Str(required=True)
     business_description = fields.Str()
     business_email = fields.Email(required=True)

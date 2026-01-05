@@ -195,6 +195,9 @@ class MerchantProfile(BaseModel):
     
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, unique=True)
+    username = db.Column(db.String(50), unique=True, nullable=True, index=True)  # Unique username for mobile app
+    username_updated_at = db.Column(db.DateTime, nullable=True)  # Track last username change for 1-year restriction
+    profile_img = db.Column(db.String(512), nullable=True)  # URL for profile image
     business_name = db.Column(db.String(200), nullable=False)
     business_description = db.Column(db.Text, nullable=True)
     business_email = db.Column(db.String(120), nullable=False)
@@ -336,6 +339,82 @@ class MerchantProfile(BaseModel):
     def get_by_business_name(cls, business_name):
         """Get merchant profile by business name."""
         return cls.query.filter_by(business_name=business_name).first()
+    
+    @classmethod
+    def get_by_username(cls, username):
+        """Get merchant profile by username (case-insensitive)."""
+        if not username:
+            return None
+        return cls.query.filter(db.func.lower(cls.username) == username.lower()).first()
+    
+    @classmethod
+    def is_username_available(cls, username):
+        """Check if username is available (case-insensitive)."""
+        if not username:
+            return False
+        return cls.get_by_username(username) is None
+    
+    @classmethod
+    def generate_username(cls, business_name=None, first_name=None):
+        """
+        Auto-generate a unique username from business_name or first_name.
+        Format: {base_name}_{random_4_digits}
+        """
+        import random
+        import re
+        
+        # Choose base name: prefer business_name, fallback to first_name
+        base_name = None
+        if business_name:
+            base_name = business_name
+        elif first_name:
+            base_name = first_name
+        
+        # If no name provided, use generic prefix
+        if not base_name:
+            base_name = "merchant"
+        
+        # Clean the base name: remove special chars, keep alphanumeric and spaces
+        base_name = re.sub(r'[^a-zA-Z0-9\s]', '', base_name)
+        # Replace spaces with underscores
+        base_name = base_name.replace(' ', '_')
+        # Convert to lowercase
+        base_name = base_name.lower()
+        # Remove multiple underscores
+        base_name = re.sub(r'_+', '_', base_name)
+        # Remove leading/trailing underscores
+        base_name = base_name.strip('_')
+        
+        # Ensure base_name is not empty
+        if not base_name:
+            base_name = "merchant"
+        
+        # Truncate to fit with random digits (max 30 chars total, so base max 26)
+        if len(base_name) > 26:
+            base_name = base_name[:26]
+        
+        # Try to generate unique username (max 10 attempts)
+        max_attempts = 10
+        for attempt in range(max_attempts):
+            # Generate 4 random digits
+            random_digits = random.randint(1000, 9999)
+            username = f"{base_name}_{random_digits}"
+            
+            # Check if available
+            if cls.is_username_available(username):
+                return username
+        
+        # If all attempts failed, use generic with longer random number
+        random_long = random.randint(100000, 999999)
+        username = f"merchant_{random_long}"
+        
+        # Final check - if still not available, add timestamp
+        if not cls.is_username_available(username):
+            from datetime import datetime
+            timestamp = int(datetime.now().timestamp()) % 1000000
+            username = f"merchant_{timestamp}"
+        
+        return username
     
     def update_verification_status(self, status, notes=None):
         """Update verification status and send notifications."""
