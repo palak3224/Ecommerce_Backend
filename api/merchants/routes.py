@@ -799,6 +799,94 @@ def update_profile():
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
+@merchants_bp.route('/profile/image', methods=['POST'])
+@jwt_required()
+@merchant_role_required
+def upload_profile_image():
+    """
+    Upload or update merchant profile image.
+    ---
+    tags:
+      - Merchant
+    security:
+      - Bearer: []
+    consumes:
+      - multipart/form-data
+    parameters:
+      - in: formData
+        name: profile_image
+        type: file
+        required: true
+        description: Profile image file to upload
+    responses:
+      200:
+        description: Profile image uploaded successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            profile_img_url:
+              type: string
+      400:
+        description: No file provided or invalid file
+      404:
+        description: Merchant profile not found
+      500:
+        description: Upload failed
+    """
+    try:
+        merchant_id = get_jwt_identity()
+        merchant_profile = MerchantProfile.get_by_user_id(merchant_id)
+        
+        if not merchant_profile:
+            logger.error(f"Merchant profile not found for user_id: {merchant_id}")
+            return jsonify({"error": "Merchant profile not found"}), 404
+        
+        # Check if file is present
+        if 'profile_image' not in request.files:
+            return jsonify({"error": "No file part in the request"}), 400
+        
+        file = request.files['profile_image']
+        if file.filename == '':
+            return jsonify({"error": "No file selected for uploading"}), 400
+        
+        # Delete old profile image from S3 if it exists
+        if merchant_profile.profile_img:
+            try:
+                from services.s3_service import get_s3_service
+                s3_service = get_s3_service()
+                s3_service.delete_profile_image(merchant_profile.profile_img)
+            except Exception as e:
+                logger.warning(f"Failed to delete old profile image from S3: {str(e)}")
+        
+        # Upload to S3
+        from services.s3_service import get_s3_service
+        s3_service = get_s3_service()
+        # Use merchant_id (which is the user_id) for the upload
+        upload_result = s3_service.upload_profile_image(file, merchant_id)
+        
+        secure_url = upload_result.get('url')
+        if not secure_url:
+            return jsonify({"error": "Failed to get URL from S3 upload result"}), 500
+        
+        # Update merchant profile
+        merchant_profile.profile_img = secure_url
+        merchant_profile.updated_at = datetime.utcnow()
+        db.session.commit()
+        
+        logger.info(f"Successfully uploaded profile image for merchant_id: {merchant_id}")
+        
+        return jsonify({
+            "message": "Profile image uploaded successfully",
+            "profile_img_url": merchant_profile.profile_img
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Profile image upload error for merchant {merchant_id}: {str(e)}", exc_info=True)
+        return jsonify({"error": "An internal error occurred during file upload"}), 500
+
 @merchants_bp.route('/profile/verify', methods=['POST'])
 @jwt_required()
 @merchant_role_required
