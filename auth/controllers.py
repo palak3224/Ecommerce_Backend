@@ -564,12 +564,19 @@ def get_user_profile(user_id):
         user = User.get_by_id(user_id)
         if not user:
             return {"error": "User not found"}, 404
+        # Format date_of_birth for response (DD-MM-YYYY)
+        date_of_birth_str = None
+        if user.date_of_birth:
+            date_of_birth_str = user.date_of_birth.strftime('%d-%m-%Y')
+        
         return {
             "profile": {
                 "email": user.email,
                 "first_name": user.first_name,
                 "last_name": user.last_name,
                 "phone": user.phone,
+                "date_of_birth": date_of_birth_str,
+                "gender": user.gender,
                 "profile_img": user.profile_img,
                 "is_email_verified": user.is_email_verified,
                 "is_phone_verified": user.is_phone_verified,
@@ -583,23 +590,59 @@ def get_user_profile(user_id):
         return {"error": "Could not retrieve profile"}, 500
 
 def update_user_profile(user_id, data):
-    """Update a user's profile information."""
+    """Update a user's profile information. Email and phone cannot be updated through this endpoint."""
     try:
         user = User.get_by_id(user_id)
         if not user:
             return {"error": "User not found"}, 404
+        
+        # Fields that are NOT allowed to be updated
+        restricted_fields = ['email', 'phone', 'id', 'password_hash', 'role', 'is_active', 
+                            'is_email_verified', 'is_phone_verified', 'auth_provider', 
+                            'provider_user_id', 'created_at', 'updated_at']
+        
+        # Check if user is trying to update restricted fields
+        restricted_attempted = [field for field in data.keys() if field in restricted_fields]
+        if restricted_attempted:
+            return {"error": f"Cannot update restricted fields: {', '.join(restricted_attempted)}"}, 400
+        
+        # Allowed fields to update
+        allowed_fields = ['first_name', 'last_name', 'date_of_birth', 'gender']
+        
+        # Update allowed fields
         for field, value in data.items():
-            if hasattr(user, field) and field in ['first_name', 'last_name', 'phone']:
-                setattr(user, field, value)
+            if field in allowed_fields and hasattr(user, field):
+                if field == 'date_of_birth' and value:
+                    # Convert DD-MM-YYYY string to Date object
+                    try:
+                        date_obj = datetime.strptime(value, '%d-%m-%Y').date()
+                        setattr(user, field, date_obj)
+                    except ValueError:
+                        return {"error": "Invalid date format. Use DD-MM-YYYY format"}, 400
+                elif field == 'date_of_birth' and value is None:
+                    # Allow clearing the date
+                    setattr(user, field, None)
+                else:
+                    setattr(user, field, value)
+        
         db.session.commit()
         redis = get_redis_client()
         if redis:
             redis.delete(f"user_profile:{user_id}")
             redis.delete(f"user:{user_id}")
+        
+        # Format date_of_birth for response (DD-MM-YYYY)
+        date_of_birth_str = None
+        if user.date_of_birth:
+            date_of_birth_str = user.date_of_birth.strftime('%d-%m-%Y')
+        
         return {
             "message": "Profile updated successfully",
             "profile": {
-                "first_name": user.first_name, "last_name": user.last_name, "phone": user.phone
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "date_of_birth": date_of_birth_str,
+                "gender": user.gender
             }
         }, 200
     except Exception as e:

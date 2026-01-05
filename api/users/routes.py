@@ -15,7 +15,19 @@ from auth.controllers import get_user_profile, update_user_profile, upload_profi
 class UpdateUserProfileSchema(Schema):
     first_name = fields.Str(validate=validate.Length(min=1, max=100))
     last_name = fields.Str(validate=validate.Length(min=1, max=100))
-    phone = fields.Str(validate=validate.Length(max=20))
+    date_of_birth = fields.Str(allow_none=True)  # DD-MM-YYYY format string
+    gender = fields.Str(validate=validate.OneOf(['male', 'female', 'other', 'prefer_not_to_say']), allow_none=True)
+    
+    @validates_schema
+    def validate_date_of_birth(self, data, **kwargs):
+        """Validate date_of_birth format (DD-MM-YYYY)"""
+        if 'date_of_birth' in data and data['date_of_birth']:
+            date_str = data['date_of_birth']
+            try:
+                # Parse DD-MM-YYYY format
+                datetime.strptime(date_str, '%d-%m-%Y')
+            except ValueError:
+                raise ValidationError("date_of_birth must be in DD-MM-YYYY format", "date_of_birth")
 
 
 # NEW: Schema for the change password endpoint

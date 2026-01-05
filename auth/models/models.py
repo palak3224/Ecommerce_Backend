@@ -70,6 +70,8 @@ class User(BaseModel):
     first_name = db.Column(db.String(100), nullable=False)
     last_name = db.Column(db.String(100), nullable=False)
     phone = db.Column(db.String(20), nullable=True)
+    date_of_birth = db.Column(db.Date, nullable=True)  # Date of birth (optional)
+    gender = db.Column(db.String(20), nullable=True)  # Gender: 'male', 'female', 'other', 'prefer_not_to_say'
     profile_img = db.Column(db.String(512), nullable=True)  # URL for Cloudinary profile image
     role = db.Column(db.Enum(UserRole), default=UserRole.USER, nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
