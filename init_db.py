@@ -594,25 +594,40 @@ def migrate_auth_provider_enum():
     if 'users' in inspector.get_table_names():
         try:
             with db.engine.connect() as conn:
-                # First, update any uppercase values to lowercase
-                conn.execute(text("""
-                    UPDATE users 
-                    SET auth_provider = LOWER(auth_provider)
-                    WHERE auth_provider IN ('LOCAL', 'GOOGLE', 'PHONE')
+                # Check current enum values first
+                result = conn.execute(text("""
+                    SELECT DISTINCT auth_provider 
+                    FROM users 
+                    WHERE auth_provider IS NOT NULL
                 """))
+                current_values = [row[0] for row in result]
                 
-                # Then, modify the column to use lowercase enum values
-                conn.execute(text("""
-                    ALTER TABLE users 
-                    MODIFY COLUMN auth_provider ENUM('local', 'google', 'phone') 
-                    NOT NULL DEFAULT 'local'
-                """))
+                # Only proceed if there are uppercase values
+                has_uppercase = any(val and val.isupper() for val in current_values)
                 
-                conn.commit()
-            print("✓ auth_provider enum values fixed successfully")
+                if has_uppercase:
+                    print("Found uppercase enum values, converting to lowercase...")
+                    # First, update any uppercase values to lowercase
+                    conn.execute(text("""
+                        UPDATE users 
+                        SET auth_provider = LOWER(auth_provider)
+                        WHERE auth_provider IN ('LOCAL', 'GOOGLE', 'PHONE')
+                    """))
+                    
+                    # Then, modify the column to use lowercase enum values
+                    conn.execute(text("""
+                        ALTER TABLE users 
+                        MODIFY COLUMN auth_provider ENUM('local', 'google', 'phone') 
+                        NOT NULL DEFAULT 'local'
+                    """))
+                    
+                    conn.commit()
+                    print("✓ auth_provider enum values fixed successfully")
+                else:
+                    print("✓ auth_provider enum already correct (no changes needed)")
         except Exception as e:
             # If the column doesn't exist or is already correct, that's okay
-            if "doesn't exist" in str(e) or "Duplicate column" in str(e):
+            if "doesn't exist" in str(e) or "Duplicate column" in str(e) or "Unknown column" in str(e):
                 print("✓ auth_provider enum already correct")
             else:
                 print(f"⚠ Could not migrate auth_provider enum (may already be correct): {str(e)}")
@@ -726,12 +741,444 @@ def migrate_carousel_orientation():
     else:
         print("✗ carousels table does not exist")
 
+def migrate_all_missing_columns():
+    """
+    Comprehensive migration function that adds all missing columns from models to database.
+    This function is safe to run multiple times - it checks for existing columns before adding.
+    Preserves all existing data.
+    
+    FUTURE-PROOF: Automatically handles new columns added to any model.
+    """
+    print("\n" + "=" * 70)
+    print("COMPREHENSIVE COLUMN MIGRATION")
+    print("=" * 70)
+    print("\nThis will add any missing columns from model definitions to the database.")
+    print("All existing data will be preserved.\n")
+    
+    from sqlalchemy import inspect, MetaData, Table, text
+    
+    inspector = db.inspect(db.engine)
+    
+    # Track statistics
+    stats = {
+        'tables_checked': 0,
+        'columns_added': 0,
+        'indexes_added': 0,
+        'errors': [],
+        'warnings': []
+    }
+    
+    # Get all registered models
+    all_models = []
+    for mapper in db.Model.registry.mappers:
+        model_class = mapper.class_
+        if hasattr(model_class, '__tablename__') and hasattr(model_class, '__table__'):
+            all_models.append(model_class)
+    
+    print(f"Found {len(all_models)} models to check\n")
+    
+    for model_class in all_models:
+        table_name = model_class.__tablename__
+        stats['tables_checked'] += 1
+        
+        # Check if table exists
+        if table_name not in inspector.get_table_names():
+            print(f"⚠ Table '{table_name}' does not exist - will be created by db.create_all()")
+            continue
+        
+        print(f"\nChecking table: {table_name}")
+        print("-" * 50)
+        
+        # Get existing columns in database
+        existing_columns = {col['name']: col for col in inspector.get_columns(table_name)}
+        existing_column_names = set(existing_columns.keys())
+        
+        # Get model columns
+        model_columns = {}
+        for column in model_class.__table__.columns:
+            model_columns[column.name] = column
+        
+        # Find missing columns
+        missing_columns = set(model_columns.keys()) - existing_column_names
+        
+        if not missing_columns:
+            print(f"  ✓ All columns exist")
+            continue
+        
+        print(f"  Found {len(missing_columns)} missing column(s)")
+        
+        # Add missing columns one by one
+        for col_name in sorted(missing_columns):  # Sort for consistent ordering
+            column = model_columns[col_name]
+            
+            try:
+                # Build ALTER TABLE statement
+                sql_type = _get_sql_type_improved(column)
+                nullable = "NULL" if column.nullable else "NOT NULL"
+                
+                # Handle server_default (database-level defaults)
+                default_clause = ""
+                if column.server_default is not None:
+                    default_clause = _get_server_default_clause(column.server_default)
+                elif column.default is not None:
+                    # Handle Python-level defaults
+                    default_value = _get_default_value_improved(column.default, column.type)
+                    if default_value:
+                        default_clause = f" DEFAULT {default_value}"
+                elif not column.nullable:
+                    # For NOT NULL columns without default, set a safe default
+                    default_clause = _get_safe_default_for_type_improved(column.type)
+                
+                # Build ALTER TABLE statement
+                alter_sql = f"ALTER TABLE `{table_name}` ADD COLUMN `{col_name}` {sql_type} {nullable}{default_clause}"
+                
+                print(f"  → Adding column: {col_name} ({sql_type})")
+                
+                with db.engine.connect() as conn:
+                    conn.execute(text(alter_sql))
+                    conn.commit()
+                
+                stats['columns_added'] += 1
+                print(f"    ✓ Added successfully")
+                
+                # Handle indexes (including composite indexes)
+                _add_indexes_for_column(table_name, col_name, column, inspector, stats)
+                
+            except Exception as e:
+                error_msg = f"Failed to add column {table_name}.{col_name}: {str(e)}"
+                
+                # Check if it's a duplicate column error (might have been added concurrently)
+                if "Duplicate column name" in str(e) or "already exists" in str(e).lower():
+                    stats['warnings'].append(f"{table_name}.{col_name} - Column may have been added by another process")
+                    print(f"    ℹ Column may have been added by another process")
+                else:
+                    stats['errors'].append(error_msg)
+                    print(f"    ✗ {error_msg}")
+                    import traceback
+                    print(f"    Error details: {traceback.format_exc()}")
+    
+    # Summary
+    print("\n" + "=" * 70)
+    print("MIGRATION SUMMARY")
+    print("=" * 70)
+    print(f"Tables checked: {stats['tables_checked']}")
+    print(f"Columns added: {stats['columns_added']}")
+    print(f"Indexes added: {stats['indexes_added']}")
+    if stats['warnings']:
+        print(f"\nWarnings: {len(stats['warnings'])}")
+        for warning in stats['warnings'][:5]:  # Show first 5
+            print(f"  - {warning}")
+        if len(stats['warnings']) > 5:
+            print(f"  ... and {len(stats['warnings']) - 5} more")
+    if stats['errors']:
+        print(f"\nErrors encountered: {len(stats['errors'])}")
+        for error in stats['errors'][:5]:  # Show first 5
+            print(f"  - {error}")
+        if len(stats['errors']) > 5:
+            print(f"  ... and {len(stats['errors']) - 5} more")
+    else:
+        print("\n✓ All migrations completed successfully!")
+    print("=" * 70 + "\n")
+    
+    return len(stats['errors']) == 0
+
+
+def _get_sql_type_improved(column):
+    """Convert SQLAlchemy column type to SQL string - IMPROVED VERSION."""
+    from sqlalchemy import String, Integer, BigInteger, Boolean, DateTime, Date, Text, Numeric, Enum, JSON, Float, SmallInteger
+    from sqlalchemy.dialects.mysql import TINYINT, MEDIUMINT, LONGTEXT
+    
+    col_type = column.type
+    
+    # Handle String types
+    if isinstance(col_type, String):
+        length = col_type.length if col_type.length else 255
+        if length > 65535:
+            return "LONGTEXT"
+        return f"VARCHAR({length})"
+    
+    # Handle Integer types
+    if isinstance(col_type, Integer):
+        return "INTEGER"
+    if isinstance(col_type, BigInteger):
+        return "BIGINT"
+    if isinstance(col_type, SmallInteger):
+        return "SMALLINT"
+    if isinstance(col_type, TINYINT):
+        return "TINYINT"
+    if isinstance(col_type, MEDIUMINT):
+        return "MEDIUMINT"
+    
+    # Handle Boolean
+    if isinstance(col_type, Boolean):
+        return "BOOLEAN"
+    
+    # Handle Float
+    if isinstance(col_type, Float):
+        precision = getattr(col_type, 'precision', None)
+        if precision:
+            return f"FLOAT({precision})"
+        return "FLOAT"
+    
+    # Handle DateTime
+    if isinstance(col_type, DateTime):
+        return "DATETIME"
+    
+    # Handle Date
+    if isinstance(col_type, Date):
+        return "DATE"
+    
+    # Handle Text types
+    if isinstance(col_type, Text):
+        if isinstance(col_type, LONGTEXT):
+            return "LONGTEXT"
+        return "TEXT"
+    
+    # Handle Numeric/Decimal
+    if isinstance(col_type, Numeric):
+        precision = col_type.precision if col_type.precision else 10
+        scale = col_type.scale if col_type.scale else 2
+        return f"DECIMAL({precision},{scale})"
+    
+    # Handle Enum
+    if isinstance(col_type, Enum):
+        enum_values = _get_enum_values(col_type)
+        enum_str = "','".join(str(v) for v in enum_values)
+        return f"ENUM('{enum_str}')"
+    
+    # Handle JSON
+    if isinstance(col_type, JSON) or 'JSON' in str(col_type).upper():
+        return "JSON"
+    
+    # Handle custom types (like AuthProviderType)
+    if hasattr(col_type, 'impl'):
+        # Recursively get type from implementation
+        return _get_sql_type_improved(type('DummyColumn', (), {'type': col_type.impl})())
+    
+    # Fallback: try to infer from string representation
+    type_str = str(col_type).upper()
+    if 'VARCHAR' in type_str or 'STRING' in type_str:
+        return "VARCHAR(255)"
+    if 'INT' in type_str:
+        return "INTEGER"
+    if 'BOOL' in type_str:
+        return "BOOLEAN"
+    if 'TEXT' in type_str:
+        return "TEXT"
+    
+    # Ultimate fallback
+    return "TEXT"
+
+
+def _get_enum_values(enum_type):
+    """Extract enum values from SQLAlchemy Enum type."""
+    try:
+        if hasattr(enum_type, 'enums'):
+            return enum_type.enums
+        elif hasattr(enum_type, 'enum_class'):
+            return [e.value for e in enum_type.enum_class]
+        elif hasattr(enum_type, 'python_type'):
+            enum_class = enum_type.python_type
+            return [e.value for e in enum_class]
+    except:
+        pass
+    # Fallback
+    return ['pending', 'approved', 'rejected']
+
+
+def _get_server_default_clause(server_default):
+    """Extract server default clause from SQLAlchemy server_default."""
+    if server_default is None:
+        return ""
+    
+    # Handle SQLAlchemy text() defaults
+    if hasattr(server_default, 'arg'):
+        arg = server_default.arg
+        if isinstance(arg, str):
+            # Check if it's a SQL function
+            if 'CURRENT_TIMESTAMP' in arg.upper() or 'NOW()' in arg.upper():
+                return " DEFAULT CURRENT_TIMESTAMP"
+            elif 'FALSE' in arg.upper() or arg.upper() == '0':
+                return " DEFAULT 0"
+            elif 'TRUE' in arg.upper() or arg.upper() == '1':
+                return " DEFAULT 1"
+            else:
+                # Try to parse as SQL
+                return f" DEFAULT {arg}"
+        elif callable(arg):
+            # For callable server defaults, we can't easily convert
+            return ""  # Will rely on application-level default
+    
+    # Handle string defaults directly
+    if isinstance(server_default, str):
+        if server_default.upper() in ('CURRENT_TIMESTAMP', 'NOW()'):
+            return " DEFAULT CURRENT_TIMESTAMP"
+        return f" DEFAULT {server_default}"
+    
+    return ""
+
+
+def _get_default_value_improved(default, column_type):
+    """Extract default value from column default - IMPROVED VERSION."""
+    if default is None:
+        return None
+    
+    # Handle SQLAlchemy default objects
+    if hasattr(default, 'arg'):
+        arg = default.arg
+        
+        # Handle callable defaults (functions, lambdas)
+        if callable(arg):
+            try:
+                result = arg()
+                return _format_default_value(result, column_type)
+            except Exception:
+                # Can't evaluate callable - will need application-level handling
+                return None
+        
+        # Handle scalar defaults
+        return _format_default_value(arg, column_type)
+    
+    # Handle direct callable
+    if callable(default):
+        try:
+            result = default()
+            return _format_default_value(result, column_type)
+        except Exception:
+            return None
+    
+    # Handle direct scalar
+    return _format_default_value(default, column_type)
+
+
+def _format_default_value(value, column_type):
+    """Format a default value for SQL."""
+    if value is None:
+        return None
+    
+    # Handle numeric types
+    if isinstance(value, (int, float)):
+        return str(value)
+    
+    # Handle boolean
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    
+    # Handle strings
+    if isinstance(value, str):
+        # Escape single quotes
+        escaped = value.replace("'", "''")
+        return f"'{escaped}'"
+    
+    # Handle enum values
+    if hasattr(value, 'value'):
+        return f"'{value.value}'"
+    
+    # Handle datetime objects
+    if hasattr(value, 'isoformat'):
+        return f"'{value.isoformat()}'"
+    
+    return f"'{str(value)}'"
+
+
+def _get_safe_default_for_type_improved(column_type):
+    """Get a safe default value for NOT NULL columns without explicit defaults - IMPROVED."""
+    from sqlalchemy import String, Integer, BigInteger, Boolean, DateTime, Date, Text, Numeric, Enum, Float
+    
+    if isinstance(column_type, (Integer, BigInteger)):
+        return " DEFAULT 0"
+    elif isinstance(column_type, Boolean):
+        return " DEFAULT 0"
+    elif isinstance(column_type, String):
+        return " DEFAULT ''"
+    elif isinstance(column_type, (DateTime, Date)):
+        return " DEFAULT CURRENT_TIMESTAMP"
+    elif isinstance(column_type, (Numeric, Float)):
+        return " DEFAULT 0.00"
+    elif isinstance(column_type, Enum):
+        try:
+            enum_values = _get_enum_values(column_type)
+            if enum_values:
+                return f" DEFAULT '{enum_values[0]}'"
+        except:
+            pass
+        return " DEFAULT 'pending'"
+    
+    return ""  # No default - application must handle
+
+
+def _add_indexes_for_column(table_name, col_name, column, inspector, stats):
+    """Add indexes for a column, including composite indexes."""
+    try:
+        existing_indexes = {idx['name']: idx for idx in inspector.get_indexes(table_name)}
+        
+        # Handle single-column index
+        if column.index and not column.unique:
+            index_name = f"ix_{table_name}_{col_name}"
+            if index_name not in existing_indexes:
+                index_sql = f"CREATE INDEX `{index_name}` ON `{table_name}` (`{col_name}`)"
+                with db.engine.connect() as conn:
+                    conn.execute(text(index_sql))
+                    conn.commit()
+                stats['indexes_added'] += 1
+                print(f"    ✓ Created index: {index_name}")
+        
+        # Handle unique index
+        if column.unique:
+            index_name = f"ix_{table_name}_{col_name}"
+            # Check if unique constraint exists
+            unique_indexes = [name for name, idx in existing_indexes.items() if idx.get('unique', False)]
+            if index_name not in unique_indexes:
+                index_sql = f"CREATE UNIQUE INDEX `{index_name}` ON `{table_name}` (`{col_name}`)"
+                with db.engine.connect() as conn:
+                    conn.execute(text(index_sql))
+                    conn.commit()
+                stats['indexes_added'] += 1
+                print(f"    ✓ Created unique index: {index_name}")
+    
+    except Exception as idx_error:
+        # Index might already exist or have a different name
+        if "Duplicate key name" not in str(idx_error) and "already exists" not in str(idx_error).lower():
+            print(f"    ⚠ Index creation warning: {str(idx_error)}")
+
 def init_database():
     """Initialize the database with all tables and initial data."""
     app = create_app()
     with app.app_context():
         print("Initializing Database:")
         print("=====================")
+        
+        # SAFETY CHECK: Warn if running on production
+        db_uri = os.getenv('DATABASE_URI', '')
+        db_uri_lower = db_uri.lower()
+        is_production = any(keyword in db_uri_lower for keyword in ['production', 'prod', 'live', 'main'])
+        
+        if is_production:
+            print("\n" + "=" * 70)
+            print("⚠️  WARNING: This appears to be a PRODUCTION database!")
+            print("=" * 70)
+            print(f"Database URI: {db_uri[:50]}..." if len(db_uri) > 50 else f"Database URI: {db_uri}")
+            print("\n⚠️  IMPORTANT: Before proceeding:")
+            print("   1. Take a database backup")
+            print("   2. Ensure you've tested on staging first")
+            print("   3. Run during a maintenance window if possible")
+            print("\n" + "=" * 70)
+            try:
+                response = input("Are you sure you want to continue? (type 'yes' to proceed): ")
+                if response.lower() != 'yes':
+                    print("\n❌ Aborted. No changes made to the database.")
+                    return
+            except (EOFError, KeyboardInterrupt):
+                print("\n❌ Aborted by user. No changes made to the database.")
+                return
+            print("\n✓ Proceeding with migration...\n")
+        else:
+            print("\n" + "=" * 70)
+            print("⚠️  REMINDER: Before running on production:")
+            print("   1. Take a database backup")
+            print("   2. Test on staging first")
+            print("   3. Run during maintenance window")
+            print("=" * 70 + "\n")
         
         # Create database if it doesn't exist
         create_database()
@@ -744,7 +1191,13 @@ def init_database():
         # Verify all tables are created
         verify_all_tables()
         
-        # Run migrations
+        # Run comprehensive column migration FIRST (before other specific migrations)
+        print("\n" + "=" * 70)
+        print("RUNNING COMPREHENSIVE COLUMN MIGRATION")
+        print("=" * 70)
+        migrate_all_missing_columns()
+        
+        # Run specific migrations (these handle edge cases for specific columns)
         migrate_profile_img_column()
         migrate_date_of_birth_gender_columns()
         migrate_auth_provider_enum()
@@ -802,10 +1255,13 @@ if __name__ == "__main__":
         print("\nThis script will:")
         print("  1. Create the database if it doesn't exist")
         print("  2. Create all tables")
-        print("  3. Run migrations")
-        print("  4. Initialize default data")
-        print("  5. Create super admin user (if configured)")
-        print("\nStarting initialization...\n")
+        print("  3. Run comprehensive column migration (adds missing columns)")
+        print("  4. Run specific migrations")
+        print("  5. Initialize default data")
+        print("  6. Create super admin user (if configured)")
+        print("\nNote: This script is safe to run multiple times.")
+        print("      It will preserve all existing data.\n")
+        print("Starting initialization...\n")
         
         init_database()
         
