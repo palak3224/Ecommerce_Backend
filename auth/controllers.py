@@ -118,6 +118,25 @@ def register_merchant(data):
         db.session.add(user)
         db.session.flush()  # Flush to get user.id without committing
         
+        # Validate and sanitize business_phone
+        business_phone = data.get('business_phone') or data.get('phone')
+        if not business_phone:
+            return {"error": "Business phone is required"}, 400
+        
+        # Ensure business_phone is not an email address
+        if '@' in business_phone:
+            return {"error": "Business phone cannot be an email address. Please provide a valid phone number."}, 400
+        
+        # Strip whitespace and validate length
+        business_phone = business_phone.strip()
+        if len(business_phone) > 30:
+            return {"error": "Business phone number is too long. Maximum 30 characters allowed."}, 400
+        
+        # Basic phone number validation (must contain at least some digits)
+        import re
+        if not re.search(r'\d', business_phone):
+            return {"error": "Business phone must contain at least one digit."}, 400
+        
         # Create merchant profile
         merchant = MerchantProfile(
             user_id=user.id,
@@ -125,7 +144,7 @@ def register_merchant(data):
             business_name=data['business_name'],
             business_description=data.get('business_description'),
             business_email=data['business_email'],
-            business_phone=data.get('business_phone', data.get('phone')),
+            business_phone=business_phone,
             business_address=data.get('business_address'),
             country_code=data['country_code'],
             state_province=data['state_province'],

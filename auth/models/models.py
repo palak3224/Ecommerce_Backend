@@ -201,7 +201,7 @@ class MerchantProfile(BaseModel):
     business_name = db.Column(db.String(200), nullable=False)
     business_description = db.Column(db.Text, nullable=True)
     business_email = db.Column(db.String(120), nullable=False)
-    business_phone = db.Column(db.String(20), nullable=False)
+    business_phone = db.Column(db.String(30), nullable=False)  # Increased to 30 to handle international numbers with formatting
     business_address = db.Column(db.Text, nullable=False)
     
     # Country and Region Information

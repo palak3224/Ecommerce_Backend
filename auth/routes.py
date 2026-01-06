@@ -31,7 +31,10 @@ class RegisterMerchantSchema(Schema):
     business_name = fields.Str(required=True)
     business_description = fields.Str()
     business_email = fields.Email(required=True)
-    business_phone = fields.Str()
+    business_phone = fields.Str(required=True, validate=[
+        validate.Length(min=10, max=30, error="Business phone must be between 10 and 30 characters"),
+        validate.Regexp(r'^[\d\s\+\-\(\)]+$', error="Business phone must contain only digits, spaces, +, -, and parentheses")
+    ])
     business_address = fields.Str()
     country_code = fields.Str(required=True, validate=validate.OneOf([c.value for c in CountryCode]))
     state_province = fields.Str(required=True)

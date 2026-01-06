@@ -714,6 +714,40 @@ def verify_all_tables():
     
     return len(missing_tables) == 0
 
+def migrate_business_phone_column_size():
+    """Increase business_phone column size from 20 to 30 characters."""
+    print("\nMigrating business_phone column size:")
+    print("------------------------------------")
+    
+    inspector = db.inspect(db.engine)
+    
+    if 'merchant_profiles' in inspector.get_table_names():
+        existing_columns = {col['name']: col for col in inspector.get_columns('merchant_profiles')}
+        
+        if 'business_phone' in existing_columns:
+            current_column = existing_columns['business_phone']
+            current_type = str(current_column.get('type', ''))
+            
+            # Check if it's still VARCHAR(20) or smaller
+            if 'varchar(20)' in current_type.lower() or 'varchar(19)' in current_type.lower():
+                print("Increasing business_phone column size from 20 to 30 characters...")
+                try:
+                    with db.engine.connect() as conn:
+                        conn.execute(text("""
+                            ALTER TABLE merchant_profiles 
+                            MODIFY COLUMN business_phone VARCHAR(30) NOT NULL
+                        """))
+                        conn.commit()
+                    print("✓ business_phone column size increased successfully")
+                except Exception as e:
+                    print(f"✗ Failed to increase business_phone column size: {str(e)}")
+            else:
+                print(f"✓ business_phone column already has correct size ({current_type})")
+        else:
+            print("✗ business_phone column does not exist")
+    else:
+        print("✗ merchant_profiles table does not exist")
+
 def migrate_carousel_orientation():
     """Add orientation column to carousels table if it doesn't exist."""
     print("\nMigrating carousel orientation column:")
@@ -1201,6 +1235,7 @@ def init_database():
         migrate_profile_img_column()
         migrate_date_of_birth_gender_columns()
         migrate_auth_provider_enum()
+        migrate_business_phone_column_size()
         migrate_carousel_orientation()
         
         # Initialize data
