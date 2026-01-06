@@ -1355,6 +1355,106 @@ class ReelsController:
             return jsonify({'error': f'Failed to get user stats: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
     
     @staticmethod
+    def get_recently_viewed_reels():
+        """
+        Get recently viewed reels for the authenticated user.
+        Returns reels ordered by most recently viewed first.
+        Works for both regular users and merchants.
+        
+        Returns:
+            JSON response with paginated reel list including viewed_at timestamp
+        """
+        try:
+            # Get authenticated user ID
+            current_user_id = get_jwt_identity()
+            if not current_user_id:
+                return jsonify({'error': 'Authentication required'}), HTTPStatus.UNAUTHORIZED
+            
+            # Convert to int if it's a string
+            if isinstance(current_user_id, str):
+                current_user_id = int(current_user_id)
+            
+            # Get pagination parameters
+            page = request.args.get('page', 1, type=int)
+            per_page = request.args.get('per_page', 20, type=int)
+            per_page = min(per_page, 100)  # Max 100 per page
+            
+            # Get fields parameter for field selection
+            fields_param = request.args.get('fields')
+            fields = None
+            if fields_param:
+                fields = [f.strip() for f in fields_param.split(',') if f.strip()]
+            
+            # Query user's viewed reels, ordered by most recent view
+            # Join with Reel to get full reel data and filter for visible reels only
+            query = db.session.query(UserReelView, Reel).join(
+                Reel, UserReelView.reel_id == Reel.reel_id
+            ).filter(
+                UserReelView.user_id == current_user_id,
+                Reel.deleted_at == None,
+                Reel.is_active == True,
+                Reel.approval_status == 'approved'
+            ).order_by(
+                desc(UserReelView.viewed_at)
+            )
+            
+            # Get total count before pagination
+            total = query.count()
+            
+            # Apply pagination
+            offset = (page - 1) * per_page
+            paginated_results = query.offset(offset).limit(per_page).all()
+            
+            # Serialize reels with viewed_at timestamp
+            reels_data = []
+            for user_view, reel in paginated_results:
+                # Check if reel is visible (no disabling reasons)
+                if not reel.is_visible:
+                    continue  # Skip reels that shouldn't be visible
+                
+                # Serialize reel
+                reel_data = reel.serialize(
+                    include_reasons=False,
+                    include_product=True,
+                    fields=fields
+                )
+                
+                # Add viewed_at timestamp
+                reel_data['viewed_at'] = user_view.viewed_at.isoformat() if user_view.viewed_at else None
+                
+                # Add view_duration if available
+                if user_view.view_duration is not None:
+                    reel_data['view_duration'] = user_view.view_duration
+                
+                # Check if user has liked this reel
+                is_liked = UserReelLike.user_has_liked(current_user_id, reel.reel_id)
+                reel_data['is_liked'] = is_liked
+                
+                reels_data.append(reel_data)
+            
+            # Calculate pagination info
+            pages = (total + per_page - 1) // per_page if total > 0 else 0
+            
+            return jsonify({
+                'status': 'success',
+                'data': {
+                    'reels': reels_data,
+                    'pagination': {
+                        'total': total,
+                        'pages': pages,
+                        'current_page': page,
+                        'per_page': per_page,
+                        'has_next': page < pages,
+                        'has_prev': page > 1
+                    }
+                }
+            }), HTTPStatus.OK
+            
+        except Exception as e:
+            current_app.logger.error(f"Get recently viewed reels failed: {str(e)}", exc_info=True)
+            return jsonify({'error': f'Failed to get recently viewed reels: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+    
+    @staticmethod
     def get_user_shared_reels():
         """
         Get reels that the current user has shared.

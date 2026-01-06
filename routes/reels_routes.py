@@ -227,6 +227,72 @@ def get_merchant_reel_stats(merchant_id):
     return ReelsController.get_merchant_reel_stats(merchant_id)
 
 
+@reels_bp.route('/api/reels/recently-viewed', methods=['GET', 'OPTIONS'])
+@cross_origin()
+@jwt_required()
+def get_recently_viewed_reels():
+    """
+    Get recently viewed reels for the authenticated user.
+    ---
+    tags:
+      - Reels
+    security:
+      - Bearer: []
+    parameters:
+      - in: query
+        name: page
+        type: integer
+        required: false
+        default: 1
+        description: Page number
+      - in: query
+        name: per_page
+        type: integer
+        required: false
+        default: 20
+        description: Items per page (max 100)
+      - in: query
+        name: fields
+        type: string
+        required: false
+        description: Comma-separated list of fields to include
+    responses:
+      200:
+        description: Recently viewed reels retrieved successfully
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+            data:
+              type: object
+              properties:
+                reels:
+                  type: array
+                  items:
+                    type: object
+                pagination:
+                  type: object
+                  properties:
+                    total:
+                      type: integer
+                    pages:
+                      type: integer
+                    current_page:
+                      type: integer
+                    per_page:
+                      type: integer
+                    has_next:
+                      type: boolean
+                    has_prev:
+                      type: boolean
+      401:
+        description: Unauthorized - JWT token required
+      500:
+        description: Server error
+    """
+    return ReelsController.get_recently_viewed_reels()
+
 @reels_bp.route('/api/reels/public', methods=['GET', 'OPTIONS'])
 @cross_origin()
 def get_public_reels():
