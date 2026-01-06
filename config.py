@@ -74,9 +74,30 @@ class Config:
     AWS_REGION = os.getenv('AWS_REGION', 'ap-south-1')
     FEATURE_TRANSLATION = os.getenv('FEATURE_TRANSLATION', 'false').lower() in ('1', 'true', 'yes')
     
+    # Video Storage Provider
+    VIDEO_STORAGE_PROVIDER = os.getenv('VIDEO_STORAGE_PROVIDER', 'cloudinary')  # 'cloudinary' or 'aws'
+    
+    # AWS S3 Configuration (for future use when switching to AWS)
+    AWS_S3_VIDEO_BUCKET = os.getenv('AWS_S3_VIDEO_BUCKET')
+    AWS_CLOUDFRONT_URL = os.getenv('AWS_CLOUDFRONT_URL')
+    AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
+    AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
+    
     # Razorpay Configuration
     RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID', 'rzp_test_1DP5mmOlF5G5ag')
     RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET', 'your_secret_key')
+    
+    # Twilio Configuration
+    TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
+    TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
+    TWILIO_PHONE_NUMBER = os.getenv('TWILIO_PHONE_NUMBER')
+    
+    # Notification Cleanup Configuration
+    NOTIFICATION_CLEANUP_ENABLED = os.getenv('NOTIFICATION_CLEANUP_ENABLED', 'true').lower() in ('1', 'true', 'yes')
+    NOTIFICATION_CLEANUP_DAYS_OLD = int(os.getenv('NOTIFICATION_CLEANUP_DAYS_OLD', '90'))
+    NOTIFICATION_CLEANUP_INTERVAL_HOURS = int(os.getenv('NOTIFICATION_CLEANUP_INTERVAL_HOURS', '6'))
+    NOTIFICATION_CLEANUP_BATCH_SIZE = int(os.getenv('NOTIFICATION_CLEANUP_BATCH_SIZE', '100'))
+    NOTIFICATION_CLEANUP_MAX_BATCHES = int(os.getenv('NOTIFICATION_CLEANUP_MAX_BATCHES', '10'))
 
 class DevelopmentConfig(Config):
     """Configuration for development environment."""

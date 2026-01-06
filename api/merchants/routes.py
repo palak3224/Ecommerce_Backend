@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_cors import cross_origin
 from marshmallow import Schema, fields, validate, ValidationError
 from werkzeug.utils import secure_filename
 import os
@@ -12,6 +13,7 @@ from auth.models import User, MerchantProfile
 from auth.models.merchant_document import VerificationStatus, DocumentType, MerchantDocument
 from auth.models.country_config import CountryConfig, CountryCode
 from common.database import db
+from http import HTTPStatus
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -47,9 +49,10 @@ class CreateMerchantProfileSchema(Schema):
 class UpdateProfileSchema(Schema):
     business_name = fields.Str(validate=validate.Length(min=2, max=200))
     business_description = fields.Str()
-    business_email = fields.Email()
-    business_phone = fields.Str()
+    # REMOVED: business_email and business_phone (cannot be updated directly)
     business_address = fields.Str()
+    username = fields.Str(validate=validate.Regexp(r'^[a-zA-Z0-9_]{3,30}$', error="Username must be 3-30 characters, alphanumeric and underscores only"), allow_none=True)
+    profile_img = fields.Str(allow_none=True)  # Profile image URL
     
     # Country and Region Information
     country_code = fields.Str(validate=validate.OneOf([code.value for code in CountryCode]))
@@ -415,6 +418,8 @@ def get_profile():
                 "bank_swift_code": merchant_profile.bank_swift_code,
                 "bank_routing_number": merchant_profile.bank_routing_number,
                 "bank_iban": merchant_profile.bank_iban,
+                "username": merchant_profile.username,
+                "profile_img": merchant_profile.profile_img,
                 "is_verified": merchant_profile.is_verified,
                 "verification_status": merchant_profile.verification_status.value,
                 "verification_submitted_at": merchant_profile.verification_submitted_at.isoformat() if merchant_profile.verification_submitted_at else None,
@@ -428,6 +433,135 @@ def get_profile():
         from flask import current_app
         current_app.logger.error(f"Error fetching merchant profile: {str(e)}", exc_info=True)
         return jsonify({"error": f"Failed to fetch profile: {str(e)}"}), 500
+
+@merchants_bp.route('/<int:merchant_id>/public-profile', methods=['GET', 'OPTIONS'])
+@cross_origin()
+def get_public_profile(merchant_id):
+    """
+    Get public merchant profile information (for users to view).
+    ---
+    tags:
+      - Merchant
+    parameters:
+      - in: path
+        name: merchant_id
+        type: integer
+        required: true
+        description: Merchant ID
+    responses:
+      200:
+        description: Merchant profile retrieved successfully
+        schema:
+          type: object
+          properties:
+            merchant_id:
+              type: integer
+            business_name:
+              type: string
+            business_description:
+              type: string
+            business_email:
+              type: string
+            business_phone:
+              type: string
+            business_address:
+              type: string
+            location:
+              type: object
+              properties:
+                country_code:
+                  type: string
+                state_province:
+                  type: string
+                city:
+                  type: string
+                postal_code:
+                  type: string
+            is_verified:
+              type: boolean
+            verification_status:
+              type: string
+            gstin:
+              type: string
+              nullable: true
+      404:
+        description: Merchant not found
+      500:
+        description: Internal server error
+    """
+    try:
+        merchant_profile = MerchantProfile.get_by_id(merchant_id)
+        
+        if not merchant_profile:
+            return jsonify({"error": "Merchant not found"}), HTTPStatus.NOT_FOUND
+        
+        return jsonify({
+            "merchant_id": merchant_profile.id,
+            "business_name": merchant_profile.business_name,
+            "business_description": merchant_profile.business_description,
+            "business_email": merchant_profile.business_email,
+            "business_phone": merchant_profile.business_phone,
+            "business_address": merchant_profile.business_address,
+            "location": {
+                "country_code": merchant_profile.country_code,
+                "state_province": merchant_profile.state_province,
+                "city": merchant_profile.city,
+                "postal_code": merchant_profile.postal_code
+            },
+            "is_verified": merchant_profile.is_verified,
+            "verification_status": merchant_profile.verification_status.value if merchant_profile.verification_status else "pending",
+            "gstin": merchant_profile.gstin,
+            "tax_id": merchant_profile.tax_id
+        }), HTTPStatus.OK
+        
+    except Exception as e:
+        logger.error(f"Error getting public merchant profile: {str(e)}")
+        return jsonify({"error": "Failed to retrieve merchant profile"}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+@merchants_bp.route('/username/check', methods=['GET'])
+@cross_origin()
+def check_username_availability():
+    """
+    Check if username is available.
+    ---
+    tags:
+      - Merchant
+    parameters:
+      - in: query
+        name: username
+        type: string
+        required: true
+        description: Username to check
+    responses:
+      200:
+        description: Username availability status
+        schema:
+          type: object
+          properties:
+            available:
+              type: boolean
+            username:
+              type: string
+    """
+    username = request.args.get('username', '').strip().lower()
+    
+    if not username:
+        return jsonify({"error": "Username is required"}), 400
+    
+    # Validate format
+    import re
+    if not re.match(r'^[a-zA-Z0-9_]{3,30}$', username):
+        return jsonify({
+            "available": False,
+            "error": "Invalid username format. Username must be 3-30 characters, alphanumeric and underscores only"
+        }), 400
+    
+    is_available = MerchantProfile.is_username_available(username)
+    
+    return jsonify({
+        "available": is_available,
+        "username": username
+    }), 200
 
 @merchants_bp.route('/profile', methods=['PUT'])
 @jwt_required()
@@ -554,9 +688,57 @@ def update_profile():
             logger.error(f"Merchant profile not found for user_id: {merchant_id}")
             return jsonify({"error": "Merchant profile not found"}), 404
         
-        # Update profile fields
+        # Fields that are NOT allowed to be updated
+        restricted_fields = ['business_email', 'business_phone', 'id', 'user_id', 
+                            'verification_status', 'is_verified', 'verification_submitted_at',
+                            'verification_completed_at', 'verification_notes',
+                            'created_at', 'updated_at']
+        
+        # Check if user is trying to update restricted fields
+        restricted_attempted = [field for field in data.keys() if field in restricted_fields]
+        if restricted_attempted:
+            return jsonify({
+                "error": f"Cannot update restricted fields: {', '.join(restricted_attempted)}"
+            }), 400
+        
+        # Handle username update separately (with 1-year restriction)
+        if 'username' in data and data['username']:
+            new_username = data['username'].strip().lower()
+            
+            # Check if username update is allowed (once per year)
+            if merchant_profile.username_updated_at:
+                from datetime import datetime, timedelta
+                one_year_ago = datetime.utcnow() - timedelta(days=365)
+                if merchant_profile.username_updated_at > one_year_ago:
+                    days_remaining = (merchant_profile.username_updated_at + timedelta(days=365) - datetime.utcnow()).days
+                    return jsonify({
+                        "error": f"Username can only be updated once per year. You can update again in {days_remaining} days."
+                    }), 400
+            
+            # Check if username is already taken by another merchant
+            existing_merchant = MerchantProfile.get_by_username(new_username)
+            if existing_merchant and existing_merchant.id != merchant_profile.id:
+                return jsonify({"error": "Username already taken"}), 409
+            
+            # Update username and timestamp
+            merchant_profile.username = new_username
+            merchant_profile.username_updated_at = datetime.utcnow()
+            data.pop('username')  # Remove from data to avoid duplicate processing
+            logger.debug(f"Updated username to {new_username}")
+        
+        # Allowed fields to update
+        allowed_fields = [
+            'business_name', 'business_description', 'business_address', 'profile_img',
+            'country_code', 'state_province', 'city', 'postal_code',
+            'bank_account_number', 'bank_name', 'bank_branch', 'bank_iban',
+            'gstin', 'pan_number', 'bank_ifsc_code',
+            'tax_id', 'vat_number', 'sales_tax_number',
+            'bank_swift_code', 'bank_routing_number'
+        ]
+        
+        # Update allowed fields
         for field, value in data.items():
-            if hasattr(merchant_profile, field):
+            if field in allowed_fields and hasattr(merchant_profile, field):
                 setattr(merchant_profile, field, value)
                 logger.debug(f"Updated field {field} to {value}")
         
@@ -616,6 +798,94 @@ def update_profile():
         logger.error(f"Unexpected error in update_profile: {str(e)}", exc_info=True)
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
+
+@merchants_bp.route('/profile/image', methods=['POST'])
+@jwt_required()
+@merchant_role_required
+def upload_profile_image():
+    """
+    Upload or update merchant profile image.
+    ---
+    tags:
+      - Merchant
+    security:
+      - Bearer: []
+    consumes:
+      - multipart/form-data
+    parameters:
+      - in: formData
+        name: profile_image
+        type: file
+        required: true
+        description: Profile image file to upload
+    responses:
+      200:
+        description: Profile image uploaded successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            profile_img_url:
+              type: string
+      400:
+        description: No file provided or invalid file
+      404:
+        description: Merchant profile not found
+      500:
+        description: Upload failed
+    """
+    try:
+        merchant_id = get_jwt_identity()
+        merchant_profile = MerchantProfile.get_by_user_id(merchant_id)
+        
+        if not merchant_profile:
+            logger.error(f"Merchant profile not found for user_id: {merchant_id}")
+            return jsonify({"error": "Merchant profile not found"}), 404
+        
+        # Check if file is present
+        if 'profile_image' not in request.files:
+            return jsonify({"error": "No file part in the request"}), 400
+        
+        file = request.files['profile_image']
+        if file.filename == '':
+            return jsonify({"error": "No file selected for uploading"}), 400
+        
+        # Delete old profile image from S3 if it exists
+        if merchant_profile.profile_img:
+            try:
+                from services.s3_service import get_s3_service
+                s3_service = get_s3_service()
+                s3_service.delete_profile_image(merchant_profile.profile_img)
+            except Exception as e:
+                logger.warning(f"Failed to delete old profile image from S3: {str(e)}")
+        
+        # Upload to S3
+        from services.s3_service import get_s3_service
+        s3_service = get_s3_service()
+        # Use merchant_id (which is the user_id) for the upload
+        upload_result = s3_service.upload_profile_image(file, merchant_id)
+        
+        secure_url = upload_result.get('url')
+        if not secure_url:
+            return jsonify({"error": "Failed to get URL from S3 upload result"}), 500
+        
+        # Update merchant profile
+        merchant_profile.profile_img = secure_url
+        merchant_profile.updated_at = datetime.utcnow()
+        db.session.commit()
+        
+        logger.info(f"Successfully uploaded profile image for merchant_id: {merchant_id}")
+        
+        return jsonify({
+            "message": "Profile image uploaded successfully",
+            "profile_img_url": merchant_profile.profile_img
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Profile image upload error for merchant {merchant_id}: {str(e)}", exc_info=True)
+        return jsonify({"error": "An internal error occurred during file upload"}), 500
 
 @merchants_bp.route('/profile/verify', methods=['POST'])
 @jwt_required()

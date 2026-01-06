@@ -3,7 +3,6 @@ from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from flask_migrate import Migrate
 from common.cache import cached
-import os
 import cloudinary
 import cloudinary.uploader
 import cloudinary.api
@@ -70,6 +69,10 @@ from routes.upload_routes import upload_bp
 from routes.translate_routes import translate_bp
 from routes.razorpay_routes import razorpay_bp
 from routes.ai_image_upload import ai_image_upload_bp
+from routes.reels_routes import reels_bp
+from routes.follow_routes import follow_bp
+from routes.recommendation_routes import recommendation_bp
+from routes.notification_routes import notification_bp
 
 
 from flasgger import Swagger
@@ -77,15 +80,17 @@ from cryptography.fernet import Fernet
 import time
 import psutil
 import traceback
+import platform
 from datetime import datetime, timezone, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 import threading
+from services.notification_cleanup_service import NotificationCleanupService
 from controllers.newsletter_public_controller import newsletter_public_bp
 from flask import send_from_directory as flask_send_from_directory
 
-
 ALLOWED_ORIGINS = [
     "http://localhost:5173",
+    "http://localhost:5174",
     "http://127.0.0.1:5173",
     "http://kea.mywire.org:5300",
     "https://aoinstore.com"
@@ -98,7 +103,7 @@ def add_headers(response):
         response.headers['Access-Control-Allow-Origin'] = origin
     else:
         response.headers['Access-Control-Allow-Origin'] = 'null'  # or omit completely if strict
-
+   
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-CSRF-Token'
     response.headers['Access-Control-Allow-Credentials'] = 'true'
@@ -307,6 +312,10 @@ def create_app(config_name='default'):
     app.register_blueprint(upload_bp, url_prefix='/api/upload')
     app.register_blueprint(razorpay_bp)
     app.register_blueprint(ai_image_upload_bp)
+    app.register_blueprint(reels_bp)
+    app.register_blueprint(follow_bp)
+    app.register_blueprint(recommendation_bp)
+    app.register_blueprint(notification_bp)
 
     # Optional: Translation endpoints behind feature flag
     if app.config.get('FEATURE_TRANSLATION'):
@@ -681,6 +690,61 @@ def create_app(config_name='default'):
     def server_error(error):
         return {"error": "Internal server error"}, 500
 
+    # Initialize background scheduler for notification cleanup
+    def start_notification_cleanup_scheduler():
+        """Start background scheduler for automatic notification cleanup."""
+        # Check if cleanup is enabled
+        if not app.config.get('NOTIFICATION_CLEANUP_ENABLED', True):
+            app.logger.info("Notification cleanup is disabled")
+            return
+        
+        scheduler = BackgroundScheduler()
+        
+        # Get configuration
+        interval_hours = app.config.get('NOTIFICATION_CLEANUP_INTERVAL_HOURS', 6)
+        days_old = app.config.get('NOTIFICATION_CLEANUP_DAYS_OLD', 90)
+        batch_size = app.config.get('NOTIFICATION_CLEANUP_BATCH_SIZE', 100)
+        max_batches = app.config.get('NOTIFICATION_CLEANUP_MAX_BATCHES', 10)
+        
+        # Run cleanup at specified interval
+        # Processes notifications in small batches to avoid heavy load
+        def cleanup_job():
+            with app.app_context():
+                result = NotificationCleanupService.cleanup_incremental(
+                    days_old=days_old,
+                    batch_size=batch_size,
+                    max_batches=max_batches
+                )
+                if result.get('success'):
+                    app.logger.info(
+                        f"Notification cleanup completed: {result['total_deleted']} deleted "
+                        f"in {result['batches_processed']} batches"
+                    )
+                else:
+                    app.logger.error(f"Notification cleanup failed: {result.get('error')}")
+        
+        scheduler.add_job(
+            cleanup_job,
+            'interval',
+            hours=interval_hours,
+            id='notification_cleanup',
+            replace_existing=True,
+            max_instances=1  # Prevent multiple instances running simultaneously
+        )
+        
+        # Start scheduler in a daemon thread
+        scheduler.start()
+        app.logger.info(
+            f"Notification cleanup scheduler started "
+            f"(runs every {interval_hours} hours, deletes notifications older than {days_old} days)"
+        )
+    
+    # Start scheduler after app is created
+    try:
+        start_notification_cleanup_scheduler()
+    except Exception as e:
+        app.logger.error(f"Failed to start notification cleanup scheduler: {str(e)}")
+
     return app
 
 if __name__ == "__main__":
@@ -689,11 +753,12 @@ if __name__ == "__main__":
     ------------------------------
     Tries servers in order of preference:
     1. Waitress (works on Windows, Linux, Mac) - Recommended for all OS
-    2. Gunicorn (works on Linux, Mac) - Alternative for Unix-like systems
+    2. Gunicorn (works on Linux, Mac only) - Alternative for Unix-like systems
     3. Flask dev server (works everywhere but has limitations) - Last resort
     """
     import os
     import sys
+    import platform
     
     app = create_app()
     
@@ -704,7 +769,7 @@ if __name__ == "__main__":
     print("Accessible from: http://127.0.0.1:5110 or http://localhost:5110")
     print("=" * 60)
     
-    # Try waitress first (works on all OS: Windows, Linux, Mac)
+    # Try Waitress first (works on Windows, Mac, Linux)
     try:
         from waitress import serve
         import socket
@@ -723,13 +788,19 @@ if __name__ == "__main__":
             print("=" * 60)
             print("To fix this, run one of these commands:")
             print()
-            print("  Option 1 - Kill processes using port 5110:")
-            print("    lsof -ti:5110 | xargs kill -9")
-            print()
-            print("  Option 2 - Find and kill manually:")
-            print("    lsof -i:5110")
-            print("    kill -9 <PID>")
-            print()
+            if platform.system() == 'Windows':
+                print("  Option 1 - Find and kill process using port 5110:")
+                print("    netstat -ano | findstr :5110")
+                print("    taskkill /PID <PID> /F")
+                print()
+            else:
+                print("  Option 1 - Kill processes using port 5110:")
+                print("    lsof -ti:5110 | xargs kill -9")
+                print()
+                print("  Option 2 - Find and kill manually:")
+                print("    lsof -i:5110")
+                print("    kill -9 <PID>")
+                print()
             print("  Option 3 - Use a different port (edit app.py):")
             print("    Change port=5110 to port=5111 (or another port)")
             print("=" * 60)
@@ -744,7 +815,7 @@ if __name__ == "__main__":
                 host='0.0.0.0',
                 port=port,
                 threads=16,  # Increased from 8 to handle more concurrent requests
-                channel_timeout=120,  # 2 minute connection timeout
+                channel_timeout=600,  # 10 minutes for large file uploads
                 cleanup_interval=30,  # Clean up idle connections every 30 seconds
                 connection_limit=100,  # Maximum concurrent connections
                 asyncore_use_poll=True,  # Better for high concurrency
@@ -758,81 +829,110 @@ if __name__ == "__main__":
                 print("=" * 60)
                 print("To fix this, run one of these commands:")
                 print()
-                print("  Option 1 - Kill processes using port 5110:")
-                print("    lsof -ti:5110 | xargs kill -9")
-                print()
-                print("  Option 2 - Find and kill manually:")
-                print("    lsof -i:5110")
-                print("    kill -9 <PID>")
-                print()
+                if platform.system() == 'Windows':
+                    print("  Option 1 - Find and kill process using port 5110:")
+                    print("    netstat -ano | findstr :5110")
+                    print("    taskkill /PID <PID> /F")
+                    print()
+                else:
+                    print("  Option 1 - Kill processes using port 5110:")
+                    print("    lsof -ti:5110 | xargs kill -9")
+                    print()
+                    print("  Option 2 - Find and kill manually:")
+                    print("    lsof -i:5110")
+                    print("    kill -9 <PID>")
+                    print()
                 print("  Option 3 - Use a different port (edit app.py):")
                 print("    Change port=5110 to port=5111 (or another port)")
                 print("=" * 60)
                 sys.exit(1)
             raise
     except ImportError:
-        # Fallback to gunicorn (works on Linux/Mac, not Windows)
-        try:
-            from gunicorn.app.base import BaseApplication
-            
-            class StandaloneApplication(BaseApplication):
-                def __init__(self, app, options=None):
-                    self.options = options or {}
-                    self.application = app
-                    super().__init__()
-                
-                def load_config(self):
-                    for key, value in self.options.items():
-                        self.cfg.set(key.lower(), value)
-                
-                def load(self):
-                    return self.application
-            
-            options = {
-                'bind': '0.0.0.0:5110',
-                'workers': 1,
-                'threads': 8,  # Increased from 4 to match improved concurrency
-                'timeout': 600,
-                'keepalive': 5,
-                'accesslog': '-',
-                'errorlog': '-',
-            }
-            
-            print("✅ Using Gunicorn server")
-            print("=" * 60)
-            StandaloneApplication(app, options).run()
-        except ImportError:
-            # Last resort: Flask development server (works everywhere but has limitations)
-            print("⚠️  Waitress and Gunicorn not available, using Flask development server")
-            print("⚠️  Note: Flask dev server has known limitations")
-            print("💡 For better reliability, install waitress (works on all OS):")
-            print("   pip install waitress")
-            print("   OR for Linux/Mac: pip install gunicorn")
-            print()
-            
-            import werkzeug.serving
-            werkzeug.serving.WSGIRequestHandler.timeout = 600
-            
-            # Remove WERKZEUG_SERVER_FD to avoid issues
-            if 'WERKZEUG_SERVER_FD' in os.environ:
-                del os.environ['WERKZEUG_SERVER_FD']
-            
+        # Waitress not available, try Gunicorn (Unix-only)
+        is_unix = platform.system() in ('Linux', 'Darwin')  # Mac or Linux
+        if is_unix:
             try:
-                app.run(
-                    host='0.0.0.0',
-                    port=5110,
-                    threaded=True,
-                    use_reloader=False,
-                    debug=False
-                )
-            except (KeyError, OSError) as e:
-                if 'WERKZEUG_SERVER_FD' in str(e) or 'Bad file descriptor' in str(e):
-                    print("\n" + "=" * 60)
-                    print("❌ ERROR: Flask development server encountered an issue")
-                    print("=" * 60)
-                    print("Solution: Install a production WSGI server:")
-                    print("  For all OS (recommended): pip install waitress")
-                    print("  For Linux/Mac only: pip install gunicorn")
-                    print("=" * 60)
-                    sys.exit(1)
-                raise
+                from gunicorn.app.base import BaseApplication
+                
+                class StandaloneApplication(BaseApplication):
+                    def __init__(self, app, options=None):
+                        self.options = options or {}
+                        self.application = app
+                        super().__init__()
+                    
+                    def load_config(self):
+                        for key, value in self.options.items():
+                            self.cfg.set(key.lower(), value)
+                    
+                    def load(self):
+                        return self.application
+                
+                options = {
+                    'bind': '0.0.0.0:5110',
+                    'workers': 1,  # Single worker for development
+                    'threads': 8,  # Increased from 4 to match improved concurrency
+                    'timeout': 600,  # 10 minutes for large file uploads
+                    'keepalive': 5,
+                    'accesslog': '-',  # Log to stdout
+                    'errorlog': '-',   # Log to stderr
+                }
+                
+                print("✅ Using Gunicorn server (Unix)")
+                print("=" * 60)
+                StandaloneApplication(app, options).run()
+            except ImportError:
+                # Gunicorn not available, fallback to Flask dev server
+                print("⚠️  Waitress and Gunicorn not available, using Flask development server")
+                print("💡 Recommended: Install waitress for better reliability: pip install waitress")
+                print()
+                _run_flask_dev_server(app)
+        else:
+            # Windows: Skip Gunicorn, go straight to Flask dev server
+            print("⚠️  Waitress not available, using Flask development server")
+            print("💡 Recommended: Install waitress for better reliability: pip install waitress")
+            print()
+            _run_flask_dev_server(app)
+
+
+def _run_flask_dev_server(app):
+    """Run Flask development server with proper error handling for cross-platform support."""
+    import os
+    import sys
+    import werkzeug.serving
+    
+    # Configure timeout for large file uploads
+    werkzeug.serving.WSGIRequestHandler.timeout = 600
+    
+    # Remove WERKZEUG_SERVER_FD to avoid issues on Windows/Mac
+    # This environment variable can cause problems with Werkzeug's reloader
+    os.environ.pop('WERKZEUG_SERVER_FD', None)
+    os.environ.pop('WERKZEUG_RUN_MAIN', None)
+    
+    # Ensure use_reloader is False to avoid WERKZEUG_SERVER_FD issues
+    try:
+        app.run(
+            host='0.0.0.0',
+            port=5110,
+            threaded=True,
+            use_reloader=False,  # Disable reloader to avoid WERKZEUG_SERVER_FD issues
+            debug=False
+        )
+    except (KeyError, OSError, ValueError) as e:
+        error_msg = str(e)
+        if 'WERKZEUG_SERVER_FD' in error_msg or 'Bad file descriptor' in error_msg:
+            print("\n" + "=" * 60)
+            print("❌ ERROR: Werkzeug development server encountered an issue")
+            print("=" * 60)
+            print("Root Cause: Known Werkzeug limitation with file descriptors")
+            print()
+            print("Solutions:")
+            print("  1. Install waitress (recommended - works on all platforms):")
+            print("     pip install waitress")
+            print()
+            print("  2. Or on Mac/Linux, install gunicorn:")
+            print("     pip install gunicorn")
+            print("=" * 60)
+            sys.exit(1)
+        else:
+            # Re-raise if it's a different error
+            raise

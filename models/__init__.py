@@ -35,6 +35,13 @@ from .gst_rule import GSTRule
 from .enums import ProductPriceConditionType 
 
 from .payment_card import PaymentCard
+from .reel import Reel
+from .user_reel_like import UserReelLike
+from .user_reel_view import UserReelView
+from .user_reel_share import UserReelShare
+from .user_merchant_follow import UserMerchantFollow
+from .user_category_preference import UserCategoryPreference
+from .merchant_notification import MerchantNotification
 
 
 __all__ = [
@@ -58,5 +65,12 @@ __all__ = [
     'ShopOrderItem', 
     'ShopOrderStatusHistory',
     'ShopShipment',
-    'ShopShipmentItem'
+    'ShopShipmentItem',
+    'Reel',
+    'UserReelLike',
+    'UserReelView',
+    'UserReelShare',
+    'UserMerchantFollow',
+    'UserCategoryPreference',
+    'MerchantNotification'
 ]

@@ -11,6 +11,7 @@ redis
 marshmallow
 bcrypt
 PyJWT
+waitress
 gunicorn
 waitress
 pytest
@@ -46,3 +47,4 @@ pytesseract
 Pillow
 requests
 apscheduler
+twilio

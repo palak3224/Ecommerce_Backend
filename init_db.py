@@ -1,6 +1,7 @@
 """
 Database initialization script.
 Run this script to create the database and tables.
+Usage: python init_db.py
 """
 
 import os
@@ -9,6 +10,24 @@ from dotenv import load_dotenv
 from app import create_app
 from common.database import db
 from sqlalchemy import text
+
+# Import all models to ensure db.create_all() creates all tables
+# This matches what app.py does with "from models import *"
+# Importing all models ensures all tables are created by db.create_all()
+from models import *  # Import all models from models package
+from models.shop import *  # Import all shop models
+from models.shop.shop_product_variant import ShopProductVariant, ShopVariantAttributeValue  # Shop variants
+from models.visit_tracking import VisitTracking
+from models.customer_profile import CustomerProfile
+from models.user_address import UserAddress
+from models.wishlist_item import WishlistItem
+from models.cart import Cart, CartItem
+from models.order import Order, OrderItem, OrderStatusHistory
+from models.shipment import Shipment, ShipmentItem
+from models.support_ticket_model import SupportTicket, SupportTicketMessage
+from models.youtube_token import YouTubeToken
+from models.tax_rate import TaxRate
+from models.carousel import Carousel
 
 # --- Auth models ---
 from auth.models.models import (
@@ -75,7 +94,6 @@ from models.system_monitoring import SystemMonitoring
 
 # --- Newsletter models ---
 from models.newsletter_subscription import NewsletterSubscription
-
 
 # Load environment variables
 load_dotenv()
@@ -453,6 +471,57 @@ def init_shops():
     db.session.commit()
     print("Shops initialized successfully.")
 
+def init_reels():
+    """Initialize reels tables."""
+    print("\nInitializing Reels Tables:")
+    print("-------------------------")
+    
+    # Check if the tables exist using SQLAlchemy inspector
+    inspector = db.inspect(db.engine)
+    tables = ['reels', 'user_reel_likes', 'user_reel_views', 'user_reel_shares']
+    
+    for table in tables:
+        if table not in inspector.get_table_names():
+            print(f"Creating {table} table...")
+            if table == 'reels':
+                Reel.__table__.create(db.engine)
+            elif table == 'user_reel_likes':
+                UserReelLike.__table__.create(db.engine)
+            elif table == 'user_reel_views':
+                UserReelView.__table__.create(db.engine)
+            elif table == 'user_reel_shares':
+                UserReelShare.__table__.create(db.engine)
+            print(f"{table} table created successfully.")
+        else:
+            print(f"{table} table already exists.")
+    
+    # Add FULLTEXT index on reels.description if it doesn't exist
+    try:
+        with db.engine.connect() as conn:
+            result = conn.execute(text("""
+                SELECT COUNT(*) as count
+                FROM information_schema.statistics
+                WHERE table_schema = DATABASE()
+                AND table_name = 'reels'
+                AND index_name = 'ft_description'
+            """))
+            
+            index_exists = result.fetchone()[0] > 0
+            
+            if not index_exists:
+                print("Creating FULLTEXT index on reels.description...")
+                conn.execute(text("""
+                    CREATE FULLTEXT INDEX ft_description ON reels(description)
+                """))
+                conn.commit()
+                print("✓ FULLTEXT index created on reels.description")
+            else:
+                print("✓ FULLTEXT index already exists on reels.description")
+    except Exception as e:
+        print(f"⚠ Could not create FULLTEXT index (may already exist): {str(e)}")
+    
+    print("Reels tables initialized successfully.")
+
 def migrate_profile_img_column():
     """Add profile_img column to users table if it doesn't exist."""
     print("\nMigrating profile_img column:")
@@ -476,6 +545,159 @@ def migrate_profile_img_column():
             print("✓ profile_img column already exists")
     else:
         print("✗ users table does not exist")
+
+def migrate_date_of_birth_gender_columns():
+    """Add date_of_birth and gender columns to users table if they don't exist."""
+    print("\nMigrating date_of_birth and gender columns:")
+    print("-------------------------------------------")
+    
+    inspector = db.inspect(db.engine)
+    
+    if 'users' in inspector.get_table_names():
+        existing_columns = [col['name'] for col in inspector.get_columns('users')]
+        
+        # Add date_of_birth column if it doesn't exist
+        if 'date_of_birth' not in existing_columns:
+            print("Adding date_of_birth column to users table...")
+            try:
+                with db.engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN date_of_birth DATE NULL"))
+                    conn.commit()
+                print("✓ date_of_birth column added successfully")
+            except Exception as e:
+                print(f"✗ Failed to add date_of_birth column: {str(e)}")
+        else:
+            print("✓ date_of_birth column already exists")
+        
+        # Add gender column if it doesn't exist
+        if 'gender' not in existing_columns:
+            print("Adding gender column to users table...")
+            try:
+                with db.engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN gender VARCHAR(20) NULL"))
+                    conn.commit()
+                print("✓ gender column added successfully")
+            except Exception as e:
+                print(f"✗ Failed to add gender column: {str(e)}")
+        else:
+            print("✓ gender column already exists")
+    else:
+        print("✗ users table does not exist")
+
+def migrate_auth_provider_enum():
+    """Fix auth_provider enum values from uppercase to lowercase."""
+    print("\nMigrating auth_provider enum:")
+    print("----------------------------")
+    
+    inspector = db.inspect(db.engine)
+    
+    if 'users' in inspector.get_table_names():
+        try:
+            with db.engine.connect() as conn:
+                # First, update any uppercase values to lowercase
+                conn.execute(text("""
+                    UPDATE users 
+                    SET auth_provider = LOWER(auth_provider)
+                    WHERE auth_provider IN ('LOCAL', 'GOOGLE', 'PHONE')
+                """))
+                
+                # Then, modify the column to use lowercase enum values
+                conn.execute(text("""
+                    ALTER TABLE users 
+                    MODIFY COLUMN auth_provider ENUM('local', 'google', 'phone') 
+                    NOT NULL DEFAULT 'local'
+                """))
+                
+                conn.commit()
+            print("✓ auth_provider enum values fixed successfully")
+        except Exception as e:
+            # If the column doesn't exist or is already correct, that's okay
+            if "doesn't exist" in str(e) or "Duplicate column" in str(e):
+                print("✓ auth_provider enum already correct")
+            else:
+                print(f"⚠ Could not migrate auth_provider enum (may already be correct): {str(e)}")
+    else:
+        print("⚠ users table does not exist, skipping auth_provider migration")
+
+def verify_all_tables():
+    """Verify that all expected tables are created in the database."""
+    print("\nVerifying all tables:")
+    print("-------------------")
+    
+    # Expected tables from all models (based on __tablename__)
+    expected_tables = {
+        # Auth tables
+        'users', 'merchant_profiles', 'refresh_tokens', 
+        'email_verifications', 'phone_verifications', 'merchant_documents',
+        'country_configs',
+        
+        # Core product tables
+        'products', 'categories', 'brands', 'attributes', 'attribute_values',
+        'category_attributes', 'product_attributes', 'product_media', 
+        'product_stock', 'product_tax', 'product_shipping', 'product_meta',
+        'product_promotions', 'product_placements', 'reviews', 'review_images',
+        'brand_requests',
+        
+        # Shop tables
+        'shops', 'shop_categories', 'shop_brands', 'shop_attributes', 
+        'shop_attribute_values', 'shop_products', 'shop_product_attributes',
+        'shop_product_media', 'shop_product_stock', 'shop_product_taxes',
+        'shop_product_shipping', 'shop_product_meta', 'shop_product_promotions',
+        'shop_product_placements', 'shop_product_variants', 
+        'shop_variant_attribute_values', 'shop_gst_rules', 'shop_reviews',
+        'shop_review_images', 'shop_wishlist_items',
+        
+        # Order and cart tables
+        'carts', 'cart_items', 'orders', 'order_items', 'order_status_history',
+        'shipments', 'shipment_items',
+        'shop_carts', 'shop_cart_items', 'shop_orders', 'shop_order_items',
+        'shop_order_status_history', 'shop_shipments', 'shop_shipment_items',
+        
+        # User-related tables
+        'customer_profiles', 'user_addresses', 'wishlist_items',
+        'visit_tracking', 'user_category_preferences', 'user_merchant_follows',
+        
+        # Reel tables
+        'reels', 'user_reel_likes', 'user_reel_views', 'user_reel_shares',
+        
+        # Other tables
+        'subscription_plans', 'subscription_histories', 'promotions', 'game_plays',
+        'payment_cards', 'support_tickets', 'support_ticket_messages',
+        'newsletter_subscriptions', 'merchant_transactions',
+        'live_streams', 'live_stream_comments', 'live_stream_viewers',
+        'homepage_categories', 'recently_viewed', 'carousels',
+        'tax_rates', 'tax_categories', 'youtube_tokens', 'system_monitoring'
+    }
+    
+    inspector = db.inspect(db.engine)
+    actual_tables = set(inspector.get_table_names())
+    
+    # Find missing tables
+    missing_tables = expected_tables - actual_tables
+    
+    # Find extra tables (not in expected list - might be system tables)
+    extra_tables = actual_tables - expected_tables
+    
+    if missing_tables:
+        print(f"⚠ Missing tables ({len(missing_tables)}):")
+        for table in sorted(missing_tables):
+            print(f"  - {table}")
+    else:
+        print(f"✓ All expected tables exist ({len(expected_tables)} tables)")
+    
+    if extra_tables:
+        # Filter out common MySQL system tables
+        system_tables = {'alembic_version'}  # Add other system tables if needed
+        user_extra_tables = extra_tables - system_tables
+        if user_extra_tables:
+            print(f"\nℹ Additional tables found ({len(user_extra_tables)}):")
+            for table in sorted(user_extra_tables):
+                print(f"  - {table}")
+    
+    print(f"\nTotal tables in database: {len(actual_tables)}")
+    print(f"Expected tables: {len(expected_tables)}")
+    
+    return len(missing_tables) == 0
 
 def migrate_carousel_orientation():
     """Add orientation column to carousels table if it doesn't exist."""
@@ -519,8 +741,13 @@ def init_database():
         db.create_all()
         print("✓ All tables created successfully.")
         
+        # Verify all tables are created
+        verify_all_tables()
+        
         # Run migrations
         migrate_profile_img_column()
+        migrate_date_of_birth_gender_columns()
+        migrate_auth_provider_enum()
         migrate_carousel_orientation()
         
         # Initialize data
@@ -535,6 +762,7 @@ def init_database():
         init_system_monitoring()
         init_live_streaming()
         init_shops()  # Add shops initialization
+        init_reels()  # Add reels initialization
         
         # Create super admin user if not exists
         admin_email = os.getenv("SUPER_ADMIN_EMAIL")
@@ -559,10 +787,33 @@ def init_database():
             print(f"⚠ Warning: Could not check/create super admin user: {e}")
             print("   You may need to create the admin user manually or fix enum values in the database.")
         
-        print("\nDatabase initialization completed successfully!")
+        print("\n" + "=" * 50)
+        print("✓ Database initialization completed successfully!")
+        print("=" * 50)
+        print("\nYou can now start the application with: python app.py")
+        print("Or run the Flask development server with: flask run")
 
 
 if __name__ == "__main__":
-    create_database()
-    init_database()
-    print("Database initialization completed.")
+    try:
+        print("=" * 50)
+        print("DATABASE INITIALIZATION SCRIPT")
+        print("=" * 50)
+        print("\nThis script will:")
+        print("  1. Create the database if it doesn't exist")
+        print("  2. Create all tables")
+        print("  3. Run migrations")
+        print("  4. Initialize default data")
+        print("  5. Create super admin user (if configured)")
+        print("\nStarting initialization...\n")
+        
+        init_database()
+        
+    except Exception as e:
+        print("\n" + "=" * 50)
+        print("✗ ERROR: Database initialization failed!")
+        print("=" * 50)
+        print(f"Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        exit(1)

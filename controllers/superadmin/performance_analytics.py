@@ -1802,6 +1802,7 @@ class PerformanceAnalyticsController:
                 "message": str(e)
             }
 
+
     @staticmethod
     def export_daily_analytics(days=30, format='csv'):
         """Export daily analytics report."""

@@ -1,14 +1,16 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import cloudinary
 import cloudinary.uploader
+import uuid
 from flask import current_app, jsonify, request
 from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt_identity
 from sqlalchemy.exc import IntegrityError
 from authlib.integrations.flask_client import OAuth
 
 from common.database import db
-from auth.models import User, MerchantProfile, RefreshToken, EmailVerification, UserRole, AuthProvider
-from auth.utils import validate_google_token
+from auth.models import User, MerchantProfile, RefreshToken, EmailVerification, UserRole, AuthProvider, PhoneVerification
+from auth.utils import validate_google_token, normalize_phone_number, validate_phone_number
+from auth.twilio_service import send_otp_sms
 from common.cache import cached, get_redis_client
 from auth.email_utils import send_verification_email, send_password_reset_email
 
@@ -20,6 +22,7 @@ def register_user(data):
     try:
         # Check if user already exists
         if User.get_by_email(data['email']):
+            db.session.rollback()  # Ensure clean state
             return {"error": "Email already registered"}, 409
         
         # Create new user
@@ -31,21 +34,42 @@ def register_user(data):
             role=UserRole.USER
         )
         user.set_password(data['password'])
-        user.save()
+        db.session.add(user)
+        db.session.flush()  # Flush to get user.id without committing
         
-        # Create email verification token
+        # Create email verification token (inline to avoid premature commit)
         expires_at = datetime.utcnow() + timedelta(days=1)
-        token = EmailVerification.create_token(user.id, expires_at)
+        token = str(uuid.uuid4())
+        verification = EmailVerification(
+            token=token,
+            user_id=user.id,
+            expires_at=expires_at
+        )
+        db.session.add(verification)
         
-        # Send verification email
-        send_verification_email(user, token)
+        # Commit everything together in a single transaction
+        db.session.commit()
+        
+        # Send verification email (after successful commit)
+        # Wrap in try-except to prevent email failures from blocking registration
+        try:
+            send_verification_email(user, token)
+        except Exception as email_error:
+            # Log the error but don't fail the registration
+            current_app.logger.error(f"Failed to send verification email to {user.email}: {str(email_error)}")
         
         return {
             "message": "User registered successfully. Please check your email to verify your account.",
             "user_id": user.id
         }, 201
-    except IntegrityError:
+    except IntegrityError as e:
         db.session.rollback()
+        error_str = str(e).lower()
+        # Check if it's a duplicate email constraint violation
+        if 'email' in error_str or 'unique constraint' in error_str or 'duplicate' in error_str:
+            current_app.logger.warning(f"Duplicate email attempt during user registration: {data.get('email')}")
+            return {"error": "Email already registered"}, 409
+        current_app.logger.error(f"Database error during user registration: {str(e)}")
         return {"error": "Database error occurred"}, 500
     except Exception as e:
         db.session.rollback()
@@ -57,7 +81,28 @@ def register_merchant(data):
     try:
         # Check if user already exists with business email
         if User.get_by_email(data['business_email']):
+            db.session.rollback()  # Ensure clean state
             return {"error": "Business email already registered"}, 409
+        
+        # Handle username: validate if provided, auto-generate if not
+        username = None
+        if data.get('username'):
+            # Username provided - validate format and check uniqueness
+            username = data['username'].strip().lower()
+            # Format validation (should be done by schema, but double-check)
+            import re
+            if not re.match(r'^[a-zA-Z0-9_]{3,30}$', username):
+                return {"error": "Invalid username format. Username must be 3-30 characters, alphanumeric and underscores only"}, 400
+            
+            # Check uniqueness
+            if not MerchantProfile.is_username_available(username):
+                return {"error": "Username already taken"}, 409
+        else:
+            # Auto-generate username from business_name or first_name
+            username = MerchantProfile.generate_username(
+                business_name=data.get('business_name'),
+                first_name=data.get('first_name')
+            )
         
         # Create new user with merchant role
         user = User(
@@ -68,11 +113,15 @@ def register_merchant(data):
             role=UserRole.MERCHANT
         )
         user.set_password(data['password'])
-        user.save()
+        
+        # Use session.add instead of save() to delay commit until everything is ready
+        db.session.add(user)
+        db.session.flush()  # Flush to get user.id without committing
         
         # Create merchant profile
         merchant = MerchantProfile(
             user_id=user.id,
+            username=username,  # Set username (auto-generated or provided)
             business_name=data['business_name'],
             business_description=data.get('business_description'),
             business_email=data['business_email'],
@@ -86,28 +135,42 @@ def register_merchant(data):
         
         # Initialize required documents based on country
         merchant.update_required_documents()
+        db.session.add(merchant)
         
-        try:
-            merchant.save()
-        except Exception as e:
-            # If merchant profile creation fails, delete the user
-            user.delete()
-            raise e
-        
-        # Create email verification token
+        # Create email verification token (inline to avoid premature commit)
         expires_at = datetime.utcnow() + timedelta(days=1)
-        token = EmailVerification.create_token(user.id, expires_at)
+        token = str(uuid.uuid4())
+        verification = EmailVerification(
+            token=token,
+            user_id=user.id,
+            expires_at=expires_at
+        )
+        db.session.add(verification)
         
-        # Send verification email
-        send_verification_email(user, token)
+        # Commit everything together in a single transaction
+        db.session.commit()
+        
+        # Send verification email (after successful commit)
+        # Wrap in try-except to prevent email failures from blocking registration
+        try:
+            send_verification_email(user, token)
+        except Exception as email_error:
+            # Log the error but don't fail the registration
+            current_app.logger.error(f"Failed to send verification email to {user.email}: {str(email_error)}")
         
         return {
             "message": "Merchant registered successfully. Please check your email to verify your account.",
             "user_id": user.id,
-            "merchant_id": merchant.id
+            "merchant_id": merchant.id,
+            "username": merchant.username  # Return generated/provided username
         }, 201
     except IntegrityError as e:
         db.session.rollback()
+        error_str = str(e).lower()
+        # Check if it's a duplicate email constraint violation
+        if 'email' in error_str or 'unique constraint' in error_str or 'duplicate' in error_str:
+            current_app.logger.warning(f"Duplicate email attempt during merchant registration: {data.get('business_email')}")
+            return {"error": "Business email already registered"}, 409
         current_app.logger.error(f"Database error during merchant registration: {str(e)}")
         return {"error": "Database error occurred", "details": str(e)}, 500
     except Exception as e:
@@ -191,7 +254,8 @@ def login_user(data):
                 "email": user_to_check.email,
                 "first_name": user_to_check.first_name,
                 "last_name": user_to_check.last_name,
-                "role": user_to_check.role.value
+                "role": user_to_check.role.value,
+                "is_email_verified": user_to_check.is_email_verified
             }
         }, 200
     except Exception as e:
@@ -523,12 +587,19 @@ def get_user_profile(user_id):
         user = User.get_by_id(user_id)
         if not user:
             return {"error": "User not found"}, 404
+        # Format date_of_birth for response (DD-MM-YYYY)
+        date_of_birth_str = None
+        if user.date_of_birth:
+            date_of_birth_str = user.date_of_birth.strftime('%d-%m-%Y')
+        
         return {
             "profile": {
                 "email": user.email,
                 "first_name": user.first_name,
                 "last_name": user.last_name,
                 "phone": user.phone,
+                "date_of_birth": date_of_birth_str,
+                "gender": user.gender,
                 "profile_img": user.profile_img,
                 "is_email_verified": user.is_email_verified,
                 "is_phone_verified": user.is_phone_verified,
@@ -542,23 +613,59 @@ def get_user_profile(user_id):
         return {"error": "Could not retrieve profile"}, 500
 
 def update_user_profile(user_id, data):
-    """Update a user's profile information."""
+    """Update a user's profile information. Email and phone cannot be updated through this endpoint."""
     try:
         user = User.get_by_id(user_id)
         if not user:
             return {"error": "User not found"}, 404
+        
+        # Fields that are NOT allowed to be updated
+        restricted_fields = ['email', 'phone', 'id', 'password_hash', 'role', 'is_active', 
+                            'is_email_verified', 'is_phone_verified', 'auth_provider', 
+                            'provider_user_id', 'created_at', 'updated_at']
+        
+        # Check if user is trying to update restricted fields
+        restricted_attempted = [field for field in data.keys() if field in restricted_fields]
+        if restricted_attempted:
+            return {"error": f"Cannot update restricted fields: {', '.join(restricted_attempted)}"}, 400
+        
+        # Allowed fields to update
+        allowed_fields = ['first_name', 'last_name', 'date_of_birth', 'gender']
+        
+        # Update allowed fields
         for field, value in data.items():
-            if hasattr(user, field) and field in ['first_name', 'last_name', 'phone']:
-                setattr(user, field, value)
+            if field in allowed_fields and hasattr(user, field):
+                if field == 'date_of_birth' and value:
+                    # Convert DD-MM-YYYY string to Date object
+                    try:
+                        date_obj = datetime.strptime(value, '%d-%m-%Y').date()
+                        setattr(user, field, date_obj)
+                    except ValueError:
+                        return {"error": "Invalid date format. Use DD-MM-YYYY format"}, 400
+                elif field == 'date_of_birth' and value is None:
+                    # Allow clearing the date
+                    setattr(user, field, None)
+                else:
+                    setattr(user, field, value)
+        
         db.session.commit()
         redis = get_redis_client()
         if redis:
             redis.delete(f"user_profile:{user_id}")
             redis.delete(f"user:{user_id}")
+        
+        # Format date_of_birth for response (DD-MM-YYYY)
+        date_of_birth_str = None
+        if user.date_of_birth:
+            date_of_birth_str = user.date_of_birth.strftime('%d-%m-%Y')
+        
         return {
             "message": "Profile updated successfully",
             "profile": {
-                "first_name": user.first_name, "last_name": user.last_name, "phone": user.phone
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "date_of_birth": date_of_birth_str,
+                "gender": user.gender
             }
         }, 200
     except Exception as e:
@@ -648,3 +755,182 @@ def change_password(user_id, old_password, new_password):
         db.session.rollback()
         current_app.logger.error(f"Error changing password for user {user_id}: {e}", exc_info=True)
         return {"error": "An internal error occurred while changing the password"}, 500
+
+
+def send_phone_otp(phone_number):
+    """
+    Send OTP to phone number for sign-up or login.
+    Only for regular users, not merchants.
+    """
+    try:
+        # Normalize phone number
+        normalized_phone = normalize_phone_number(phone_number)
+        if not normalized_phone:
+            return {"error": "Invalid phone number format. Please use E.164 format (e.g., +1234567890)"}, 400
+        
+        # Check if user exists (for login flow)
+        existing_user = User.get_by_phone(normalized_phone)
+        
+        # If user exists, check if they are a merchant (merchants cannot use phone login)
+        if existing_user and existing_user.role == UserRole.MERCHANT:
+            return {"error": "Merchants cannot use phone number login"}, 403
+        
+        # Generate OTP
+        expires_at = datetime.utcnow() + timedelta(minutes=10)
+        
+        if existing_user:
+            # Login flow - user exists
+            otp = PhoneVerification.create_otp(existing_user.id, normalized_phone, expires_at)
+        else:
+            # Sign-up flow - user doesn't exist
+            otp = PhoneVerification.create_otp_for_signup(normalized_phone, expires_at)
+        
+        # Send OTP via Twilio
+        success, message = send_otp_sms(normalized_phone, otp)
+        
+        if not success:
+            return {"error": message}, 500
+        
+        return {
+            "message": "OTP sent successfully",
+            "expires_in": 600  # 10 minutes in seconds
+        }, 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Error sending phone OTP: {str(e)}")
+        return {"error": "Failed to send OTP"}, 500
+
+
+def verify_phone_otp_signup(phone_number, otp, first_name, last_name):
+    """
+    Verify OTP and create new user account.
+    Only for regular users, not merchants.
+    """
+    try:
+        # Normalize phone number
+        normalized_phone = normalize_phone_number(phone_number)
+        if not normalized_phone:
+            return {"error": "Invalid phone number format"}, 400
+        
+        # Validate name fields
+        if not first_name or not last_name:
+            return {"error": "First name and last name are required"}, 400
+        
+        # Check if phone already registered
+        existing_user = User.get_by_phone(normalized_phone)
+        if existing_user:
+            return {"error": "Phone number already registered"}, 409
+        
+        # Verify OTP
+        verification = PhoneVerification.verify_otp_by_phone(normalized_phone, otp)
+        if not verification:
+            return {"error": "Invalid or expired OTP"}, 400
+        
+        # Create new user
+        # Generate temporary email for phone-only users (email field is required in DB)
+        # User can update email later
+        temp_email = f"phone_{normalized_phone.replace('+', '')}@temp.aoin.com"
+        
+        user = User(
+            phone=normalized_phone,
+            first_name=first_name,
+            last_name=last_name,
+            email=temp_email,  # Temporary email, user can update later
+            role=UserRole.USER,  # Only regular users, not merchants
+            auth_provider=AuthProvider.PHONE.value,  # Use lowercase 'phone' string to match database enum
+            is_phone_verified=True,
+            is_email_verified=False,
+            password_hash=None  # No password for phone auth
+        )
+        user.save()
+        
+        # Update verification record with user_id
+        verification.user_id = user.id
+        db.session.commit()
+        
+        # Generate tokens
+        additional_claims = {"role": user.role.value}
+        access_token = create_access_token(identity=str(user.id), additional_claims=additional_claims)
+        refresh_expires = datetime.utcnow() + current_app.config['JWT_REFRESH_TOKEN_EXPIRES']
+        refresh_token_str = RefreshToken.create_token(user.id, refresh_expires)
+        
+        return {
+            "message": "Account created successfully",
+            "access_token": access_token,
+            "refresh_token": refresh_token_str,
+            "user": {
+                "id": user.id,
+                "phone": user.phone,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "role": user.role.value,
+                "is_phone_verified": user.is_phone_verified
+            }
+        }, 201
+        
+    except IntegrityError:
+        db.session.rollback()
+        return {"error": "Phone number already registered"}, 409
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error in phone sign-up: {str(e)}")
+        return {"error": "Failed to create account"}, 500
+
+
+def verify_phone_otp_login(phone_number, otp):
+    """
+    Verify OTP and login existing user.
+    Only for regular users, not merchants.
+    """
+    try:
+        # Normalize phone number
+        normalized_phone = normalize_phone_number(phone_number)
+        if not normalized_phone:
+            return {"error": "Invalid phone number format"}, 400
+        
+        # Find user
+        user = User.get_by_phone(normalized_phone)
+        if not user:
+            return {"error": "Phone number not registered"}, 404
+        
+        # Check if user is merchant (merchants cannot use phone login)
+        if user.role == UserRole.MERCHANT:
+            return {"error": "Merchants cannot use phone number login"}, 403
+        
+        # Check if user is active
+        if not user.is_active:
+            return {"error": "Account is disabled"}, 403
+        
+        # Verify OTP
+        verification = PhoneVerification.verify_otp_by_phone(normalized_phone, otp)
+        if not verification:
+            return {"error": "Invalid or expired OTP"}, 400
+        
+        # Update user's phone verification status and last login
+        user.is_phone_verified = True
+        user.update_last_login()
+        
+        # Generate tokens
+        additional_claims = {"role": user.role.value}
+        access_token = create_access_token(identity=str(user.id), additional_claims=additional_claims)
+        refresh_expires = datetime.utcnow() + current_app.config['JWT_REFRESH_TOKEN_EXPIRES']
+        refresh_token_str = RefreshToken.create_token(user.id, refresh_expires)
+        
+        return {
+            "message": "Login successful",
+            "access_token": access_token,
+            "refresh_token": refresh_token_str,
+            "user": {
+                "id": user.id,
+                "phone": user.phone,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "role": user.role.value,
+                "is_phone_verified": user.is_phone_verified
+            }
+        }, 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Error in phone login: {str(e)}")
+        return {"error": "Login failed"}, 500
