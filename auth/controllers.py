@@ -171,18 +171,47 @@ def register_merchant(data):
         
         # Send verification email (after successful commit)
         # Wrap in try-except to prevent email failures from blocking registration
+        email_sent = False
+        email_error_msg = None
         try:
-            send_verification_email(user, token)
+            # Check if email configuration is available
+            if not current_app.config.get('MAIL_SERVER'):
+                current_app.logger.warning(f"MAIL_SERVER not configured. Cannot send verification email to {user.email}")
+                email_error_msg = "Email server not configured"
+            elif not current_app.config.get('MAIL_USERNAME') or not current_app.config.get('MAIL_PASSWORD'):
+                current_app.logger.warning(f"MAIL_USERNAME or MAIL_PASSWORD not configured. Cannot send verification email to {user.email}")
+                email_error_msg = "Email credentials not configured"
+            else:
+                email_sent = send_verification_email(user, token)
+                if not email_sent:
+                    email_error_msg = "Email sending failed - check server logs"
+                    current_app.logger.error(f"Failed to send verification email to {user.email}. send_verification_email returned False.")
         except Exception as email_error:
             # Log the error but don't fail the registration
-            current_app.logger.error(f"Failed to send verification email to {user.email}: {str(email_error)}")
+            email_error_msg = str(email_error)
+            current_app.logger.error(f"Failed to send verification email to {user.email}: {str(email_error)}", exc_info=True)
         
-        return {
-            "message": "Merchant registered successfully. Please check your email to verify your account.",
+        # Prepare response message
+        response_message = "Merchant registered successfully."
+        if email_sent:
+            response_message += " Please check your email to verify your account."
+        else:
+            response_message += " Verification email could not be sent. Please use the resend email feature."
+            if email_error_msg:
+                current_app.logger.warning(f"Registration succeeded but email failed for {user.email}: {email_error_msg}")
+        
+        response = {
+            "message": response_message,
             "user_id": user.id,
             "merchant_id": merchant.id,
             "username": merchant.username  # Return generated/provided username
-        }, 201
+        }
+        
+        if not email_sent:
+            response["warning"] = "Verification email not sent. Please use the resend email feature."
+            response["email_sent"] = False
+        
+        return response, 201
     except IntegrityError as e:
         db.session.rollback()
         error_str = str(e).lower()
@@ -542,7 +571,18 @@ def resend_verification_email_controller(email_address):
             return {"message": "Your email address is already verified."}, 200
         redis_client = get_redis_client(current_app)
         if not redis_client:
-            current_app.logger.error("Redis client not available for rate limiting resend verification email.")
+            current_app.logger.warning("Redis client not available for rate limiting resend verification email. Proceeding without rate limiting.")
+            # Proceed without rate limiting if Redis is not available
+            # Create new token and send email
+            EmailVerification.query.filter_by(user_id=user.id, is_used=False).update({"is_used": True})
+            new_expires_at = datetime.utcnow() + timedelta(days=1)
+            new_token = EmailVerification.create_token(user.id, new_expires_at)
+            email_sent_successfully = send_verification_email(user, new_token)
+            if email_sent_successfully:
+                return {"message": "A new verification link has been sent to your email address."}, 200
+            else:
+                current_app.logger.error(f"Email sending itself failed for {email_address} during resend.")
+                return {"error_code": "EMAIL_SEND_FAILED", "message": "Failed to send verification email. Please check your email configuration and try again later."}, 500
         attempts_key = f"rate_limit:resend_verify_email_attempts:{email_address}"
         last_attempt_ts_key = f"rate_limit:resend_verify_email_last_ts:{email_address}"
         last_attempt_date_key = f"rate_limit:resend_verify_email_last_date:{email_address}"

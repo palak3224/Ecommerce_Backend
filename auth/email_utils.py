@@ -174,11 +174,20 @@ def send_email(to_email, subject, template_str, context):
                 server.login(current_app.config['MAIL_USERNAME'], current_app.config['MAIL_PASSWORD'])
             server.sendmail(sender_address, to_email, message.as_string())
         
-        current_app.logger.info("Email sent successfully")
+        current_app.logger.info(f"Email sent successfully to {to_email}")
         return True
     
+    except smtplib.SMTPAuthenticationError as e:
+        current_app.logger.error(f"SMTP Authentication failed: {str(e)}. Check MAIL_USERNAME and MAIL_PASSWORD.")
+        return False
+    except smtplib.SMTPConnectError as e:
+        current_app.logger.error(f"SMTP Connection failed: {str(e)}. Check MAIL_SERVER and MAIL_PORT.")
+        return False
+    except smtplib.SMTPException as e:
+        current_app.logger.error(f"SMTP error while sending email to {to_email}: {str(e)}")
+        return False
     except Exception as e:
-        current_app.logger.error(f"Failed to send email: {str(e)}")
+        current_app.logger.error(f"Failed to send email to {to_email}: {str(e)}", exc_info=True)
         return False
 
 
