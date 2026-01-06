@@ -1182,7 +1182,7 @@ def init_database():
         print("Initializing Database:")
         print("=====================")
         
-        # SAFETY CHECK: Warn if running on production
+        # SAFETY CHECK: Warn if running on production (informational only, no input required)
         db_uri = os.getenv('DATABASE_URI', '')
         db_uri_lower = db_uri.lower()
         is_production = any(keyword in db_uri_lower for keyword in ['production', 'prod', 'live', 'main'])
@@ -1192,23 +1192,16 @@ def init_database():
             print("⚠️  WARNING: This appears to be a PRODUCTION database!")
             print("=" * 70)
             print(f"Database URI: {db_uri[:50]}..." if len(db_uri) > 50 else f"Database URI: {db_uri}")
-            print("\n⚠️  IMPORTANT: Before proceeding:")
-            print("   1. Take a database backup")
-            print("   2. Ensure you've tested on staging first")
-            print("   3. Run during a maintenance window if possible")
-            print("\n" + "=" * 70)
-            try:
-                response = input("Are you sure you want to continue? (type 'yes' to proceed): ")
-                if response.lower() != 'yes':
-                    print("\n❌ Aborted. No changes made to the database.")
-                    return
-            except (EOFError, KeyboardInterrupt):
-                print("\n❌ Aborted by user. No changes made to the database.")
-                return
-            print("\n✓ Proceeding with migration...\n")
+            print("\n⚠️  IMPORTANT REMINDERS:")
+            print("   • Ensure you have a database backup")
+            print("   • This script is safe - it only adds missing columns/data")
+            print("   • It will NOT delete or modify existing data")
+            print("   • Running during maintenance window is recommended")
+            print("\n✓ Proceeding with migration automatically...")
+            print("=" * 70 + "\n")
         else:
             print("\n" + "=" * 70)
-            print("⚠️  REMINDER: Before running on production:")
+            print("ℹ️  REMINDER: Before running on production:")
             print("   1. Take a database backup")
             print("   2. Test on staging first")
             print("   3. Run during maintenance window")
