@@ -707,7 +707,7 @@ def update_profile():
             
             # Check if username update is allowed (once per year)
             if merchant_profile.username_updated_at:
-                from datetime import datetime, timedelta
+                from datetime import timedelta
                 one_year_ago = datetime.utcnow() - timedelta(days=365)
                 if merchant_profile.username_updated_at > one_year_ago:
                     days_remaining = (merchant_profile.username_updated_at + timedelta(days=365) - datetime.utcnow()).days
