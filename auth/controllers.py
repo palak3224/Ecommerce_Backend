@@ -384,8 +384,9 @@ def verify_email(token):
             merchant_profile = MerchantProfile.get_by_user_id(user.id)
             if merchant_profile:
                 # Only update if not already verified to avoid overwriting other statuses
-                if merchant_profile.verification_status != 'approved': 
-                    merchant_profile.verification_status = 'email_verified'
+                from auth.models.merchant_document import VerificationStatus
+                if merchant_profile.verification_status != VerificationStatus.APPROVED: 
+                    merchant_profile.verification_status = VerificationStatus.EMAIL_VERIFIED
                     merchant_profile.is_verified = True
         
         db.session.commit()

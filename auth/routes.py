@@ -635,8 +635,16 @@ def verify_email_route(token):
         description: User not found
     """
     try:
+        current_app.logger.info(f"Email verification request received for token: {token[:10]}...")
+        
+        if not token or len(token.strip()) == 0:
+            current_app.logger.warning("Empty token provided for email verification")
+            return jsonify({"error": "Invalid verification token"}), 400
+        
         # Verify email and get response
         response, status_code = verify_email(token)
+        
+        current_app.logger.info(f"Email verification result: status_code={status_code}, response={response}")
         
         if status_code != 200:
             return jsonify(response), status_code
@@ -644,19 +652,19 @@ def verify_email_route(token):
         # Get user from database
         user_id = response.get('user_id')
         if not user_id:
+            current_app.logger.error(f"User ID not found in verification response: {response}")
             return jsonify({"error": "User ID not found in verification response"}), 400
             
         user = User.get_by_id(user_id)
         if not user:
+            current_app.logger.error(f"User not found for ID: {user_id}")
             return jsonify({"error": "User not found"}), 404
             
         # Generate tokens
         access_token = create_access_token(identity=str(user.id))
         refresh_token = create_refresh_token(identity=str(user.id))
-        # after
-        access_token = create_access_token(identity=str(user.id))
-
-        refresh_token = create_refresh_token(identity=str(user.id))
+        
+        current_app.logger.info(f"Email verified successfully for user: {user.email} (ID: {user.id})")
         
         return jsonify({
             "message": "Email verified successfully",
@@ -671,7 +679,8 @@ def verify_email_route(token):
             }
         }), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 400
+        current_app.logger.error(f"Error in verify_email_route: {str(e)}", exc_info=True)
+        return jsonify({"error": "Email verification failed", "details": str(e) if current_app.debug else "Internal server error"}), 500
 
 @auth_bp.route('/google', methods=['POST'])
 def google_auth_route():
