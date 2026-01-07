@@ -136,9 +136,12 @@ def send_email(to_email, subject, template_str, context):
         current_app.logger.info(f"Attempting to send email to {to_email}")
 
         # Add base context variables to every email
+        frontend_url = current_app.config.get('FRONTEND_URL', '#')
+        if frontend_url != '#':
+            frontend_url = frontend_url.rstrip('/')
         context.update({
             'logo_url': 'https://res.cloudinary.com/dyj7ebc7z/image/upload/v1751606177/logo_nifepq.png', 
-            'frontend_url': current_app.config.get('FRONTEND_URL', '#'),
+            'frontend_url': frontend_url,
             'year': datetime.now().year,
             'subject': subject
         })
@@ -193,7 +196,8 @@ def send_email(to_email, subject, template_str, context):
 
 def send_verification_email(user, token):
     """Sends email verification with the new AOIN theme."""
-    verification_link = f"{current_app.config['FRONTEND_URL']}/verify-email/{token}"
+    frontend_url = current_app.config['FRONTEND_URL'].rstrip('/')
+    verification_link = f"{frontend_url}/verify-email/{token}"
     
     template_content = """
         <p>Hello {{ name }},</p>
@@ -223,7 +227,8 @@ def send_verification_email(user, token):
 
 def send_password_reset_email(user, token):
     """Sends password reset email with the new AOIN theme."""
-    reset_link = f"{current_app.config['FRONTEND_URL']}/password/reset?token={token}"
+    frontend_url = current_app.config['FRONTEND_URL'].rstrip('/')
+    reset_link = f"{frontend_url}/password/reset?token={token}"
     
     template_content = """
         <p>Hello {{ name }},</p>
@@ -262,7 +267,8 @@ def send_merchant_docs_submitted_to_admin(merchant_profile, admin_email_list=Non
 
     merchant_user = merchant_profile.user 
     merchant_name = f"{merchant_user.first_name} {merchant_user.last_name}" if merchant_user else "N/A"
-    admin_link = f"{current_app.config['FRONTEND_URL']}/superadmin/merchant-management" 
+    frontend_url = current_app.config['FRONTEND_URL'].rstrip('/')
+    admin_link = f"{frontend_url}/superadmin/merchant-management" 
 
     template_content = """
         <p>Hello Admin,</p>
@@ -291,7 +297,8 @@ def send_merchant_docs_submitted_to_admin(merchant_profile, admin_email_list=Non
 
 def send_merchant_document_rejection_email(merchant_user, merchant_profile, document, admin_notes):
     """Notifies merchant of document rejection with the new AOIN theme."""
-    merchant_dashboard_link = f"{current_app.config['FRONTEND_URL']}/business/verification" 
+    frontend_url = current_app.config['FRONTEND_URL'].rstrip('/')
+    merchant_dashboard_link = f"{frontend_url}/business/verification" 
     
     template_content = """
         <p>Dear {{ user_name }},</p>
@@ -318,7 +325,8 @@ def send_merchant_document_rejection_email(merchant_user, merchant_profile, docu
 
 def send_merchant_profile_rejection_email(merchant_user, merchant_profile, reason):
     """Notifies merchant of profile rejection with the new AOIN theme."""
-    merchant_dashboard_link = f"{current_app.config['FRONTEND_URL']}/business/verification" 
+    frontend_url = current_app.config['FRONTEND_URL'].rstrip('/')
+    merchant_dashboard_link = f"{frontend_url}/business/verification" 
 
     template_content = """
         <p>Dear {{ user_name }},</p>
@@ -343,7 +351,8 @@ def send_merchant_profile_rejection_email(merchant_user, merchant_profile, reaso
 
 def send_merchant_profile_approval_email(merchant_user, merchant_profile):
     """Notifies merchant of profile approval with the new AOIN theme."""
-    merchant_dashboard_link = f"{current_app.config['FRONTEND_URL']}/business/dashboard" 
+    frontend_url = current_app.config['FRONTEND_URL'].rstrip('/')
+    merchant_dashboard_link = f"{frontend_url}/business/dashboard" 
 
     template_content = """
         <p>Dear {{ user_name }},</p>
