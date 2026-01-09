@@ -252,6 +252,114 @@ def create_app(config_name='default'):
     email_init.init_app(app)
     migrate = Migrate(app, db)
 
+    # Check ffmpeg availability for reel thumbnail generation
+    def check_ffmpeg_availability():
+        """Check if ffmpeg is available for thumbnail generation."""
+        import shutil
+        import subprocess
+        
+        app.logger.info("=" * 80)
+        app.logger.info("🔍 CHECKING FFMPEG AVAILABILITY FOR REEL THUMBNAIL GENERATION")
+        app.logger.info("=" * 80)
+        
+        # Get current PATH
+        current_path = os.environ.get('PATH', 'Not set')
+        app.logger.info(f"📍 Current PATH: {current_path}")
+        
+        # Try to find ffmpeg using multiple methods
+        ffmpeg_path = None
+        possible_paths = [
+            '/usr/bin/ffmpeg',
+            '/usr/local/bin/ffmpeg',
+            '/bin/ffmpeg',
+            'ffmpeg'  # Try PATH as fallback
+        ]
+        
+        # Method 1: Use shutil.which (most reliable)
+        try:
+            ffmpeg_path = shutil.which('ffmpeg')
+            if ffmpeg_path:
+                app.logger.info(f"✅ Found ffmpeg using shutil.which: {ffmpeg_path}")
+        except Exception as e:
+            app.logger.warning(f"⚠️  shutil.which failed: {str(e)}")
+        
+        # Method 2: Check common paths
+        if not ffmpeg_path:
+            app.logger.info("📍 shutil.which didn't find ffmpeg, checking common paths...")
+            for path in possible_paths:
+                if os.path.exists(path) and os.access(path, os.X_OK):
+                    ffmpeg_path = path
+                    app.logger.info(f"✅ Found ffmpeg at: {ffmpeg_path}")
+                    break
+        
+        # Method 3: Try 'which' command
+        if not ffmpeg_path:
+            try:
+                which_result = subprocess.run(
+                    ['which', 'ffmpeg'],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=5
+                )
+                if which_result.returncode == 0:
+                    ffmpeg_path = which_result.stdout.decode().strip()
+                    app.logger.info(f"✅ Found ffmpeg using 'which' command: {ffmpeg_path}")
+            except Exception as which_error:
+                app.logger.warning(f"⚠️  'which' command failed: {str(which_error)}")
+        
+        # Verify ffmpeg works
+        if ffmpeg_path:
+            try:
+                version_check = subprocess.run(
+                    [ffmpeg_path, '-version'],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=5
+                )
+                if version_check.returncode == 0:
+                    version_output = version_check.stderr.decode()[:200] if version_check.stderr else version_check.stdout.decode()[:200]
+                    app.logger.info("=" * 80)
+                    app.logger.info("✅ FFMPEG IS AVAILABLE AND WORKING!")
+                    app.logger.info(f"📍 Path: {ffmpeg_path}")
+                    app.logger.info(f"📍 Version info: {version_output}")
+                    app.logger.info("✅ Reel thumbnail generation will work correctly")
+                    app.logger.info("=" * 80)
+                    return True
+                else:
+                    app.logger.error("=" * 80)
+                    app.logger.error("❌ FFMPEG FOUND BUT NOT WORKING!")
+                    app.logger.error(f"📍 Path: {ffmpeg_path}")
+                    app.logger.error(f"❌ Return code: {version_check.returncode}")
+                    if version_check.stderr:
+                        app.logger.error(f"❌ Error: {version_check.stderr.decode()[:200]}")
+                    app.logger.error("=" * 80)
+                    return False
+            except Exception as check_error:
+                app.logger.error("=" * 80)
+                app.logger.error(f"❌ ERROR TESTING FFMPEG: {str(check_error)}")
+                app.logger.error("=" * 80)
+                return False
+        else:
+            app.logger.error("=" * 80)
+            app.logger.error("❌ FFMPEG NOT FOUND!")
+            app.logger.error("📍 Tried paths:")
+            for path in possible_paths:
+                exists = os.path.exists(path) if path != 'ffmpeg' else False
+                app.logger.error(f"   - {path}: {'✅ exists' if exists else '❌ not found'}")
+            app.logger.error("")
+            app.logger.error("🔧 TO FIX: Install ffmpeg on your server:")
+            app.logger.error("   Ubuntu/Debian: sudo apt-get update && sudo apt-get install -y ffmpeg")
+            app.logger.error("   macOS: brew install ffmpeg")
+            app.logger.error("")
+            app.logger.error("⚠️  WARNING: Reel thumbnail generation will NOT work without ffmpeg!")
+            app.logger.error("⚠️  New reels will be uploaded but thumbnails will be NULL")
+            app.logger.error("=" * 80)
+            return False
+    
+    # Run ffmpeg check at startup
+    with app.app_context():
+        check_ffmpeg_availability()
+
     # Register blueprints
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(users_bp, url_prefix='/api/users')

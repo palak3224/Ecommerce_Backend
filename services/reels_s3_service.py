@@ -5,6 +5,9 @@ Uses boto3 (Python AWS SDK) with multipart upload support for large files
 """
 import os
 import uuid
+import shutil
+import subprocess
+import tempfile
 from flask import current_app
 from werkzeug.utils import secure_filename
 import boto3
@@ -380,10 +383,6 @@ class ReelsS3Service:
         Returns:
             bool: True if thumbnail was generated and uploaded successfully
         """
-        import subprocess
-        import tempfile
-        import os
-        
         current_app.logger.info(f"[REELS_S3] 🎬 THUMBNAIL GENERATION METHOD CALLED")
         
         try:
@@ -454,36 +453,80 @@ class ReelsS3Service:
                 temp_thumbnail.close()
                 current_app.logger.info(f"[REELS_S3] ✅ Temp thumbnail file created")
                 
-                # Step 3: Check if ffmpeg is available
+                # Step 3: Check if ffmpeg is available and find its path
                 current_app.logger.info(f"[REELS_S3] 📍 Step 2.5: Checking if ffmpeg is available...")
+                current_app.logger.info(f"[REELS_S3] 📍 Current PATH: {os.environ.get('PATH', 'Not set')}")
+                
+                # Try to find ffmpeg using multiple methods
+                ffmpeg_path = None
+                possible_paths = [
+                    '/usr/bin/ffmpeg',
+                    '/usr/local/bin/ffmpeg',
+                    '/bin/ffmpeg',
+                    'ffmpeg'  # Try PATH as fallback
+                ]
+                
+                # First try shutil.which (more reliable)
+                ffmpeg_path = shutil.which('ffmpeg')
+                if ffmpeg_path:
+                    current_app.logger.info(f"[REELS_S3] ✅ Found ffmpeg using shutil.which: {ffmpeg_path}")
+                else:
+                    # Try common paths
+                    current_app.logger.info(f"[REELS_S3] 📍 shutil.which didn't find ffmpeg, trying common paths...")
+                    for path in possible_paths:
+                        if os.path.exists(path) and os.access(path, os.X_OK):
+                            ffmpeg_path = path
+                            current_app.logger.info(f"[REELS_S3] ✅ Found ffmpeg at: {ffmpeg_path}")
+                            break
+                
+                if not ffmpeg_path:
+                    # Try subprocess to find it
+                    try:
+                        which_result = subprocess.run(
+                            ['which', 'ffmpeg'],
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            timeout=5
+                        )
+                        if which_result.returncode == 0:
+                            ffmpeg_path = which_result.stdout.decode().strip()
+                            current_app.logger.info(f"[REELS_S3] ✅ Found ffmpeg using 'which': {ffmpeg_path}")
+                    except Exception as which_error:
+                        current_app.logger.warning(f"[REELS_S3] ⚠️  'which' command failed: {str(which_error)}")
+                
+                if not ffmpeg_path:
+                    current_app.logger.error(f"[REELS_S3] ❌ ffmpeg not found in PATH or common locations!")
+                    current_app.logger.error(f"[REELS_S3] 📍 PATH: {os.environ.get('PATH', 'Not set')}")
+                    current_app.logger.error(f"[REELS_S3] 📍 Tried paths: {possible_paths}")
+                    return False
+                
+                # Verify ffmpeg works
                 try:
                     ffmpeg_check = subprocess.run(
-                        ['ffmpeg', '-version'],
+                        [ffmpeg_path, '-version'],
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
                         timeout=5
                     )
                     if ffmpeg_check.returncode == 0:
                         version_output = ffmpeg_check.stderr.decode()[:100] if ffmpeg_check.stderr else ffmpeg_check.stdout.decode()[:100]
-                        current_app.logger.info(f"[REELS_S3] ✅ ffmpeg is available!")
-                        current_app.logger.info(f"[REELS_S3] 📍 ffmpeg version info: {version_output}")
+                        current_app.logger.info(f"[REELS_S3] ✅ ffmpeg is working!")
+                        current_app.logger.info(f"[REELS_S3] 📍 ffmpeg version info: {version_output[:200]}")
                     else:
-                        current_app.logger.error(f"[REELS_S3] ❌ ffmpeg check failed with return code: {ffmpeg_check.returncode}")
+                        current_app.logger.error(f"[REELS_S3] ❌ ffmpeg found but check failed with return code: {ffmpeg_check.returncode}")
+                        if ffmpeg_check.stderr:
+                            current_app.logger.error(f"[REELS_S3] ❌ Error: {ffmpeg_check.stderr.decode()[:200]}")
                         return False
-                except FileNotFoundError:
-                    current_app.logger.error(f"[REELS_S3] ❌ ffmpeg not found in PATH!")
-                    current_app.logger.error(f"[REELS_S3] 📍 Please install ffmpeg: sudo apt-get install ffmpeg (Ubuntu) or brew install ffmpeg (macOS)")
-                    return False
                 except Exception as check_error:
-                    current_app.logger.error(f"[REELS_S3] ❌ Error checking ffmpeg: {str(check_error)}")
+                    current_app.logger.error(f"[REELS_S3] ❌ Error running ffmpeg: {str(check_error)}")
                     return False
                 
                 # Step 4: Use ffmpeg to extract frame at 1 second
                 current_app.logger.info(f"[REELS_S3] 📍 Step 2.6: Running ffmpeg to extract frame at 1 second...")
-                current_app.logger.info(f"[REELS_S3] 📍 Command: ffmpeg -i {temp_video.name} -ss 00:00:01 -vframes 1 -q:v 2 -y {temp_thumbnail.name}")
+                current_app.logger.info(f"[REELS_S3] 📍 Command: {ffmpeg_path} -i {temp_video.name} -ss 00:00:01 -vframes 1 -q:v 2 -y {temp_thumbnail.name}")
                 
                 cmd = [
-                    'ffmpeg',
+                    ffmpeg_path,  # Use the found path
                     '-i', temp_video.name,
                     '-ss', '00:00:01',  # Seek to 1 second
                     '-vframes', '1',    # Extract 1 frame
@@ -516,7 +559,7 @@ class ReelsS3Service:
                     current_app.logger.warning(f"[REELS_S3] ⚠️  First attempt failed. Trying to extract first frame instead...")
                     
                     cmd_fallback = [
-                        'ffmpeg',
+                        ffmpeg_path,  # Use the found path
                         '-i', temp_video.name,
                         '-vframes', '1',
                         '-q:v', '2',
@@ -601,7 +644,8 @@ class ReelsS3Service:
             
         except FileNotFoundError as fnf_error:
             current_app.logger.error("=" * 80)
-            current_app.logger.error(f"[REELS_S3] ❌ FileNotFoundError: ffmpeg not found in PATH!")
+            current_app.logger.error(f"[REELS_S3] ❌ FileNotFoundError: {str(fnf_error)}")
+            current_app.logger.error(f"[REELS_S3] 📍 PATH environment: {os.environ.get('PATH', 'Not set')}")
             current_app.logger.error(f"[REELS_S3] 📍 Install ffmpeg: sudo apt-get install ffmpeg (Ubuntu) or brew install ffmpeg (macOS)")
             current_app.logger.error("=" * 80)
             return False
