@@ -384,9 +384,20 @@ class ReelsController:
                 reel.video_format = file_extension
                 
                 # Set thumbnail URL if generated
+                current_app.logger.info("=" * 80)
+                current_app.logger.info(f"[REELS_CONTROLLER] 📋 Updating reel record with thumbnail information...")
+                current_app.logger.info(f"[REELS_CONTROLLER] 📋 Upload result keys: {list(upload_result.keys())}")
+                current_app.logger.info(f"[REELS_CONTROLLER] 📋 thumbnail_url in result: {'thumbnail_url' in upload_result}")
+                current_app.logger.info(f"[REELS_CONTROLLER] 📋 thumbnail_url value: {upload_result.get('thumbnail_url')}")
+                
                 if upload_result.get('thumbnail_url'):
                     reel.thumbnail_url = upload_result['thumbnail_url']
                     reel.thumbnail_public_id = upload_result.get('thumbnail_s3_key')
+                    current_app.logger.info(f"[REELS_CONTROLLER] ✅ Thumbnail URL saved to database: {reel.thumbnail_url}")
+                    current_app.logger.info(f"[REELS_CONTROLLER] ✅ Thumbnail S3 key saved: {reel.thumbnail_public_id}")
+                else:
+                    current_app.logger.warning(f"[REELS_CONTROLLER] ⚠️  No thumbnail_url in upload result. Thumbnail may not have been generated.")
+                current_app.logger.info("=" * 80)
                 
                 # Commit the transaction
                 db.session.commit()

@@ -233,20 +233,55 @@ class ReelsS3Service:
             thumbnail_s3_key = s3_key.replace('.mp4', '_thumb.jpg')
             thumbnail_url = self._generate_cloudfront_url(thumbnail_s3_key)
             
+            current_app.logger.info("=" * 80)
+            current_app.logger.info(f"[REELS_S3] 🖼️  STARTING THUMBNAIL GENERATION PROCESS")
+            current_app.logger.info(f"[REELS_S3] 📋 Reel ID: {reel_id}")
+            current_app.logger.info(f"[REELS_S3] 📋 Merchant ID: {merchant_id}")
+            current_app.logger.info(f"[REELS_S3] 📋 Product ID: {product_id}")
+            current_app.logger.info(f"[REELS_S3] 📋 Thumbnail S3 Key: {thumbnail_s3_key}")
+            current_app.logger.info(f"[REELS_S3] 📋 Thumbnail URL: {thumbnail_url}")
+            current_app.logger.info("=" * 80)
+            
             # Generate thumbnail BEFORE uploading video (so we can read from original file)
             thumbnail_generated = False
             try:
                 # Reset file pointer for thumbnail generation
+                current_app.logger.info(f"[REELS_S3] ⏳ Step 1: Resetting file pointer for thumbnail generation...")
                 if hasattr(file, 'seek'):
-                    file.seek(0)
+                    try:
+                        file.seek(0)
+                        file_position = file.tell()
+                        current_app.logger.info(f"[REELS_S3] ✅ File pointer reset to position: {file_position}")
+                    except Exception as seek_error:
+                        current_app.logger.error(f"[REELS_S3] ❌ Failed to reset file pointer: {str(seek_error)}")
+                        raise
+                else:
+                    current_app.logger.warning(f"[REELS_S3] ⚠️  File object does not have 'seek' method")
+                
+                current_app.logger.info(f"[REELS_S3] ⏳ Step 2: Calling thumbnail generation method...")
                 thumbnail_generated = self._generate_and_upload_thumbnail(
                     file, merchant_id, product_id, reel_id, thumbnail_s3_key
                 )
+                
+                if thumbnail_generated:
+                    current_app.logger.info("=" * 80)
+                    current_app.logger.info(f"[REELS_S3] ✅ SUCCESS: Thumbnail generated and uploaded!")
+                    current_app.logger.info(f"[REELS_S3] 📋 Thumbnail URL: {thumbnail_url}")
+                    current_app.logger.info("=" * 80)
+                else:
+                    current_app.logger.warning("=" * 80)
+                    current_app.logger.warning(f"[REELS_S3] ⚠️  WARNING: Thumbnail generation returned False")
+                    current_app.logger.warning(f"[REELS_S3] 📋 This might be due to ffmpeg not being available")
+                    current_app.logger.warning("=" * 80)
+                    
             except Exception as thumb_error:
                 # Log but don't fail the upload if thumbnail generation fails
-                current_app.logger.warning(
-                    f"[REELS_S3] Thumbnail generation failed for reel {reel_id}: {str(thumb_error)}"
-                )
+                current_app.logger.error("=" * 80)
+                current_app.logger.error(f"[REELS_S3] ❌ ERROR: Thumbnail generation failed for reel {reel_id}")
+                current_app.logger.error(f"[REELS_S3] ❌ Error Type: {type(thumb_error).__name__}")
+                current_app.logger.error(f"[REELS_S3] ❌ Error Message: {str(thumb_error)}")
+                current_app.logger.error(f"[REELS_S3] ❌ Error Details:", exc_info=True)
+                current_app.logger.error("=" * 80)
             
             # Reset file pointer again for video upload
             if hasattr(file, 'seek'):
@@ -349,29 +384,104 @@ class ReelsS3Service:
         import tempfile
         import os
         
+        current_app.logger.info(f"[REELS_S3] 🎬 THUMBNAIL GENERATION METHOD CALLED")
+        
         try:
-            # Reset file pointer
-            if hasattr(video_file, 'seek'):
-                video_file.seek(0)
+            # Step 1: Reset file pointer
+            current_app.logger.info(f"[REELS_S3] 📍 Step 2.1: Checking file object type and resetting pointer...")
+            current_app.logger.info(f"[REELS_S3] 📍 File object type: {type(video_file)}")
+            current_app.logger.info(f"[REELS_S3] 📍 File object has 'seek': {hasattr(video_file, 'seek')}")
+            current_app.logger.info(f"[REELS_S3] 📍 File object has 'read': {hasattr(video_file, 'read')}")
             
-            # Create temporary files
+            if hasattr(video_file, 'seek'):
+                try:
+                    video_file.seek(0)
+                    position = video_file.tell() if hasattr(video_file, 'tell') else 'unknown'
+                    current_app.logger.info(f"[REELS_S3] ✅ File pointer reset successfully. Position: {position}")
+                except Exception as seek_error:
+                    current_app.logger.error(f"[REELS_S3] ❌ Failed to seek file: {str(seek_error)}")
+                    raise
+            else:
+                current_app.logger.warning(f"[REELS_S3] ⚠️  File object does not support seeking")
+            
+            # Step 2: Create temporary files
+            current_app.logger.info(f"[REELS_S3] 📍 Step 2.2: Creating temporary files...")
             temp_video = None
             temp_thumbnail = None
             
             try:
                 # Save video to temp file
+                current_app.logger.info(f"[REELS_S3] 📍 Step 2.3: Saving video to temporary file...")
                 temp_video = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
-                video_file.seek(0)
-                temp_video.write(video_file.read())
+                current_app.logger.info(f"[REELS_S3] 📍 Temp video file path: {temp_video.name}")
+                
+                # Reset file pointer before reading
+                if hasattr(video_file, 'seek'):
+                    video_file.seek(0)
+                
+                # Read video file
+                current_app.logger.info(f"[REELS_S3] 📍 Reading video file content...")
+                video_content = video_file.read()
+                video_size = len(video_content) if video_content else 0
+                current_app.logger.info(f"[REELS_S3] ✅ Video content read. Size: {video_size} bytes")
+                
+                if video_size == 0:
+                    current_app.logger.error(f"[REELS_S3] ❌ Video file is empty! Cannot generate thumbnail.")
+                    return False
+                
+                # Write to temp file
+                temp_video.write(video_content)
                 temp_video.flush()
                 temp_video.close()
+                current_app.logger.info(f"[REELS_S3] ✅ Video saved to temp file: {temp_video.name}")
+                
+                # Verify temp file exists and has content
+                if not os.path.exists(temp_video.name):
+                    current_app.logger.error(f"[REELS_S3] ❌ Temp video file was not created!")
+                    return False
+                
+                temp_file_size = os.path.getsize(temp_video.name)
+                current_app.logger.info(f"[REELS_S3] ✅ Temp video file verified. Size: {temp_file_size} bytes")
+                
+                if temp_file_size == 0:
+                    current_app.logger.error(f"[REELS_S3] ❌ Temp video file is empty!")
+                    return False
                 
                 # Create temp thumbnail file
+                current_app.logger.info(f"[REELS_S3] 📍 Step 2.4: Creating temporary thumbnail file...")
                 temp_thumbnail = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+                current_app.logger.info(f"[REELS_S3] 📍 Temp thumbnail file path: {temp_thumbnail.name}")
                 temp_thumbnail.close()
+                current_app.logger.info(f"[REELS_S3] ✅ Temp thumbnail file created")
                 
-                # Use ffmpeg to extract frame at 1 second (or first frame if video is shorter)
-                # Command: ffmpeg -i input.mp4 -ss 00:00:01 -vframes 1 -q:v 2 output.jpg
+                # Step 3: Check if ffmpeg is available
+                current_app.logger.info(f"[REELS_S3] 📍 Step 2.5: Checking if ffmpeg is available...")
+                try:
+                    ffmpeg_check = subprocess.run(
+                        ['ffmpeg', '-version'],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        timeout=5
+                    )
+                    if ffmpeg_check.returncode == 0:
+                        version_output = ffmpeg_check.stderr.decode()[:100] if ffmpeg_check.stderr else ffmpeg_check.stdout.decode()[:100]
+                        current_app.logger.info(f"[REELS_S3] ✅ ffmpeg is available!")
+                        current_app.logger.info(f"[REELS_S3] 📍 ffmpeg version info: {version_output}")
+                    else:
+                        current_app.logger.error(f"[REELS_S3] ❌ ffmpeg check failed with return code: {ffmpeg_check.returncode}")
+                        return False
+                except FileNotFoundError:
+                    current_app.logger.error(f"[REELS_S3] ❌ ffmpeg not found in PATH!")
+                    current_app.logger.error(f"[REELS_S3] 📍 Please install ffmpeg: sudo apt-get install ffmpeg (Ubuntu) or brew install ffmpeg (macOS)")
+                    return False
+                except Exception as check_error:
+                    current_app.logger.error(f"[REELS_S3] ❌ Error checking ffmpeg: {str(check_error)}")
+                    return False
+                
+                # Step 4: Use ffmpeg to extract frame at 1 second
+                current_app.logger.info(f"[REELS_S3] 📍 Step 2.6: Running ffmpeg to extract frame at 1 second...")
+                current_app.logger.info(f"[REELS_S3] 📍 Command: ffmpeg -i {temp_video.name} -ss 00:00:01 -vframes 1 -q:v 2 -y {temp_thumbnail.name}")
+                
                 cmd = [
                     'ffmpeg',
                     '-i', temp_video.name,
@@ -382,6 +492,8 @@ class ReelsS3Service:
                     temp_thumbnail.name
                 ]
                 
+                current_app.logger.info(f"[REELS_S3] 📍 Full command: {' '.join(cmd)}")
+                
                 # Run ffmpeg
                 result = subprocess.run(
                     cmd,
@@ -390,8 +502,19 @@ class ReelsS3Service:
                     timeout=30  # 30 second timeout
                 )
                 
+                current_app.logger.info(f"[REELS_S3] 📍 ffmpeg return code: {result.returncode}")
+                
+                if result.stdout:
+                    current_app.logger.info(f"[REELS_S3] 📍 ffmpeg stdout: {result.stdout.decode()[:200]}")
+                
+                if result.stderr:
+                    stderr_output = result.stderr.decode()
+                    current_app.logger.info(f"[REELS_S3] 📍 ffmpeg stderr (first 500 chars): {stderr_output[:500]}")
+                
                 if result.returncode != 0:
                     # If seeking to 1 second fails, try first frame
+                    current_app.logger.warning(f"[REELS_S3] ⚠️  First attempt failed. Trying to extract first frame instead...")
+                    
                     cmd_fallback = [
                         'ffmpeg',
                         '-i', temp_video.name,
@@ -400,25 +523,49 @@ class ReelsS3Service:
                         '-y',
                         temp_thumbnail.name
                     ]
+                    
+                    current_app.logger.info(f"[REELS_S3] 📍 Fallback command: {' '.join(cmd_fallback)}")
+                    
                     result = subprocess.run(
                         cmd_fallback,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
                         timeout=30
                     )
+                    
+                    current_app.logger.info(f"[REELS_S3] 📍 Fallback return code: {result.returncode}")
+                    
+                    if result.stderr:
+                        stderr_output = result.stderr.decode()
+                        current_app.logger.info(f"[REELS_S3] 📍 Fallback stderr (first 500 chars): {stderr_output[:500]}")
                 
                 if result.returncode != 0:
-                    current_app.logger.warning(
-                        f"[REELS_S3] ffmpeg failed to generate thumbnail: {result.stderr.decode()}"
-                    )
+                    current_app.logger.error(f"[REELS_S3] ❌ ffmpeg failed to generate thumbnail!")
+                    current_app.logger.error(f"[REELS_S3] ❌ Return code: {result.returncode}")
+                    if result.stderr:
+                        current_app.logger.error(f"[REELS_S3] ❌ Error output: {result.stderr.decode()}")
                     return False
                 
-                # Check if thumbnail was created
-                if not os.path.exists(temp_thumbnail.name) or os.path.getsize(temp_thumbnail.name) == 0:
-                    current_app.logger.warning("[REELS_S3] Thumbnail file was not created or is empty")
+                current_app.logger.info(f"[REELS_S3] ✅ ffmpeg executed successfully!")
+                
+                # Step 5: Check if thumbnail was created
+                current_app.logger.info(f"[REELS_S3] 📍 Step 2.7: Verifying thumbnail file was created...")
+                if not os.path.exists(temp_thumbnail.name):
+                    current_app.logger.error(f"[REELS_S3] ❌ Thumbnail file does not exist at: {temp_thumbnail.name}")
                     return False
                 
-                # Upload thumbnail to S3
+                thumbnail_size = os.path.getsize(temp_thumbnail.name)
+                current_app.logger.info(f"[REELS_S3] ✅ Thumbnail file exists. Size: {thumbnail_size} bytes")
+                
+                if thumbnail_size == 0:
+                    current_app.logger.error(f"[REELS_S3] ❌ Thumbnail file is empty!")
+                    return False
+                
+                # Step 6: Upload thumbnail to S3
+                current_app.logger.info(f"[REELS_S3] 📍 Step 2.8: Uploading thumbnail to S3...")
+                current_app.logger.info(f"[REELS_S3] 📍 Bucket: {self.bucket_name}")
+                current_app.logger.info(f"[REELS_S3] 📍 Key: {thumbnail_s3_key}")
+                
                 with open(temp_thumbnail.name, 'rb') as thumb_file:
                     self.s3_client.upload_fileobj(
                         thumb_file,
@@ -427,27 +574,50 @@ class ReelsS3Service:
                         ExtraArgs={'ContentType': 'image/jpeg'}
                     )
                 
-                current_app.logger.info(f"[REELS_S3] Thumbnail uploaded successfully: {thumbnail_s3_key}")
+                current_app.logger.info(f"[REELS_S3] ✅ Thumbnail uploaded to S3 successfully!")
+                current_app.logger.info(f"[REELS_S3] 📍 S3 Key: {thumbnail_s3_key}")
+                
+                # Verify the upload
+                try:
+                    self.s3_client.head_object(Bucket=self.bucket_name, Key=thumbnail_s3_key)
+                    current_app.logger.info(f"[REELS_S3] ✅ Thumbnail verified in S3!")
+                except Exception as verify_error:
+                    current_app.logger.warning(f"[REELS_S3] ⚠️  Could not verify thumbnail in S3: {str(verify_error)}")
+                
                 return True
                 
             finally:
                 # Cleanup temp files
+                current_app.logger.info(f"[REELS_S3] 📍 Step 2.9: Cleaning up temporary files...")
                 try:
                     if temp_video and os.path.exists(temp_video.name):
                         os.unlink(temp_video.name)
+                        current_app.logger.info(f"[REELS_S3] ✅ Deleted temp video: {temp_video.name}")
                     if temp_thumbnail and os.path.exists(temp_thumbnail.name):
                         os.unlink(temp_thumbnail.name)
+                        current_app.logger.info(f"[REELS_S3] ✅ Deleted temp thumbnail: {temp_thumbnail.name}")
                 except Exception as cleanup_error:
-                    current_app.logger.warning(f"[REELS_S3] Failed to cleanup temp files: {str(cleanup_error)}")
+                    current_app.logger.warning(f"[REELS_S3] ⚠️  Failed to cleanup temp files: {str(cleanup_error)}")
             
-        except FileNotFoundError:
-            current_app.logger.warning("[REELS_S3] ffmpeg not found. Thumbnail generation skipped.")
+        except FileNotFoundError as fnf_error:
+            current_app.logger.error("=" * 80)
+            current_app.logger.error(f"[REELS_S3] ❌ FileNotFoundError: ffmpeg not found in PATH!")
+            current_app.logger.error(f"[REELS_S3] 📍 Install ffmpeg: sudo apt-get install ffmpeg (Ubuntu) or brew install ffmpeg (macOS)")
+            current_app.logger.error("=" * 80)
             return False
-        except subprocess.TimeoutExpired:
-            current_app.logger.warning("[REELS_S3] Thumbnail generation timed out")
+        except subprocess.TimeoutExpired as timeout_error:
+            current_app.logger.error("=" * 80)
+            current_app.logger.error(f"[REELS_S3] ❌ TimeoutError: Thumbnail generation timed out after 30 seconds!")
+            current_app.logger.error(f"[REELS_S3] 📍 The video file might be corrupted or too large to process")
+            current_app.logger.error("=" * 80)
             return False
         except Exception as e:
-            current_app.logger.error(f"[REELS_S3] Error generating thumbnail: {str(e)}", exc_info=True)
+            current_app.logger.error("=" * 80)
+            current_app.logger.error(f"[REELS_S3] ❌ Unexpected error generating thumbnail!")
+            current_app.logger.error(f"[REELS_S3] ❌ Error Type: {type(e).__name__}")
+            current_app.logger.error(f"[REELS_S3] ❌ Error Message: {str(e)}")
+            current_app.logger.error(f"[REELS_S3] ❌ Full traceback:", exc_info=True)
+            current_app.logger.error("=" * 80)
             return False
     
     def delete_reel_video(self, url_or_s3_key: str, delete_thumbnail: bool = True) -> bool:
