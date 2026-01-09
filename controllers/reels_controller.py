@@ -10,6 +10,8 @@ from models.user_merchant_follow import UserMerchantFollow
 from models.user_category_preference import UserCategoryPreference
 from models.product import Product
 from models.product_stock import ProductStock
+from models.product_media import ProductMedia
+from models.enums import MediaType
 from models.merchant_notification import MerchantNotification
 from auth.models.models import User, MerchantProfile
 from services.reels_s3_service import get_reels_s3_service
@@ -1016,8 +1018,12 @@ class ReelsController:
             if not merchant:
                 return jsonify({'error': 'Merchant profile not found'}), HTTPStatus.NOT_FOUND
             
-            # Get approved products with stock > 0, not variants
-            products = Product.query.join(ProductStock).filter(
+            # Get approved products with stock > 0, not variants, with eager loading of media
+            # Using selectinload for media to avoid cartesian product issues
+            products = Product.query.join(ProductStock).options(
+                joinedload(Product.category),
+                selectinload(Product.media)
+            ).filter(
                 Product.merchant_id == merchant.id,
                 Product.deleted_at.is_(None),
                 Product.active_flag == True,
@@ -1026,14 +1032,34 @@ class ReelsController:
                 ProductStock.stock_qty > 0
             ).all()
             
-            products_data = [{
-                'product_id': product.product_id,
-                'product_name': product.product_name,
-                'category_id': product.category_id,
-                'category_name': product.category.name if product.category else None,
-                'stock_qty': product.stock.stock_qty if product.stock else 0,
-                'selling_price': float(product.selling_price) if product.selling_price else None,
-            } for product in products]
+            products_data = []
+            for product in products:
+                # Get primary image (prefer is_main_image, fallback to first image by sort_order)
+                primary_image = None
+                if product.media:
+                    # Filter for image type media only (exclude videos)
+                    image_media = [m for m in product.media if m.type == MediaType.IMAGE and m.deleted_at is None]
+                    
+                    if image_media:
+                        # First try to find main image
+                        main_image = next((m for m in image_media if m.is_main_image), None)
+                        if main_image:
+                            primary_image = main_image.url
+                        else:
+                            # If no main image, get first image by sort_order
+                            sorted_images = sorted(image_media, key=lambda m: m.sort_order)
+                            if sorted_images:
+                                primary_image = sorted_images[0].url
+                
+                products_data.append({
+                    'product_id': product.product_id,
+                    'product_name': product.product_name,
+                    'category_id': product.category_id,
+                    'category_name': product.category.name if product.category else None,
+                    'stock_qty': product.stock.stock_qty if product.stock else 0,
+                    'selling_price': float(product.selling_price) if product.selling_price else None,
+                    'primary_image': primary_image
+                })
             
             return jsonify({
                 'status': 'success',
