@@ -383,6 +383,11 @@ class ReelsController:
                 reel.file_size_bytes = upload_result.get('bytes', 0)
                 reel.video_format = file_extension
                 
+                # Set thumbnail URL if generated
+                if upload_result.get('thumbnail_url'):
+                    reel.thumbnail_url = upload_result['thumbnail_url']
+                    reel.thumbnail_public_id = upload_result.get('thumbnail_s3_key')
+                
                 # Commit the transaction
                 db.session.commit()
             except Exception as e:

@@ -229,6 +229,29 @@ class ReelsS3Service:
                 'ContentType': content_type
             }
             
+            # Generate thumbnail S3 key and URL
+            thumbnail_s3_key = s3_key.replace('.mp4', '_thumb.jpg')
+            thumbnail_url = self._generate_cloudfront_url(thumbnail_s3_key)
+            
+            # Generate thumbnail BEFORE uploading video (so we can read from original file)
+            thumbnail_generated = False
+            try:
+                # Reset file pointer for thumbnail generation
+                if hasattr(file, 'seek'):
+                    file.seek(0)
+                thumbnail_generated = self._generate_and_upload_thumbnail(
+                    file, merchant_id, product_id, reel_id, thumbnail_s3_key
+                )
+            except Exception as thumb_error:
+                # Log but don't fail the upload if thumbnail generation fails
+                current_app.logger.warning(
+                    f"[REELS_S3] Thumbnail generation failed for reel {reel_id}: {str(thumb_error)}"
+                )
+            
+            # Reset file pointer again for video upload
+            if hasattr(file, 'seek'):
+                file.seek(0)
+            
             current_app.logger.info(
                 f"[REELS_S3] Uploading to S3: bucket={self.bucket_name}, "
                 f"key={s3_key}, content_type={content_type}, size={file_size} bytes"
@@ -257,11 +280,15 @@ class ReelsS3Service:
             cloudfront_url = self._generate_cloudfront_url(s3_key)
             current_app.logger.info(f"[REELS_S3] CloudFront URL: {cloudfront_url}")
             
-            return {
+            result = {
                 'url': cloudfront_url,
                 's3_key': s3_key,
-                'bytes': file_size
+                'bytes': file_size,
+                'thumbnail_url': thumbnail_url if thumbnail_generated else None,
+                'thumbnail_s3_key': thumbnail_s3_key if thumbnail_generated else None
             }
+            
+            return result
             
         except ClientError as e:
             error_code = e.response.get('Error', {}).get('Code', 'Unknown')
@@ -297,12 +324,139 @@ class ReelsS3Service:
             )
             raise Exception(f"Failed to upload reel video to S3: {str(e)}")
     
-    def delete_reel_video(self, url_or_s3_key: str) -> bool:
+    def _generate_and_upload_thumbnail(
+        self,
+        video_file,
+        merchant_id: int,
+        product_id: int,
+        reel_id: int,
+        thumbnail_s3_key: str
+    ) -> bool:
+        """
+        Generate thumbnail from video and upload to S3.
+        
+        Args:
+            video_file: Video file object
+            merchant_id: Merchant ID
+            product_id: Product ID
+            reel_id: Reel ID
+            thumbnail_s3_key: S3 key for thumbnail
+            
+        Returns:
+            bool: True if thumbnail was generated and uploaded successfully
+        """
+        import subprocess
+        import tempfile
+        import os
+        
+        try:
+            # Reset file pointer
+            if hasattr(video_file, 'seek'):
+                video_file.seek(0)
+            
+            # Create temporary files
+            temp_video = None
+            temp_thumbnail = None
+            
+            try:
+                # Save video to temp file
+                temp_video = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+                video_file.seek(0)
+                temp_video.write(video_file.read())
+                temp_video.flush()
+                temp_video.close()
+                
+                # Create temp thumbnail file
+                temp_thumbnail = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+                temp_thumbnail.close()
+                
+                # Use ffmpeg to extract frame at 1 second (or first frame if video is shorter)
+                # Command: ffmpeg -i input.mp4 -ss 00:00:01 -vframes 1 -q:v 2 output.jpg
+                cmd = [
+                    'ffmpeg',
+                    '-i', temp_video.name,
+                    '-ss', '00:00:01',  # Seek to 1 second
+                    '-vframes', '1',    # Extract 1 frame
+                    '-q:v', '2',        # High quality
+                    '-y',               # Overwrite output
+                    temp_thumbnail.name
+                ]
+                
+                # Run ffmpeg
+                result = subprocess.run(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=30  # 30 second timeout
+                )
+                
+                if result.returncode != 0:
+                    # If seeking to 1 second fails, try first frame
+                    cmd_fallback = [
+                        'ffmpeg',
+                        '-i', temp_video.name,
+                        '-vframes', '1',
+                        '-q:v', '2',
+                        '-y',
+                        temp_thumbnail.name
+                    ]
+                    result = subprocess.run(
+                        cmd_fallback,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        timeout=30
+                    )
+                
+                if result.returncode != 0:
+                    current_app.logger.warning(
+                        f"[REELS_S3] ffmpeg failed to generate thumbnail: {result.stderr.decode()}"
+                    )
+                    return False
+                
+                # Check if thumbnail was created
+                if not os.path.exists(temp_thumbnail.name) or os.path.getsize(temp_thumbnail.name) == 0:
+                    current_app.logger.warning("[REELS_S3] Thumbnail file was not created or is empty")
+                    return False
+                
+                # Upload thumbnail to S3
+                with open(temp_thumbnail.name, 'rb') as thumb_file:
+                    self.s3_client.upload_fileobj(
+                        thumb_file,
+                        self.bucket_name,
+                        thumbnail_s3_key,
+                        ExtraArgs={'ContentType': 'image/jpeg'}
+                    )
+                
+                current_app.logger.info(f"[REELS_S3] Thumbnail uploaded successfully: {thumbnail_s3_key}")
+                return True
+                
+            finally:
+                # Cleanup temp files
+                try:
+                    if temp_video and os.path.exists(temp_video.name):
+                        os.unlink(temp_video.name)
+                    if temp_thumbnail and os.path.exists(temp_thumbnail.name):
+                        os.unlink(temp_thumbnail.name)
+                except Exception as cleanup_error:
+                    current_app.logger.warning(f"[REELS_S3] Failed to cleanup temp files: {str(cleanup_error)}")
+            
+        except FileNotFoundError:
+            current_app.logger.warning("[REELS_S3] ffmpeg not found. Thumbnail generation skipped.")
+            return False
+        except subprocess.TimeoutExpired:
+            current_app.logger.warning("[REELS_S3] Thumbnail generation timed out")
+            return False
+        except Exception as e:
+            current_app.logger.error(f"[REELS_S3] Error generating thumbnail: {str(e)}", exc_info=True)
+            return False
+    
+    def delete_reel_video(self, url_or_s3_key: str, delete_thumbnail: bool = True) -> bool:
         """
         Delete a reel video file from S3.
         
         Args:
             url_or_s3_key: Either a CloudFront URL or S3 key
+            delete_thumbnail: Whether to also delete the associated thumbnail
             
         Returns:
             bool: True if deletion succeeded, False otherwise
@@ -318,13 +472,27 @@ class ReelsS3Service:
                 current_app.logger.warning(f"[REELS_S3] Could not extract S3 key from URL: {url_or_s3_key}")
                 return False
             
-            # Delete from S3
+            # Delete video from S3
             self.s3_client.delete_object(
                 Bucket=self.bucket_name,
                 Key=s3_key
             )
             
             current_app.logger.info(f"[REELS_S3] Successfully deleted reel video from S3: {s3_key}")
+            
+            # Delete thumbnail if requested
+            if delete_thumbnail:
+                thumbnail_s3_key = s3_key.replace('.mp4', '_thumb.jpg')
+                try:
+                    self.s3_client.delete_object(
+                        Bucket=self.bucket_name,
+                        Key=thumbnail_s3_key
+                    )
+                    current_app.logger.info(f"[REELS_S3] Successfully deleted reel thumbnail from S3: {thumbnail_s3_key}")
+                except Exception as thumb_error:
+                    # Don't fail if thumbnail deletion fails
+                    current_app.logger.warning(f"[REELS_S3] Failed to delete thumbnail {thumbnail_s3_key}: {str(thumb_error)}")
+            
             return True
             
         except ClientError as e:
@@ -388,4 +556,126 @@ def reset_reels_s3_service():
     """Reset the singleton instance (useful for testing or after code changes)"""
     global _reels_s3_service_instance
     _reels_s3_service_instance = None
+
+
+def generate_thumbnail_for_existing_reel(video_s3_key: str) -> Optional[Dict]:
+    """
+    Generate thumbnail for an existing reel by downloading video from S3.
+    This is useful for regenerating thumbnails for reels that were uploaded before thumbnail generation was implemented.
+    
+    Args:
+        video_s3_key: S3 key of the video file
+        
+    Returns:
+        dict with 'thumbnail_url' and 'thumbnail_s3_key' if successful, None otherwise
+    """
+    import tempfile
+    import os
+    import subprocess
+    
+    service = get_reels_s3_service()
+    temp_video = None
+    temp_thumbnail = None
+    
+    try:
+        # Extract thumbnail S3 key from video key
+        thumbnail_s3_key = video_s3_key.replace('.mp4', '_thumb.jpg')
+        thumbnail_url = service._generate_cloudfront_url(thumbnail_s3_key)
+        
+        # Download video to temp file
+        temp_video = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+        temp_video.close()
+        
+        # Download from S3
+        service.s3_client.download_file(
+            service.bucket_name,
+            video_s3_key,
+            temp_video.name
+        )
+        
+        # Create temp thumbnail file
+        temp_thumbnail = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+        temp_thumbnail.close()
+        
+        # Use ffmpeg to extract frame
+        cmd = [
+            'ffmpeg',
+            '-i', temp_video.name,
+            '-ss', '00:00:01',
+            '-vframes', '1',
+            '-q:v', '2',
+            '-y',
+            temp_thumbnail.name
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30
+        )
+        
+        if result.returncode != 0:
+            # Try first frame
+            cmd_fallback = [
+                'ffmpeg',
+                '-i', temp_video.name,
+                '-vframes', '1',
+                '-q:v', '2',
+                '-y',
+                temp_thumbnail.name
+            ]
+            result = subprocess.run(
+                cmd_fallback,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30
+            )
+        
+        if result.returncode != 0 or not os.path.exists(temp_thumbnail.name) or os.path.getsize(temp_thumbnail.name) == 0:
+            return None
+        
+        # Upload thumbnail to S3
+        with open(temp_thumbnail.name, 'rb') as thumb_file:
+            service.s3_client.upload_fileobj(
+                thumb_file,
+                service.bucket_name,
+                thumbnail_s3_key,
+                ExtraArgs={'ContentType': 'image/jpeg'}
+            )
+        
+        return {
+            'thumbnail_url': thumbnail_url,
+            'thumbnail_s3_key': thumbnail_s3_key
+        }
+            
+    except FileNotFoundError:
+        # ffmpeg not available
+        try:
+            from flask import current_app
+            if current_app:
+                current_app.logger.warning("[REELS_S3] ffmpeg not found. Cannot generate thumbnail for existing reel.")
+        except:
+            pass
+        return None
+    except Exception as e:
+        try:
+            from flask import current_app
+            if current_app:
+                current_app.logger.error(f"[REELS_S3] Failed to generate thumbnail for existing reel: {str(e)}", exc_info=True)
+        except:
+            pass
+        return None
+    finally:
+        # Cleanup temp files
+        if temp_video and os.path.exists(temp_video.name):
+            try:
+                os.unlink(temp_video.name)
+            except Exception:
+                pass
+        if temp_thumbnail and os.path.exists(temp_thumbnail.name):
+            try:
+                os.unlink(temp_thumbnail.name)
+            except Exception:
+                pass
 
