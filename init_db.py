@@ -775,6 +775,39 @@ def migrate_carousel_orientation():
     else:
         print("✗ carousels table does not exist")
 
+def migrate_phone_verification_user_id_nullable():
+    """Make user_id nullable in phone_verifications table for phone sign-up flow."""
+    print("\nMigrating phone_verifications user_id column:")
+    print("--------------------------------------------")
+    
+    inspector = db.inspect(db.engine)
+    
+    if 'phone_verifications' in inspector.get_table_names():
+        existing_columns = {col['name']: col for col in inspector.get_columns('phone_verifications')}
+        
+        if 'user_id' in existing_columns:
+            current_column = existing_columns['user_id']
+            is_nullable = current_column.get('nullable', True)
+            
+            if not is_nullable:
+                print("Making user_id column nullable in phone_verifications table...")
+                try:
+                    with db.engine.connect() as conn:
+                        conn.execute(text("""
+                            ALTER TABLE phone_verifications 
+                            MODIFY COLUMN user_id INT NULL
+                        """))
+                        conn.commit()
+                    print("✓ user_id column is now nullable")
+                except Exception as e:
+                    print(f"✗ Failed to make user_id nullable: {str(e)}")
+            else:
+                print("✓ user_id column is already nullable")
+        else:
+            print("✗ user_id column does not exist in phone_verifications table")
+    else:
+        print("✗ phone_verifications table does not exist")
+
 def migrate_all_missing_columns():
     """
     Comprehensive migration function that adds all missing columns from models to database.
@@ -1230,6 +1263,7 @@ def init_database():
         migrate_auth_provider_enum()
         migrate_business_phone_column_size()
         migrate_carousel_orientation()
+        migrate_phone_verification_user_id_nullable()
         
         # Initialize data
         init_country_configs()
