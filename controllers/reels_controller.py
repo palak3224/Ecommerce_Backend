@@ -1497,6 +1497,84 @@ class ReelsController:
             return jsonify({'error': f'Failed to get recently viewed reels: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
     
     @staticmethod
+    def track_reel_view(reel_id, view_duration=None):
+        """
+        Track a reel view for the authenticated user.
+        This is a dedicated endpoint for mobile apps to track views independently.
+        
+        Args:
+            reel_id: Reel ID to track
+            view_duration: Optional view duration in seconds
+            
+        Returns:
+            JSON response with success status
+        """
+        try:
+            # Get authenticated user
+            current_user_id = get_jwt_identity()
+            if not current_user_id:
+                return jsonify({'error': 'Authentication required'}), HTTPStatus.UNAUTHORIZED
+            
+            # Convert to int if string
+            if isinstance(current_user_id, str):
+                current_user_id = int(current_user_id)
+            
+            # Verify reel exists and is visible
+            reel = Reel.query.filter_by(reel_id=reel_id).first()
+            if not reel:
+                return jsonify({'error': 'Reel not found'}), HTTPStatus.NOT_FOUND
+            
+            if not reel.is_visible:
+                return jsonify({'error': 'Reel is not available'}), HTTPStatus.BAD_REQUEST
+            
+            # Validate view_duration if provided
+            if view_duration is not None:
+                if view_duration < 0:
+                    view_duration = None
+                elif reel.duration_seconds and view_duration > reel.duration_seconds:
+                    view_duration = reel.duration_seconds  # Cap at reel duration
+            
+            # Track the view (this will also cleanup old views)
+            UserReelView.track_view(current_user_id, reel_id, view_duration=view_duration)
+            
+            # Update category preference if applicable
+            if reel.product and reel.product.category_id:
+                try:
+                    from models.user_category_preference import UserCategoryPreference
+                    
+                    if view_duration is not None and reel.duration_seconds and reel.duration_seconds > 0:
+                        watch_percentage = min(1.0, view_duration / reel.duration_seconds)
+                        if watch_percentage >= 0.8:
+                            score_delta = 0.1
+                        elif watch_percentage >= 0.5:
+                            score_delta = 0.05
+                        else:
+                            score_delta = 0.02
+                    else:
+                        score_delta = 0.05
+                    
+                    UserCategoryPreference.update_preference(
+                        current_user_id,
+                        reel.product.category_id,
+                        score_delta,
+                        'view'
+                    )
+                except Exception as e:
+                    current_app.logger.warning(f"Failed to update category preference: {str(e)}")
+            
+            db.session.commit()
+            
+            return jsonify({
+                'status': 'success',
+                'message': 'View tracked successfully'
+            }), HTTPStatus.OK
+            
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Track reel view failed: {str(e)}", exc_info=True)
+            return jsonify({'error': f'Failed to track view: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+    
+    @staticmethod
     def get_user_shared_reels():
         """
         Get reels that the current user has shared.

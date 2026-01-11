@@ -87,6 +87,49 @@ def get_reel(reel_id):
     return ReelsController.get_reel(reel_id, track_view=track_view, view_duration=view_duration)
 
 
+@reels_bp.route('/api/reels/<int:reel_id>/view', methods=['POST', 'OPTIONS'])
+@cross_origin()
+@jwt_required()
+def track_reel_view(reel_id):
+    """
+    Track a reel view for the authenticated user.
+    Dedicated endpoint for mobile apps to track views independently of fetching reel data.
+    ---
+    tags:
+      - Reels
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: reel_id
+        type: integer
+        required: true
+        description: Reel ID to track
+      - in: body
+        name: body
+        schema:
+          type: object
+          properties:
+            view_duration:
+              type: integer
+              description: View duration in seconds (optional)
+    responses:
+      200:
+        description: View tracked successfully
+      401:
+        description: Unauthorized - JWT token required
+      404:
+        description: Reel not found
+      500:
+        description: Server error
+    """
+    data = request.get_json() or {}
+    view_duration = data.get('view_duration')
+    if view_duration is not None:
+        view_duration = int(view_duration)
+    return ReelsController.track_reel_view(reel_id, view_duration=view_duration)
+
+
 @reels_bp.route('/api/reels/merchant/my', methods=['GET', 'OPTIONS'])
 @cross_origin()
 @jwt_required()

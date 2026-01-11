@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from common.database import db, BaseModel
 from auth.models.models import User
 from models.reel import Reel
+from config import Config
 
 
 class UserReelView(BaseModel):
@@ -32,6 +33,32 @@ class UserReelView(BaseModel):
         return cls.query.filter_by(user_id=user_id, reel_id=reel_id).first() is not None
     
     @classmethod
+    def cleanup_old_views(cls, user_id, max_count=50):
+        """
+        Clean up old view records, keeping only the max_count most recent views.
+        Called automatically after tracking a view to maintain database efficiency.
+        
+        Args:
+            user_id: User ID
+            max_count: Maximum number of views to keep (default: 50)
+        """
+        # Count current views
+        total_views = cls.query.filter_by(user_id=user_id).count()
+        
+        if total_views > max_count:
+            # Get IDs of views to delete (oldest ones, beyond max_count)
+            views_to_delete = cls.query.filter_by(user_id=user_id)\
+                .order_by(cls.viewed_at.asc())\
+                .limit(total_views - max_count)\
+                .all()
+            
+            # Delete old views
+            for view in views_to_delete:
+                db.session.delete(view)
+            
+            # Note: Commit should be done by caller after track_view completes
+    
+    @classmethod
     def track_view(cls, user_id, reel_id, view_duration=None):
         """Track a view if it doesn't exist, or update the viewed_at timestamp."""
         view = cls.query.filter_by(user_id=user_id, reel_id=reel_id).first()
@@ -40,7 +67,6 @@ class UserReelView(BaseModel):
             view.viewed_at = datetime.now(timezone.utc)
             if view_duration is not None:
                 view.view_duration = view_duration
-            return view
         else:
             # Create new view record
             view = cls(
@@ -49,7 +75,11 @@ class UserReelView(BaseModel):
                 view_duration=view_duration
             )
             db.session.add(view)
-            return view
+        
+        # Cleanup old views to maintain max count
+        cls.cleanup_old_views(user_id, max_count=Config.MAX_RECENT_REEL_VIEWS)
+        
+        return view
     
     @classmethod
     def get_user_viewed_reels(cls, user_id, limit=None):

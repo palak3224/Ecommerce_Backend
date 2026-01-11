@@ -52,6 +52,9 @@ class Config:
     CLOUDINARY_API_SECRET = os.getenv('CLOUDINARY_API_SECRET')
     ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'svg', 'png', 'gif', 'webp', 'pdf', 'doc', 'docx']
 
+    # Reels View Tracking
+    MAX_RECENT_REEL_VIEWS = int(os.getenv('MAX_RECENT_REEL_VIEWS', '50'))  # Keep 50 most recent views per user
+
     MAIL_SERVER = 'smtp.gmail.com'  # Replace with your SMTP server
     MAIL_PORT = 587  # Common ports: 587 (TLS), 465 (SSL)
     MAIL_USE_TLS = True
