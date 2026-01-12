@@ -46,7 +46,7 @@ class RecommendationController:
             # Serialize reels with is_liked status
             reels_data = []
             for reel in reels:
-                reel_data = reel.serialize(include_reasons=False, include_product=True, fields=fields)
+                reel_data = reel.serialize(include_reasons=False, include_product=True, include_merchant=True, fields=fields)
                 # Check if user has liked this reel (only if fields not specified or is_liked in fields)
                 if not fields or 'is_liked' in fields:
                     is_liked = UserReelLike.user_has_liked(current_user_id, reel.reel_id)
@@ -124,7 +124,7 @@ class RecommendationController:
             # Serialize reels with is_liked status if authenticated
             reels_data = []
             for reel in paginated_reels:
-                reel_data = reel.serialize(include_reasons=False, include_product=True, fields=fields)
+                reel_data = reel.serialize(include_reasons=False, include_product=True, include_merchant=True, fields=fields)
                 # Check if user has liked this reel (if authenticated and fields allow)
                 if not fields or 'is_liked' in fields:
                     if current_user_id:
@@ -200,7 +200,7 @@ class RecommendationController:
             # Serialize reels with is_liked status
             reels_data = []
             for reel in paginated_reels:
-                reel_data = reel.serialize(include_reasons=False, include_product=True, fields=fields)
+                reel_data = reel.serialize(include_reasons=False, include_product=True, include_merchant=True, fields=fields)
                 # Check if user has liked this reel (only if fields not specified or is_liked in fields)
                 if not fields or 'is_liked' in fields:
                     is_liked = UserReelLike.user_has_liked(current_user_id, reel.reel_id)

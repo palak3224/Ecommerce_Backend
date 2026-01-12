@@ -175,6 +175,7 @@ class Reel(BaseModel):
             all_data['merchant'] = {
                 'merchant_id': self.merchant.id,
                 'business_name': self.merchant.business_name,
+                'profile_img': self.merchant.profile_img,
             }
         
         # Filter by fields if specified

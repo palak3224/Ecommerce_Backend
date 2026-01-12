@@ -450,7 +450,7 @@ class ReelsController:
             return jsonify({
                 'status': 'success',
                 'message': 'Reel uploaded successfully.',
-                'data': reel.serialize(include_reasons=True, include_product=True, fields=None)
+                'data': reel.serialize(include_reasons=True, include_product=True, include_merchant=True, fields=None)
             }), HTTPStatus.CREATED
             
         except Exception as e:
@@ -502,7 +502,7 @@ class ReelsController:
                 fields = [f.strip() for f in fields_param.split(',') if f.strip()]
             
             # Get reel data
-            reel_data = reel.serialize(include_reasons=True, include_product=True, fields=fields)
+            reel_data = reel.serialize(include_reasons=True, include_product=True, include_merchant=True, fields=fields)
             
             # Check if user is authenticated and track view / check like status
             should_increment_view_count = False
@@ -714,7 +714,8 @@ class ReelsController:
             
             reels_data = [reel.serialize(
                 include_reasons=is_own_reels,  # Include reasons only for own reels
-                include_product=True
+                include_product=True,
+                include_merchant=True
             ) for reel in pagination.items]
             
             # Add is_liked status to each reel if user is authenticated
@@ -835,6 +836,7 @@ class ReelsController:
             reels_data = [reel.serialize(
                 include_reasons=False,  # Don't include reasons for public feed
                 include_product=True,
+                include_merchant=True,
                 fields=fields
             ) for reel in pagination.items]
             
@@ -930,7 +932,7 @@ class ReelsController:
             return jsonify({
                 'status': 'success',
                 'message': 'Reel updated successfully',
-                'data': reel.serialize(include_reasons=True, include_product=True, fields=None)
+                'data': reel.serialize(include_reasons=True, include_product=True, include_merchant=True, fields=None)
             }), HTTPStatus.OK
             
         except Exception as e:
@@ -1458,6 +1460,7 @@ class ReelsController:
                 reel_data = reel.serialize(
                     include_reasons=False,
                     include_product=True,
+                    include_merchant=True,
                     fields=fields
                 )
                 
@@ -1620,7 +1623,7 @@ class ReelsController:
             for share_record in paginated_records:
                 reel = share_record.reel
                 if reel:
-                    reel_data = reel.serialize(include_reasons=False, include_product=True, fields=fields)
+                    reel_data = reel.serialize(include_reasons=False, include_product=True, include_merchant=True, fields=fields)
                     if not fields or 'shared_at' in fields:
                         reel_data['shared_at'] = share_record.shared_at.isoformat() if share_record.shared_at else None
                     # Add is_liked status (user is authenticated in this endpoint)
@@ -1808,6 +1811,7 @@ class ReelsController:
             reels_data = [reel.serialize(
                 include_reasons=False,
                 include_product=True,
+                include_merchant=True,
                 fields=fields
             ) for reel in pagination.items]
             
@@ -2266,7 +2270,7 @@ class ReelsController:
             return jsonify({
                 'status': 'success',
                 'message': 'Reel approved successfully',
-                'data': reel.serialize(include_reasons=True, include_product=True, fields=None)
+                'data': reel.serialize(include_reasons=True, include_product=True, include_merchant=True, fields=None)
             }), HTTPStatus.OK
             
         except Exception as e:
@@ -2337,7 +2341,7 @@ class ReelsController:
             return jsonify({
                 'status': 'success',
                 'message': 'Reel rejected successfully',
-                'data': reel.serialize(include_reasons=True, include_product=True, fields=None)
+                'data': reel.serialize(include_reasons=True, include_product=True, include_merchant=True, fields=None)
             }), HTTPStatus.OK
             
         except Exception as e:
@@ -2391,7 +2395,7 @@ class ReelsController:
             return jsonify({
                 'status': 'success',
                 'message': 'Reel hidden successfully',
-                'data': reel.serialize(include_reasons=True, include_product=True, fields=None)
+                'data': reel.serialize(include_reasons=True, include_product=True, include_merchant=True, fields=None)
             }), HTTPStatus.OK
             
         except Exception as e:
