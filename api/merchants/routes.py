@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
 from flask_cors import cross_origin
 from marshmallow import Schema, fields, validate, ValidationError
 from werkzeug.utils import secure_filename
@@ -10,6 +10,7 @@ import logging
 from auth.utils import merchant_role_required
 from common.decorators import rate_limit, cache_response
 from auth.models import User, MerchantProfile
+from models.user_merchant_follow import UserMerchantFollow
 from auth.models.merchant_document import VerificationStatus, DocumentType, MerchantDocument
 from auth.models.country_config import CountryConfig, CountryCode
 from common.database import db
@@ -448,6 +449,11 @@ def get_public_profile(merchant_id):
         type: integer
         required: true
         description: Merchant ID
+      - in: header
+        name: Authorization
+        type: string
+        required: false
+        description: Optional JWT token (Bearer token)
     responses:
       200:
         description: Merchant profile retrieved successfully
@@ -484,6 +490,9 @@ def get_public_profile(merchant_id):
             gstin:
               type: string
               nullable: true
+            is_following:
+              type: boolean
+              description: Whether the authenticated user is following this merchant (false if not authenticated)
       404:
         description: Merchant not found
       500:
@@ -494,6 +503,19 @@ def get_public_profile(merchant_id):
         
         if not merchant_profile:
             return jsonify({"error": "Merchant not found"}), HTTPStatus.NOT_FOUND
+        
+        # Check if user is authenticated and following the merchant
+        is_following = False
+        try:
+            # Try to verify JWT token (this won't fail if token is missing, just returns False)
+            verify_jwt_in_request(optional=True)
+            current_user_id = get_jwt_identity()
+            
+            if current_user_id:
+                is_following = UserMerchantFollow.is_following(current_user_id, merchant_id)
+        except Exception:
+            # If token is invalid or any error occurs, default to False
+            is_following = False
         
         return jsonify({
             "merchant_id": merchant_profile.id,
@@ -511,7 +533,8 @@ def get_public_profile(merchant_id):
             "is_verified": merchant_profile.is_verified,
             "verification_status": merchant_profile.verification_status.value if merchant_profile.verification_status else "pending",
             "gstin": merchant_profile.gstin,
-            "tax_id": merchant_profile.tax_id
+            "tax_id": merchant_profile.tax_id,
+            "is_following": is_following
         }), HTTPStatus.OK
         
     except Exception as e:
