@@ -742,6 +742,146 @@ def create_product_variant(pid):
         variant = MerchantProductController.create_variant(pid, data)
         return jsonify(variant.serialize()), HTTPStatus.CREATED
 
+@merchant_dashboard_bp.route('/products/<int:pid>/size-quantities', methods=['POST'])
+@merchant_role_required
+def bulk_create_size_variants(pid):
+    """
+    Bulk create size-based variants for a product
+    ---
+    tags:
+      - Merchant - Products
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: pid
+        type: integer
+        required: true
+        description: Parent product ID
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - size_quantities
+            properties:
+              size_quantities:
+                type: array
+                description: Array of size-quantity pairs
+                items:
+                  type: object
+                  required:
+                    - size
+                    - quantity
+                  properties:
+                    size:
+                      type: string
+                      description: Size value (e.g., S, M, L, XL)
+                    quantity:
+                      type: integer
+                      minimum: 0
+                      description: Stock quantity for this size
+              low_stock_threshold:
+                type: integer
+                minimum: 0
+                description: Low stock threshold (defaults to parent's threshold)
+    responses:
+      201:
+        description: Size variants created successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            variants:
+              type: array
+              items:
+                type: object
+      400:
+        description: Invalid request data or variants already exist
+      404:
+        description: Parent product not found or Size attribute not found
+      500:
+        description: Internal server error
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'message': 'No data provided'}), HTTPStatus.BAD_REQUEST
+
+        # Validate required fields
+        if 'size_quantities' not in data:
+            return jsonify({
+                'message': 'Missing required field: size_quantities',
+                'error': 'MISSING_FIELDS'
+            }), HTTPStatus.BAD_REQUEST
+
+        if not isinstance(data['size_quantities'], list) or len(data['size_quantities']) == 0:
+            return jsonify({
+                'message': 'size_quantities must be a non-empty array',
+                'error': 'INVALID_DATA'
+            }), HTTPStatus.BAD_REQUEST
+
+        # Validate each size-quantity pair
+        for sq in data['size_quantities']:
+            if 'size' not in sq or 'quantity' not in sq:
+                return jsonify({
+                    'message': 'Each size-quantity pair must have "size" and "quantity"',
+                    'error': 'INVALID_DATA'
+                }), HTTPStatus.BAD_REQUEST
+            
+            try:
+                sq['quantity'] = int(sq['quantity'])
+                if sq['quantity'] < 0:
+                    return jsonify({
+                        'message': 'Quantity cannot be negative',
+                        'error': 'INVALID_QUANTITY'
+                    }), HTTPStatus.BAD_REQUEST
+            except (ValueError, TypeError):
+                return jsonify({
+                    'message': 'Quantity must be a valid integer',
+                    'error': 'INVALID_QUANTITY'
+                }), HTTPStatus.BAD_REQUEST
+
+        # Check for duplicate sizes
+        sizes = [sq['size'].strip().lower() for sq in data['size_quantities']]
+        if len(sizes) != len(set(sizes)):
+            return jsonify({
+                'message': 'Duplicate sizes are not allowed',
+                'error': 'DUPLICATE_SIZES'
+            }), HTTPStatus.BAD_REQUEST
+
+        # Validate low_stock_threshold if provided
+        low_stock_threshold = None
+        if 'low_stock_threshold' in data:
+            try:
+                low_stock_threshold = int(data['low_stock_threshold'])
+                if low_stock_threshold < 0:
+                    return jsonify({
+                        'message': 'Low stock threshold cannot be negative',
+                        'error': 'INVALID_THRESHOLD'
+                    }), HTTPStatus.BAD_REQUEST
+            except (ValueError, TypeError):
+                return jsonify({
+                    'message': 'Low stock threshold must be a valid integer',
+                    'error': 'INVALID_THRESHOLD'
+                }), HTTPStatus.BAD_REQUEST
+
+        result = MerchantProductController.bulk_create_size_variants(
+            pid, 
+            data['size_quantities'],
+            low_stock_threshold
+        )
+        return jsonify(result), HTTPStatus.CREATED
+
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+    except Exception as e:
+        current_app.logger.error(f"Error creating size variants: {e}")
+        return jsonify({'message': 'Failed to create size variants'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
     except ValueError as e:
         return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
     except Exception as e:

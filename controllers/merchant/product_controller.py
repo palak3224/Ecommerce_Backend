@@ -288,3 +288,202 @@ class MerchantProductController:
         except Exception as e:
             db.session.rollback()
             abort(500, f"Failed to create variant: {str(e)}")
+
+    @staticmethod
+    def find_size_attribute(category_id):
+        """
+        Find the Size attribute for a given category.
+        Returns attribute_id if found, None otherwise.
+        """
+        from models.category_attribute import CategoryAttribute
+        from models.attribute import Attribute
+        from sqlalchemy import func
+
+        try:
+            # Query for Size attribute (case-insensitive)
+            size_attr = db.session.query(Attribute).join(
+                CategoryAttribute,
+                Attribute.attribute_id == CategoryAttribute.attribute_id
+            ).filter(
+                CategoryAttribute.category_id == category_id,
+                func.lower(Attribute.name) == 'size'
+            ).first()
+
+            return size_attr.attribute_id if size_attr else None
+        except Exception as e:
+            return None
+
+    @staticmethod
+    def bulk_create_size_variants(parent_id, size_quantities, low_stock_threshold=None):
+        """
+        Bulk create size-based variants for a parent product.
+        
+        Args:
+            parent_id: ID of the parent product
+            size_quantities: List of dicts with 'size' and 'quantity' keys
+            low_stock_threshold: Optional low stock threshold (defaults to parent's)
+        
+        Returns:
+            dict with message and list of created variants
+        """
+        user_id = get_jwt_identity()
+        merchant = MerchantProfile.get_by_user_id(user_id)
+        if not merchant:
+            abort(404, "Merchant profile not found")
+
+        # Get parent product
+        parent_product = Product.query.filter_by(
+            product_id=parent_id,
+            merchant_id=merchant.id,
+            deleted_at=None
+        ).first_or_404()
+
+        # Check if variants already exist
+        existing_variants = Product.query.filter_by(
+            parent_product_id=parent_id,
+            deleted_at=None
+        ).all()
+
+        if existing_variants:
+            abort(400, "Product already has variants. Cannot use size-quantity bulk creation.")
+
+        # Find Size attribute for the category
+        size_attribute_id = MerchantProductController.find_size_attribute(parent_product.category_id)
+        if not size_attribute_id:
+            abort(404, "Size attribute not found for this category. Please contact admin to set it up.")
+
+        # Get parent's stock info for low stock threshold
+        parent_stock = parent_product.stock
+        if not parent_stock:
+            abort(400, "Parent product stock information not found")
+
+        threshold = low_stock_threshold if low_stock_threshold is not None else parent_stock.low_stock_threshold
+
+        created_variants = []
+        
+        try:
+            from models.product_stock import ProductStock
+            from models.product_attribute import ProductAttribute
+            from models.product_meta import ProductMeta
+            from models.product_shipping import ProductShipping
+            from models.attribute import Attribute
+
+            # Get the Size attribute object
+            size_attribute = Attribute.query.get(size_attribute_id)
+            if not size_attribute:
+                abort(404, "Size attribute not found")
+
+            for sq in size_quantities:
+                size_value = sq['size'].strip()
+                quantity = int(sq['quantity'])
+
+                # Generate SKU for variant
+                size_code = size_value.upper().replace(' ', '').replace('-', '')[:3]
+                variant_sku = f"{parent_product.sku}-{size_code}"
+
+                # Check if SKU already exists
+                existing_sku = Product.query.filter_by(sku=variant_sku).first()
+                if existing_sku:
+                    # Add timestamp to make it unique
+                    variant_sku = f"{variant_sku}-{int(datetime.now(timezone.utc).timestamp()) % 10000}"
+
+                # Create variant product inheriting most fields from parent
+                variant = Product(
+                    merchant_id=merchant.id,
+                    category_id=parent_product.category_id,
+                    brand_id=parent_product.brand_id,
+                    parent_product_id=parent_id,
+                    sku=variant_sku,
+                    product_name=parent_product.product_name,
+                    product_description=parent_product.product_description,
+                    cost_price=parent_product.cost_price,
+                    selling_price=parent_product.selling_price,
+                    discount_pct=parent_product.discount_pct,
+                    special_price=parent_product.special_price,
+                    special_start=parent_product.special_start,
+                    special_end=parent_product.special_end,
+                    active_flag=parent_product.active_flag,
+                    approval_status='pending'  # Variants need approval like new products
+                )
+
+                # Save the variant to get its ID
+                db.session.add(variant)
+                db.session.flush()
+
+                # Create product stock record
+                stock = ProductStock(
+                    product_id=variant.product_id,
+                    stock_qty=quantity,
+                    low_stock_threshold=threshold
+                )
+                db.session.add(stock)
+
+                # Copy product meta from parent product
+                if parent_product.meta:
+                    variant_meta = ProductMeta(
+                        product_id=variant.product_id,
+                        short_desc=parent_product.meta.short_desc,
+                        full_desc=parent_product.meta.full_desc,
+                        meta_title=parent_product.meta.meta_title,
+                        meta_desc=parent_product.meta.meta_desc,
+                        meta_keywords=parent_product.meta.meta_keywords
+                    )
+                    db.session.add(variant_meta)
+
+                # Copy product shipping from parent product
+                if parent_product.shipping:
+                    variant_shipping = ProductShipping(
+                        product_id=variant.product_id,
+                        length_cm=parent_product.shipping.length_cm,
+                        width_cm=parent_product.shipping.width_cm,
+                        height_cm=parent_product.shipping.height_cm,
+                        weight_kg=parent_product.shipping.weight_kg
+                    )
+                    db.session.add(variant_shipping)
+
+                # Create Size attribute for variant
+                product_attr = ProductAttribute(
+                    product_id=variant.product_id,
+                    attribute_id=size_attribute_id
+                )
+
+                # Set the appropriate value based on attribute type
+                if size_attribute.input_type in ['select', 'multiselect']:
+                    # Try to find matching AttributeValue first
+                    from models.attribute_value import AttributeValue
+                    attr_value = AttributeValue.query.filter_by(
+                        attribute_id=size_attribute_id
+                    ).filter(
+                        db.or_(
+                            AttributeValue.value_label.ilike(size_value),
+                            AttributeValue.value_code.ilike(size_value)
+                        )
+                    ).first()
+                    
+                    if attr_value:
+                        product_attr.value_code = attr_value.value_code
+                    else:
+                        # Fallback to value_text if no predefined value found
+                        product_attr.value_text = size_value
+                elif size_attribute.input_type == 'number':
+                    try:
+                        product_attr.value_number = float(size_value)
+                    except ValueError:
+                        product_attr.value_text = size_value
+                else:  # text or other types
+                    product_attr.value_text = size_value
+
+                db.session.add(product_attr)
+
+                created_variants.append(variant.serialize())
+
+            db.session.commit()
+
+            return {
+                'message': f'Successfully created {len(created_variants)} size variants',
+                'variants': created_variants
+            }
+
+        except Exception as e:
+            db.session.rollback()
+            abort(500, f"Failed to create size variants: {str(e)}")
