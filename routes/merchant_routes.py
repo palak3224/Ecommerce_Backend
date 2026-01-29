@@ -741,6 +741,11 @@ def create_product_variant(pid):
 
         variant = MerchantProductController.create_variant(pid, data)
         return jsonify(variant.serialize()), HTTPStatus.CREATED
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+    except Exception as e:
+        current_app.logger.error(f"Error creating product variant: {e}")
+        return jsonify({'message': 'Failed to create variant'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @merchant_dashboard_bp.route('/products/<int:pid>/size-quantities', methods=['POST'])
 @merchant_role_required
