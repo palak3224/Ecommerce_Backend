@@ -215,6 +215,7 @@ class FollowController:
                     merchants_data.append({
                         'merchant_id': merchant.id,
                         'business_name': merchant.business_name,
+                        'profile_img': merchant.profile_img,
                         'followed_at': follow.followed_at.isoformat() if follow.followed_at else None
                     })
             
