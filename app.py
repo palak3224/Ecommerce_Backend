@@ -93,8 +93,8 @@ ALLOWED_ORIGINS = [
     "http://localhost:5174",
     "http://127.0.0.1:5173",
     "http://kea.mywire.org:5300",
-    "https://aoinstore.com"
-    
+    "https://aoinstore.com",
+    "https://www.aoinstore.com",
 ]
 
 def add_headers(response):

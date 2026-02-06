@@ -7,6 +7,7 @@ Usage: python init_db.py
 import os
 import mysql.connector
 from dotenv import load_dotenv
+from flask import current_app
 from app import create_app
 from common.database import db
 from sqlalchemy import text
@@ -100,18 +101,28 @@ load_dotenv()
 
 def create_database():
     """Create the database if it doesn't exist."""
-    db_uri = os.getenv('DATABASE_URI')
-    db_name = db_uri.split('/')[-1]
+    db_uri = os.getenv('DATABASE_URI') or (current_app.config.get('SQLALCHEMY_DATABASE_URI') if current_app else None)
+    if not db_uri:
+        print("Error: DATABASE_URI is not set. Add it to your .env or set the environment variable.")
+        raise ValueError("DATABASE_URI is not set")
+    # Database name may include query string (e.g. railway?charset=utf8)
+    db_name = db_uri.split('/')[-1].split('?')[0]
 
-    # Extract credentials and host from URI
+    # Extract credentials and host from URI (format: scheme://user:password@host:port/dbname)
     auth_part = db_uri.split('@')[0].split('://')[1]
-    user = auth_part.split(':')[0]
-    password = auth_part.split(':')[1]
-    host = db_uri.split('@')[1].split('/')[0]
+    user, password = auth_part.split(':', 1)  # password may contain ':'
+    host_port = db_uri.split('@')[1].split('/')[0]
+    if ':' in host_port:
+        host, port_str = host_port.rsplit(':', 1)
+        port = int(port_str)
+    else:
+        host = host_port
+        port = 3306
 
     try:
         conn = mysql.connector.connect(
             host=host,
+            port=port,
             user=user,
             password=password
         )
