@@ -13,8 +13,11 @@ class HomepageCategory(BaseModel):
                           default=db.func.current_timestamp(),
                           onupdate=db.func.current_timestamp())
 
-    # Relationship with Category
-    category = db.relationship('Category', backref=db.backref('homepage_entries', lazy='dynamic'))
+    # Relationship with Category (cascade so deleting a category removes it from homepage_categories)
+    category = db.relationship(
+        'Category',
+        backref=db.backref('homepage_entries', lazy='dynamic', cascade='all, delete-orphan')
+    )
 
     def serialize(self):
         """Return object data in easily serializable format"""
