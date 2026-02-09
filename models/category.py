@@ -7,7 +7,8 @@ class Category(BaseModel):
     parent_id   = db.Column(db.Integer, db.ForeignKey('categories.category_id'), nullable=True)
     name        = db.Column(db.String(100), nullable=False, unique=True)
     slug        = db.Column(db.String(100), nullable=False, unique=True)
-    icon_url    = db.Column(db.String(255), nullable=True)  
+    icon_url    = db.Column(db.String(255), nullable=True)
+    is_active   = db.Column(db.Boolean, default=True, nullable=False)
     created_at  = db.Column(db.DateTime, nullable=False, default=db.func.current_timestamp())
     updated_at  = db.Column(db.DateTime, nullable=False,
                             default=db.func.current_timestamp(),
@@ -28,7 +29,8 @@ class Category(BaseModel):
             'parent_id': self.parent_id,
             'name': self.name,
             'slug': self.slug,
-            'icon_url': self.icon_url,  
+            'icon_url': self.icon_url,
+            'is_active': self.is_active,
             'created_at': self.created_at,
             'updated_at': self.updated_at,
             'deleted_at': self.deleted_at

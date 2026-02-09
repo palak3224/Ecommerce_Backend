@@ -464,6 +464,53 @@ def update_category(cid):
         return jsonify({'message': f'Could not update category: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 
+@superadmin_bp.route('/categories/<int:cid>/active', methods=['PATCH'])
+@super_admin_role_required
+def set_category_active(cid):
+    """
+    Enable or disable a category. Disabling also sets active_flag=False on all products in this category and subcategories.
+    ---
+    tags:
+      - Categories
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: cid
+        type: integer
+        required: true
+        description: ID of the category
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required: [is_active]
+          properties:
+            is_active:
+              type: boolean
+              description: True to enable, False to disable
+    responses:
+      200:
+        description: Category active state updated
+      404:
+        description: Category not found
+    """
+    try:
+        data = request.get_json() or {}
+        is_active = data.get('is_active')
+        if is_active is None:
+            return jsonify({'message': 'is_active is required (true or false)'}), HTTPStatus.BAD_REQUEST
+        cat = CategoryController.set_active(cid, is_active)
+        return jsonify(cat.serialize()), HTTPStatus.OK
+    except FileNotFoundError:
+        return jsonify({'message': 'Category not found'}), HTTPStatus.NOT_FOUND
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error setting category {cid} active: {e}")
+        return jsonify({'message': 'Could not update category active state.'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
 @superadmin_bp.route('/categories/<int:cid>', methods=['DELETE'])
 @super_admin_role_required
 def delete_category(cid):

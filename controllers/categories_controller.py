@@ -8,10 +8,11 @@ class CategoriesController:
     def get_categories_with_icons():
         """Get all categories that have icons"""
         try:
-            # Query categories that have an icon_url
+            # Query categories that have an icon_url and are active
             categories = Category.query.filter(
                 Category.icon_url.isnot(None),
-                Category.icon_url != ''
+                Category.icon_url != '',
+                Category.is_active == True
             ).all()
             
             # Serialize the categories
@@ -30,8 +31,8 @@ class CategoriesController:
             search = request.args.get('search', '')
             per_page = min(request.args.get('per_page', 50, type=int), 50)
 
-            # Base query
-            query = Category.query
+            # Base query: only active categories for storefront
+            query = Category.query.filter(Category.is_active == True)
 
             # Apply search filter if search term exists
             if search:

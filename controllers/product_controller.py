@@ -398,8 +398,8 @@ class ProductController:
 
     @staticmethod
     def get_categories():
-        """Get all product categories"""
-        categories = Category.query.all()
+        """Get all active product categories (for storefront)"""
+        categories = Category.query.filter(Category.is_active == True).all()
         return jsonify([category.serialize() for category in categories])
 
     @staticmethod

@@ -22,10 +22,11 @@ class HomepageController:
             # Get category IDs that are active on homepage
             active_category_ids = [hc.category_id for hc in active_homepage_categories]
             
-            # Get all main categories that are active on homepage
+            # Get all main categories that are active on homepage and category is_active
             main_categories = Category.query.filter(
                 Category.category_id.in_(active_category_ids),
-                Category.parent_id.is_(None)
+                Category.parent_id.is_(None),
+                Category.is_active == True
             ).all()
             
             # Initialize response data
@@ -70,8 +71,11 @@ class HomepageController:
                     Product.parent_product_id.is_(None)  # Exclude variants
                 ).all()
                 
-                # Get all subcategories
-                subcategories = Category.query.filter_by(parent_id=category_id).all()
+                # Get all active subcategories
+                subcategories = Category.query.filter(
+                    Category.parent_id == category_id,
+                    Category.is_active == True
+                ).all()
                 
                 # Get products from all subcategories recursively
                 subcategory_products = []
@@ -83,9 +87,10 @@ class HomepageController:
             
             # Process each main category
             for main_category in main_categories:
-                # Get subcategories
-                subcategories = Category.query.filter_by(
-                    parent_id=main_category.category_id
+                # Get active subcategories
+                subcategories = Category.query.filter(
+                    Category.parent_id == main_category.category_id,
+                    Category.is_active == True
                 ).all()
                 
                 # Get products for main category (excluding products in subcategories and variants)
