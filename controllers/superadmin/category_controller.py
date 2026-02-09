@@ -61,11 +61,15 @@ class CategoryController:
     def set_active(category_id, is_active):
         cat = Category.query.get_or_404(category_id)
         cat.is_active = bool(is_active)
+        category_ids = CategoryController._get_category_and_descendant_ids(category_id)
+        product_filter = Product.category_id.in_(category_ids), Product.deleted_at.is_(None)
         if not is_active:
-            category_ids = CategoryController._get_category_and_descendant_ids(category_id)
-            Product.query.filter(
-                Product.category_id.in_(category_ids),
-                Product.deleted_at.is_(None)
-            ).update({Product.active_flag: False}, synchronize_session=False)
+            Product.query.filter(*product_filter).update(
+                {Product.active_flag: False}, synchronize_session=False
+            )
+        else:
+            Product.query.filter(*product_filter).update(
+                {Product.active_flag: True}, synchronize_session=False
+            )
         db.session.commit()
         return cat
