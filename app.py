@@ -81,6 +81,7 @@ import time
 import psutil
 import traceback
 import platform
+from sqlalchemy.exc import IntegrityError as SQLAlchemyIntegrityError
 from datetime import datetime, timezone, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 import threading
@@ -567,6 +568,19 @@ def create_app(config_name='default'):
             app.logger.error(f"Error in after_request handler: {str(e)}")
         
         return response
+
+    @app.errorhandler(SQLAlchemyIntegrityError)
+    def handle_integrity_error(error):
+        """Return a user-friendly message for DB constraint violations instead of raw SQL."""
+        try:
+            if db.session.is_active:
+                db.session.rollback()
+        except Exception as rollback_error:
+            app.logger.error(f"Error during rollback in integrity handler: {str(rollback_error)}")
+        app.logger.warning(f"IntegrityError (constraint violation): {str(error)}")
+        return jsonify({
+            'message': 'This operation is not allowed because the item is still in use. Remove or reassign related items (e.g. products, promotions, tax rules) first.'
+        }), 400
 
     @app.errorhandler(Exception)
     def handle_error(error):

@@ -8,6 +8,9 @@ from models.brand import Brand
 from models.category import Category
 from models.attribute import Attribute
 from models.category_attribute import CategoryAttribute
+from models.product import Product
+from models.gst_rule import GSTRule
+from models.user_category_preference import UserCategoryPreference
 from sqlalchemy.exc import IntegrityError
 from http import HTTPStatus
 from datetime import datetime, timezone 
@@ -514,24 +517,55 @@ def delete_category(cid):
         description: Internal server error
     """
     try:
-        # Get category to delete associated icon
         # Category model uses category_id as primary key, not id
         category = Category.query.filter_by(category_id=cid).first()
-        if category and category.icon_url:
+        if not category:
+            return jsonify({'message': 'Category not found'}), HTTPStatus.NOT_FOUND
+
+        # Proactive checks: return clear errors instead of 500 / IntegrityError
+        product_count = Product.query.filter(
+            Product.category_id == cid,
+            Product.deleted_at.is_(None)
+        ).count()
+        if product_count > 0:
+            return jsonify({
+                'message': f'Cannot delete category: it has {product_count} product(s) assigned. Reassign or remove the products first.'
+            }), HTTPStatus.BAD_REQUEST
+
+        gst_rule = GSTRule.query.filter_by(category_id=cid).first()
+        if gst_rule:
+            return jsonify({
+                'message': 'Cannot delete category: it is used by a tax (GST) rule. Remove or reassign the tax rule first.'
+            }), HTTPStatus.BAD_REQUEST
+
+        pref_count = UserCategoryPreference.query.filter_by(category_id=cid).count()
+        if pref_count > 0:
+            return jsonify({
+                'message': 'Cannot delete category: it is referenced by user preferences. This is usually safe to ignore; try again or contact support if the error persists.'
+            }), HTTPStatus.BAD_REQUEST
+
+        # Get category to delete associated icon
+        if category.icon_url:
             try:
                 s3_service = get_s3_service()
                 s3_service.delete_generic_asset(category.icon_url)
             except Exception as e:
                 current_app.logger.warning(f"Failed to delete category icon from S3: {str(e)}")
-        
+
         cat = CategoryController.delete(cid)
         return jsonify(cat.serialize()), HTTPStatus.OK
-    except FileNotFoundError: 
+    except FileNotFoundError:
         return jsonify({'message': 'Category not found'}), HTTPStatus.NOT_FOUND
+    except IntegrityError as e:
+        db.session.rollback()
+        current_app.logger.warning(f"IntegrityError deleting category {cid}: {e}")
+        return jsonify({
+            'message': 'Cannot delete category: it is still in use (e.g. by products, tax rules, or homepage). Remove those references first.'
+        }), HTTPStatus.BAD_REQUEST
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error deleting category {cid}: {e}")
-        return jsonify({'message': f'Could not delete category: {str(e)}'}), HTTPStatus.INTERNAL_SERVER_ERROR
+        return jsonify({'message': 'Could not delete category. Please try again or contact support.'}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 
 @superadmin_bp.route('/categories/<int:cid>/upload_icon', methods=['POST'])
