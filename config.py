@@ -64,6 +64,8 @@ class Config:
     MAIL_DEFAULT_SENDER = (os.getenv('MAIL_SENDER_NAME', 'AOIN'), os.getenv('MAIL_USERNAME'))
 
     FRONTEND_URL = 'https://aoinstore.com'  # No trailing slash to prevent double slashes in URLs
+    # Base URL for AOIN product page links (used when generating product_url for AOIN reels)
+    PRODUCT_PAGE_BASE_URL = os.getenv('PRODUCT_PAGE_BASE_URL', os.getenv('FRONTEND_URL', 'https://aoinstore.com')).rstrip('/')
 
     EXCHANGE_RATE_API_KEY = os.getenv('EXCHANGE_RATE_API_KEY', 'f60545f362ec1fdd1e5e7338')
     CARD_ENCRYPTION_KEY = os.getenv('CARD_ENCRYPTION_KEY')

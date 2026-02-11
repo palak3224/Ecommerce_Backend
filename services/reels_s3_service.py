@@ -13,7 +13,7 @@ from werkzeug.utils import secure_filename
 import boto3
 from botocore.exceptions import ClientError
 from botocore.config import Config
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 
 
 class ReelsS3Service:
@@ -67,23 +67,18 @@ class ReelsS3Service:
         except Exception as e:
             raise ValueError(f"Failed to initialize S3 client: {str(e)}")
     
-    def _generate_s3_key(self, merchant_id: int, product_id: int, reel_id: int) -> str:
+    def _generate_s3_key(
+        self, merchant_id: int, reel_id: int, product_id: Optional[int] = None
+    ) -> str:
         """
         Generate S3 key for reel video.
-        Format: reels/{merchant_id}/product-{product_id}/{reel_id}.mp4
-        (Always uses .mp4 extension as per requirements, even if original file is .webm or .mov)
-        
-        Args:
-            merchant_id: Merchant ID
-            product_id: Product ID
-            reel_id: Reel ID
-            
-        Returns:
-            str: S3 object key
+        AOIN: reels/{merchant_id}/product-{product_id}/{reel_id}.mp4
+        External: reels/{merchant_id}/external/{reel_id}.mp4
         """
-        # Ensure prefix doesn't have double slashes
         prefix = self.s3_prefix.rstrip('/')
-        return f"{prefix}/{merchant_id}/product-{product_id}/{reel_id}.mp4"
+        if product_id is not None and product_id > 0:
+            return f"{prefix}/{merchant_id}/product-{product_id}/{reel_id}.mp4"
+        return f"{prefix}/{merchant_id}/external/{reel_id}.mp4"
     
     def _generate_cloudfront_url(self, s3_key: str) -> str:
         """
@@ -133,55 +128,40 @@ class ReelsS3Service:
         return None
     
     def upload_reel_video(
-        self, 
-        file, 
-        merchant_id: int, 
-        product_id: int, 
+        self,
+        file,
+        merchant_id: int,
         reel_id: int,
-        file_extension: str = 'mp4'
+        product_id: Optional[int] = None,
+        file_extension: str = 'mp4',
     ) -> Dict:
         """
         Upload a reel video file to S3.
-        
+        For AOIN reels pass product_id; for external reels pass product_id=None.
+
         Args:
             file: FileStorage object from Flask request
             merchant_id: Merchant ID
-            product_id: Product ID
             reel_id: Reel ID
+            product_id: Product ID (None for external reels)
             file_extension: File extension (default: mp4)
-            
+
         Returns:
-            dict: {
-                'url': CloudFront URL,
-                's3_key': S3 object key (for deletion),
-                'bytes': File size in bytes
-            }
-            
-        Raises:
-            Exception: If upload fails
+            dict: url, s3_key, bytes, thumbnail_url, thumbnail_s3_key
         """
-        # Validate inputs
         if not file:
             raise ValueError("File object is required")
-        
         if not isinstance(merchant_id, int) or merchant_id <= 0:
             raise ValueError(f"Invalid merchant_id: {merchant_id}")
-        
-        if not isinstance(product_id, int) or product_id <= 0:
-            raise ValueError(f"Invalid product_id: {product_id}")
-        
         if not isinstance(reel_id, int) or reel_id <= 0:
             raise ValueError(f"Invalid reel_id: {reel_id}")
-        
         try:
             current_app.logger.info(
                 f"[REELS_S3] Starting S3 upload for reel {reel_id}: "
                 f"merchant_id={merchant_id}, product_id={product_id}, "
                 f"filename={getattr(file, 'filename', 'unknown')}, bucket={self.bucket_name}"
             )
-            
-            # Generate S3 key (always uses .mp4 extension as per requirements)
-            s3_key = self._generate_s3_key(merchant_id, product_id, reel_id)
+            s3_key = self._generate_s3_key(merchant_id, reel_id, product_id=product_id)
             current_app.logger.info(f"[REELS_S3] Generated S3 key: {s3_key}")
             
             # Reset file pointer to beginning (critical for file streams)
@@ -263,7 +243,7 @@ class ReelsS3Service:
                 
                 current_app.logger.info(f"[REELS_S3] ⏳ Step 2: Calling thumbnail generation method...")
                 thumbnail_generated = self._generate_and_upload_thumbnail(
-                    file, merchant_id, product_id, reel_id, thumbnail_s3_key
+                    file, merchant_id, reel_id, thumbnail_s3_key, product_id=product_id
                 )
                 
                 if thumbnail_generated:
@@ -366,9 +346,9 @@ class ReelsS3Service:
         self,
         video_file,
         merchant_id: int,
-        product_id: int,
         reel_id: int,
-        thumbnail_s3_key: str
+        thumbnail_s3_key: str,
+        product_id: Optional[int] = None,
     ) -> bool:
         """
         Generate thumbnail from video and upload to S3.
@@ -376,9 +356,9 @@ class ReelsS3Service:
         Args:
             video_file: Video file object
             merchant_id: Merchant ID
-            product_id: Product ID
             reel_id: Reel ID
             thumbnail_s3_key: S3 key for thumbnail
+            product_id: Product ID (optional, for external reels None)
             
         Returns:
             bool: True if thumbnail was generated and uploaded successfully

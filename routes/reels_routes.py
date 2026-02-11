@@ -14,7 +14,7 @@ reels_bp = Blueprint('reels', __name__)
 @rate_limit(limit=10, per=3600, key_prefix='reel_upload')  # 10 uploads per hour
 def upload_reel():
     """
-    Upload a new reel
+    Upload a new reel. Use either AOIN or external payload (not both).
     ---
     tags:
       - Reels
@@ -29,20 +29,45 @@ def upload_reel():
         required: true
         description: Video file (MP4, MOV, AVI, MKV, max 100MB, max 60s)
       - in: formData
-        name: product_id
-        type: integer
-        required: true
-        description: Product ID (must be approved product with stock > 0)
-      - in: formData
         name: description
         type: string
         required: true
         description: Reel description (max 5000 characters)
+      - in: formData
+        name: product_id
+        type: integer
+        required: false
+        description: "AOIN reel: Product ID (approved, in stock). Omit for external reel."
+      - in: formData
+        name: product_url
+        type: string
+        required: false
+        description: "External reel: Product URL (https). Required with product_name if no product_id."
+      - in: formData
+        name: product_name
+        type: string
+        required: false
+        description: "External reel: Product name. Required with product_url if no product_id."
+      - in: formData
+        name: platform
+        type: string
+        required: false
+        description: "External reel: aoin | flipkart | amazon | myntra | other (default other)"
+      - in: formData
+        name: category_id
+        type: integer
+        required: false
+        description: External reel optional category ID (must exist and be active)
+      - in: formData
+        name: category_name
+        type: string
+        required: false
+        description: External reel optional category name
     responses:
       201:
         description: Reel uploaded successfully
       400:
-        description: Invalid input
+        description: Invalid input (e.g. both or neither AOIN/external payload)
       403:
         description: Forbidden (not a merchant)
       500:

@@ -1,0 +1,10 @@
+# Reels: platform allowlist for AOIN vs external product reels
+REELS_PLATFORM_AOIN = 'aoin'
+REELS_PLATFORMS_EXTERNAL = ('flipkart', 'amazon', 'myntra', 'other')
+REELS_PLATFORMS_ALLOWED = (REELS_PLATFORM_AOIN,) + REELS_PLATFORMS_EXTERNAL
+
+# String length limits for external reels
+REELS_PRODUCT_URL_MAX_LENGTH = 2048
+REELS_PRODUCT_NAME_MAX_LENGTH = 500
+REELS_CATEGORY_NAME_MAX_LENGTH = 255
+REELS_PLATFORM_MAX_LENGTH = 50

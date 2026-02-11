@@ -28,6 +28,15 @@ from controllers.reels_errors import (
     AUTHORIZATION_ERROR, NOT_FOUND_ERROR, TRANSACTION_ERROR,
     create_error_response
 )
+from controllers.reels_constants import (
+    REELS_PLATFORMS_ALLOWED,
+    REELS_PLATFORM_AOIN,
+    REELS_PRODUCT_URL_MAX_LENGTH,
+    REELS_PRODUCT_NAME_MAX_LENGTH,
+    REELS_CATEGORY_NAME_MAX_LENGTH,
+    REELS_PLATFORM_MAX_LENGTH,
+)
+from models.category import Category
 
 
 # Allowed video extensions (only mp4, webm, mov for reels)
@@ -46,6 +55,71 @@ def allowed_file(filename, allowed_extensions):
     """Check if file extension is allowed."""
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in allowed_extensions
+
+
+def _validate_product_url(url):
+    """Validate product_url for external reels. Returns (True, None) or (False, error_message)."""
+    if not url or not url.strip():
+        return False, 'product_url is required for external reels'
+    url = url.strip()
+    if not url.startswith('https://'):
+        return False, 'product_url must use https scheme'
+    if len(url) > REELS_PRODUCT_URL_MAX_LENGTH:
+        return False, f'product_url must be {REELS_PRODUCT_URL_MAX_LENGTH} characters or less'
+    return True, None
+
+
+def _validate_platform(platform):
+    """Validate platform is in allowlist. Returns (True, normalized_platform) or (False, error_message)."""
+    if not platform or not platform.strip():
+        return True, 'other'  # default
+    p = platform.strip().lower()
+    if len(p) > REELS_PLATFORM_MAX_LENGTH:
+        return False, f'platform must be {REELS_PLATFORM_MAX_LENGTH} characters or less'
+    if p not in REELS_PLATFORMS_ALLOWED:
+        return False, f'platform must be one of: {", ".join(REELS_PLATFORMS_ALLOWED)}'
+    return True, p
+
+
+def _validate_external_reel_payload(product_url, product_name, platform, category_id_raw, category_name):
+    """
+    Validate external reel form payload. Returns (True, data_dict, None) or (False, None, error_response).
+    data_dict: product_url, product_name, platform, category_id (int or None), category_name (str).
+    """
+    ok, err = _validate_product_url(product_url)
+    if not ok:
+        return False, None, (VALIDATION_ERROR, err, {'field': 'product_url'})
+    ok, platform_val = _validate_platform(platform)
+    if not ok:
+        return False, None, (VALIDATION_ERROR, platform_val, {'field': 'platform'})
+    if not platform_val:
+        platform_val = 'other'
+    if not product_name or not product_name.strip():
+        return False, None, (VALIDATION_ERROR, 'product_name is required for external reels', {'field': 'product_name'})
+    product_name = product_name.strip()
+    if len(product_name) > REELS_PRODUCT_NAME_MAX_LENGTH:
+        return False, None, (VALIDATION_ERROR, f'product_name must be {REELS_PRODUCT_NAME_MAX_LENGTH} characters or less', {'field': 'product_name'})
+    category_id = None
+    if category_id_raw not in (None, ''):
+        try:
+            category_id = int(category_id_raw)
+        except ValueError:
+            return False, None, (VALIDATION_ERROR, 'category_id must be a valid integer', {'field': 'category_id'})
+        cat = Category.query.filter_by(category_id=category_id, deleted_at=None).first()
+        if not cat:
+            return False, None, (VALIDATION_ERROR, 'category_id not found', {'field': 'category_id'})
+        if not getattr(cat, 'is_active', True):
+            return False, None, (VALIDATION_ERROR, 'category is not active', {'field': 'category_id'})
+    category_name_str = (category_name or '').strip()
+    if category_name_str and len(category_name_str) > REELS_CATEGORY_NAME_MAX_LENGTH:
+        return False, None, (VALIDATION_ERROR, f'category_name must be {REELS_CATEGORY_NAME_MAX_LENGTH} characters or less', {'field': 'category_name'})
+    return True, {
+        'product_url': product_url.strip(),
+        'product_name': product_name,
+        'platform': platform_val,
+        'category_id': category_id,
+        'category_name': category_name_str or None,
+    }, None
 
 
 class ReelsController:
@@ -143,27 +217,7 @@ class ReelsController:
                     HTTPStatus.BAD_REQUEST
                 )
             
-            # Validate product_id
-            product_id = request.form.get('product_id')
-            if not product_id:
-                return create_error_response(
-                    VALIDATION_ERROR,
-                    'product_id is required',
-                    {'field': 'product_id', 'required': True},
-                    HTTPStatus.BAD_REQUEST
-                )
-            
-            try:
-                product_id = int(product_id)
-            except ValueError:
-                return create_error_response(
-                    VALIDATION_ERROR,
-                    'product_id must be a valid integer',
-                    {'field': 'product_id', 'provided': product_id},
-                    HTTPStatus.BAD_REQUEST
-                )
-            
-            # Validate description
+            # Validate description (required for both AOIN and external)
             description = request.form.get('description', '').strip()
             if not description:
                 return create_error_response(
@@ -172,7 +226,6 @@ class ReelsController:
                     {'field': 'description', 'required': True},
                     HTTPStatus.BAD_REQUEST
                 )
-            
             if len(description) > 5000:
                 return create_error_response(
                     VALIDATION_ERROR,
@@ -180,7 +233,68 @@ class ReelsController:
                     {'field': 'description', 'length': len(description), 'max_length': 5000},
                     HTTPStatus.BAD_REQUEST
                 )
-            
+
+            # Determine path: AOIN (product_id) vs external (product_url + product_name)
+            product_id_raw = request.form.get('product_id')
+            product_url = (request.form.get('product_url') or '').strip()
+            product_name = (request.form.get('product_name') or '').strip()
+            platform_raw = (request.form.get('platform') or 'other').strip()
+            category_id_raw = request.form.get('category_id')
+            category_name_raw = (request.form.get('category_name') or '').strip()
+
+            has_aoin = product_id_raw not in (None, '')
+            has_external = bool(product_url and product_name)
+
+            if has_aoin and has_external:
+                return create_error_response(
+                    VALIDATION_ERROR,
+                    'Provide either product_id (AOIN reel) or product_url and product_name (external reel), not both',
+                    {'fields': ['product_id', 'product_url', 'product_name']},
+                    HTTPStatus.BAD_REQUEST
+                )
+            if not has_aoin and not has_external:
+                return create_error_response(
+                    VALIDATION_ERROR,
+                    'Provide either product_id (AOIN reel) or product_url and product_name (external reel)',
+                    {'fields': ['product_id', 'product_url', 'product_name']},
+                    HTTPStatus.BAD_REQUEST
+                )
+
+            product_id = None
+            product = None
+            external_data = None
+
+            if has_aoin:
+                try:
+                    product_id = int(product_id_raw)
+                except (ValueError, TypeError):
+                    return create_error_response(
+                        VALIDATION_ERROR,
+                        'product_id must be a valid integer',
+                        {'field': 'product_id', 'provided': product_id_raw},
+                        HTTPStatus.BAD_REQUEST
+                    )
+                is_valid, product, error_message = ReelsController.validate_product_for_reel(
+                    product_id, merchant.id
+                )
+                if not is_valid:
+                    return create_error_response(
+                        PRODUCT_VALIDATION_ERROR,
+                        error_message,
+                        {'product_id': product_id, 'merchant_id': merchant.id},
+                        HTTPStatus.BAD_REQUEST
+                    )
+            else:
+                ok, data, err_tuple = _validate_external_reel_payload(
+                    product_url, product_name, platform_raw, category_id_raw, category_name_raw
+                )
+                if not ok:
+                    err_code, err_msg, err_extra = err_tuple
+                    return create_error_response(
+                        err_code, err_msg, err_extra, HTTPStatus.BAD_REQUEST
+                    )
+                external_data = data
+
             # Validate video file extension (only mp4, webm, mov)
             if not allowed_file(video_file.filename, ALLOWED_VIDEO_EXTENSIONS):
                 return create_error_response(
@@ -261,18 +375,6 @@ class ReelsController:
                     HTTPStatus.BAD_REQUEST
                 )
             
-            # Validate product
-            is_valid, product, error_message = ReelsController.validate_product_for_reel(
-                product_id, merchant.id
-            )
-            if not is_valid:
-                return create_error_response(
-                    PRODUCT_VALIDATION_ERROR,
-                    error_message,
-                    {'product_id': product_id, 'merchant_id': merchant.id},
-                    HTTPStatus.BAD_REQUEST
-                )
-            
             # Get reels S3 service (with proper error handling)
             try:
                 reels_s3_service = get_reels_s3_service()
@@ -302,23 +404,47 @@ class ReelsController:
                 )
             
             # Create reel record first (without video URL) to get reel_id
-            # This is needed because S3 key requires reel_id
+            base_url = (
+                current_app.config.get('PRODUCT_PAGE_BASE_URL')
+                or current_app.config.get('FRONTEND_URL')
+                or 'https://aoinstore.com'
+            )
+            if isinstance(base_url, str):
+                base_url = base_url.rstrip('/')
+            else:
+                base_url = ''
             reel = None
             try:
-                reel = Reel(
-                    merchant_id=merchant.id,
-                    product_id=product_id,
-                    video_url='',  # Temporary, will be updated after upload
-                    video_public_id='',  # Temporary, will be updated after upload
-                    description=description,
-                    approval_status='approved',
-                    is_active=True
-                )
-                
+                if has_aoin:
+                    reel = Reel(
+                        merchant_id=merchant.id,
+                        product_id=product_id,
+                        platform=REELS_PLATFORM_AOIN,
+                        product_url=f"{base_url}/product/{product_id}" if base_url else None,
+                        video_url='',
+                        video_public_id='',
+                        description=description,
+                        approval_status='approved',
+                        is_active=True
+                    )
+                else:
+                    reel = Reel(
+                        merchant_id=merchant.id,
+                        product_id=None,
+                        product_url=external_data['product_url'],
+                        product_name=external_data['product_name'],
+                        platform=external_data['platform'],
+                        category_id=external_data['category_id'],
+                        category_name=external_data['category_name'],
+                        video_url='',
+                        video_public_id='',
+                        description=description,
+                        approval_status='approved',
+                        is_active=True
+                    )
                 db.session.add(reel)
-                db.session.flush()  # Flush to get reel_id without committing
+                db.session.flush()
                 reel_id = reel.reel_id
-                
                 if not reel_id:
                     raise ValueError("Failed to generate reel_id")
                     
@@ -342,8 +468,8 @@ class ReelsController:
                 upload_result = reels_s3_service.upload_reel_video(
                     video_file,
                     merchant_id=merchant.id,
-                    product_id=product_id,
                     reel_id=reel_id,
+                    product_id=product_id if has_aoin else None,
                     file_extension=file_extension
                 )
                 
@@ -661,10 +787,15 @@ class ReelsController:
             end_date = request.args.get('end_date')
             sort_by = request.args.get('sort_by', 'newest')  # newest, likes, views, shares
             
-            # Apply category filter
+            # Apply category filter (AOIN: Product.category_id; external: Reel.category_id)
             if category_id:
-                query = query.join(Product).filter(Product.category_id == category_id)
-            
+                query = query.outerjoin(Product, Reel.product_id == Product.product_id)
+                query = query.filter(
+                    or_(
+                        Product.category_id == category_id,
+                        and_(Reel.product_id.is_(None), Reel.category_id == category_id)
+                    )
+                )
             # Apply date range filter
             if start_date:
                 try:
@@ -772,11 +903,15 @@ class ReelsController:
             end_date = request.args.get('end_date')
             sort_by = request.args.get('sort_by', 'newest')  # newest, likes, views, shares
             
-            # Apply category filter
+            # Apply category filter (AOIN: Product.category_id; external: Reel.category_id)
             if category_id:
-                query = query.join(Product).filter(Product.category_id == category_id)
-            
-            # Apply merchant filter
+                query = query.outerjoin(Product, Reel.product_id == Product.product_id)
+                query = query.filter(
+                    or_(
+                        Product.category_id == category_id,
+                        and_(Reel.product_id.is_(None), Reel.category_id == category_id)
+                    )
+                )
             if merchant_id:
                 query = query.filter(Reel.merchant_id == merchant_id)
             
@@ -1682,36 +1817,34 @@ class ReelsController:
             per_page = request.args.get('per_page', 20, type=int)
             per_page = min(per_page, 100)  # Max 100 per page
             
-            # Build base query - only visible reels
-            # get_visible_reels() already joins Product and ProductStock, so we only need to join MerchantProfile
+            # Build base query - only visible reels; outerjoin Product so external reels are included
             query = Reel.get_visible_reels()
+            query = query.outerjoin(Product, Reel.product_id == Product.product_id)
             query = query.join(MerchantProfile, Reel.merchant_id == MerchantProfile.id)
             query = query.options(
                 joinedload(Reel.product).joinedload(Product.category),
                 joinedload(Reel.merchant)
             )
-            
-            # Apply search across multiple fields: description, product name, merchant name
-            # We'll search in: reels.description, products.product_name, merchant_profiles.business_name
-            from sqlalchemy import text, or_
-            
-            # Escape special characters for MySQL FULLTEXT
+            from sqlalchemy import text
             search_terms = search_query.replace('"', '\\"')
             search_like = f'%{search_query}%'
-            
-            # Build search conditions - try FULLTEXT on description, LIKE on product/merchant names
-            # Use OR to search across all fields
+            # Search: description, product name (AOIN: Product; external: Reel.product_name), merchant name
             search_conditions = [
                 text("MATCH(reels.description) AGAINST(:search_query IN BOOLEAN MODE)"),
-                Product.product_name.like(search_like),
+                or_(
+                    Product.product_name.like(search_like),
+                    Reel.product_name.like(search_like)
+                ),
                 MerchantProfile.business_name.like(search_like)
             ]
-            
             query = query.filter(or_(*search_conditions)).params(search_query=search_terms)
-            
-            # Apply category filter
             if category_id:
-                query = query.filter(Product.category_id == category_id)
+                query = query.filter(
+                    or_(
+                        Product.category_id == category_id,
+                        and_(Reel.product_id.is_(None), Reel.category_id == category_id)
+                    )
+                )
             
             # Apply merchant filter
             if merchant_id:
@@ -1757,25 +1890,27 @@ class ReelsController:
                 error_str = str(e)
                 if 'FULLTEXT' in error_str or '1191' in error_str:
                     current_app.logger.warning(f"FULLTEXT index not found, falling back to LIKE search: {str(e)}")
-                    # Rebuild query with LIKE instead of FULLTEXT
-                    # get_visible_reels() already joins Product and ProductStock
                     query = Reel.get_visible_reels()
+                    query = query.outerjoin(Product, Reel.product_id == Product.product_id)
                     query = query.join(MerchantProfile, Reel.merchant_id == MerchantProfile.id)
                     query = query.options(
                         joinedload(Reel.product).joinedload(Product.category),
                         joinedload(Reel.merchant)
                     )
-                    # Use LIKE search across all fields
                     search_like = f'%{search_query}%'
                     query = query.filter(or_(
                         Reel.description.like(search_like),
                         Product.product_name.like(search_like),
+                        Reel.product_name.like(search_like),
                         MerchantProfile.business_name.like(search_like)
                     ))
-                    
-                    # Reapply filters
                     if category_id:
-                        query = query.filter(Product.category_id == category_id)
+                        query = query.filter(
+                            or_(
+                                Product.category_id == category_id,
+                                and_(Reel.product_id.is_(None), Reel.category_id == category_id)
+                            )
+                        )
                     if merchant_id:
                         query = query.filter(Reel.merchant_id == merchant_id)
                     if start_date:

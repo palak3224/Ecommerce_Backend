@@ -12,7 +12,14 @@ class Reel(BaseModel):
     
     reel_id = db.Column(db.Integer, primary_key=True)
     merchant_id = db.Column(db.Integer, db.ForeignKey('merchant_profiles.id'), nullable=False, index=True)
-    product_id = db.Column(db.Integer, db.ForeignKey('products.product_id'), nullable=False, index=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('products.product_id'), nullable=True, index=True)  # null for external reels
+    
+    # External product fields (when product_id is null)
+    product_url = db.Column(db.String(2048), nullable=True)
+    product_name = db.Column(db.String(500), nullable=True)
+    category_id = db.Column(db.Integer, db.ForeignKey('categories.category_id'), nullable=True)
+    category_name = db.Column(db.String(255), nullable=True)
+    platform = db.Column(db.String(50), nullable=True, index=True)  # aoin | flipkart | amazon | myntra | other
     
     # Video storage
     video_url = db.Column(db.String(512), nullable=False)
@@ -87,12 +94,14 @@ class Reel(BaseModel):
         if not self.is_active:
             reasons.append('REEL_INACTIVE')
         
-        # Note: Reels don't require approval, so we don't check approval_status
+        # External reels: no product checks, only reel-level above
+        if self.product_id is None:
+            return reasons
         
-        # Check product (product_id is required, so product should exist)
+        # AOIN reels: check product (product should exist when product_id is set)
         if not self.product:
             reasons.append('PRODUCT_NOT_FOUND')
-            return reasons  # Can't check further if product doesn't exist
+            return reasons
         
         # Check product status
         if self.product.deleted_at is not None:
@@ -132,11 +141,13 @@ class Reel(BaseModel):
         Returns:
             dict: Serialized reel data
         """
-        # Define all available fields
+        # Define all available fields; always expose product_url and platform
         all_data = {
             'reel_id': self.reel_id,
             'merchant_id': self.merchant_id,
             'product_id': self.product_id,
+            'product_url': self.product_url,
+            'platform': self.platform,
             'video_url': self.video_url,
             'thumbnail_url': self.thumbnail_url,
             'description': self.description,
@@ -159,16 +170,22 @@ class Reel(BaseModel):
             all_data['disabling_reasons'] = disabling_reasons
             all_data['is_visible'] = len(disabling_reasons) == 0
         
-        # Include product info
-        if include_product and self.product:
-            all_data['product'] = {
-                'product_id': self.product.product_id,
-                'product_name': self.product.product_name,
-                'category_id': self.product.category_id,
-                'category_name': self.product.category.name if self.product.category else None,
-                'stock_qty': self.product.stock.stock_qty if self.product.stock else 0,
-                'selling_price': float(self.product.selling_price) if self.product.selling_price else None,
-            }
+        # Include product info: AOIN reels get full product object; external get product_name/category from reel
+        if include_product:
+            if self.product_id is not None and self.product:
+                all_data['product'] = {
+                    'product_id': self.product.product_id,
+                    'product_name': self.product.product_name,
+                    'category_id': self.product.category_id,
+                    'category_name': self.product.category.name if self.product.category else None,
+                    'stock_qty': self.product.stock.stock_qty if self.product.stock else 0,
+                    'selling_price': float(self.product.selling_price) if self.product.selling_price else None,
+                }
+            else:
+                # External reel: no product object; product_url, product_name, category already on reel
+                all_data['product_name'] = self.product_name
+                all_data['category_id'] = self.category_id
+                all_data['category_name'] = self.category_name
         
         # Include merchant info
         if include_merchant and self.merchant:
@@ -222,37 +239,40 @@ class Reel(BaseModel):
     @classmethod
     def get_visible_reels(cls, query=None):
         """
-        Get query for visible reels only.
-        
-        Args:
-            query: Optional base query to filter
-            
-        Returns:
-            Query: Filtered query with only visible reels
+        Get query for visible reels only (AOIN + external).
+        AOIN: product_id set, product not deleted/active/approved, stock > 0.
+        External: product_id null, product_url set, reel-level only (not deleted, active).
         """
+        from models.product import Product
         if query is None:
             query = cls.query
         
-        # Filter out deleted reels
-        query = query.filter(cls.deleted_at.is_(None))
+        base = query.filter(cls.deleted_at.is_(None), cls.is_active == True)
         
-        # Filter active reels
-        query = query.filter(cls.is_active == True)
-        
-        # Note: Reels don't require approval, so we don't filter by approval_status
-        
-        # Filter products that are not deleted, active, and approved
-        from models.product import Product
-        query = query.join(Product).filter(
-            Product.deleted_at.is_(None),
-            Product.active_flag == True,
-            Product.approval_status == 'approved'
+        # Visible AOIN reels: has product, product valid, stock > 0
+        aoin_subq = (
+            base.filter(cls.product_id.isnot(None))
+            .join(Product, cls.product_id == Product.product_id)
+            .join(ProductStock, Product.product_id == ProductStock.product_id)
+            .filter(
+                Product.deleted_at.is_(None),
+                Product.active_flag == True,
+                Product.approval_status == 'approved',
+                ProductStock.stock_qty > 0,
+            )
         )
-        
-        # Filter products with stock > 0
-        query = query.join(ProductStock, Product.product_id == ProductStock.product_id).filter(
-            ProductStock.stock_qty > 0
+        # Visible external reels: no product, has product_url
+        external_subq = base.filter(
+            cls.product_id.is_(None),
+            cls.product_url.isnot(None),
         )
-        
-        return query
+        aoin_ids = aoin_subq.with_entities(cls.reel_id)
+        external_ids = external_subq.with_entities(cls.reel_id)
+        union_ids = aoin_ids.union(external_ids)
+        # Preserve original query filters (e.g. merchant_id)
+        return query.filter(
+            cls.deleted_at.is_(None),
+            cls.is_active == True,
+            cls.reel_id.in_(union_ids),
+        )
 
