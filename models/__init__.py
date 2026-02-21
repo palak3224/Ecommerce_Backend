@@ -42,6 +42,7 @@ from .user_reel_share import UserReelShare
 from .user_merchant_follow import UserMerchantFollow
 from .user_category_preference import UserCategoryPreference
 from .merchant_notification import MerchantNotification
+from .holi_giveaway_registration import HoliGiveawayRegistration
 
 
 __all__ = [
@@ -72,5 +73,6 @@ __all__ = [
     'UserReelShare',
     'UserMerchantFollow',
     'UserCategoryPreference',
-    'MerchantNotification'
+    'MerchantNotification',
+    'HoliGiveawayRegistration'
 ]

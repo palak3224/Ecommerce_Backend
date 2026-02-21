@@ -689,7 +689,7 @@ def verify_all_tables():
         # Other tables
         'subscription_plans', 'subscription_histories', 'promotions', 'game_plays',
         'payment_cards', 'support_tickets', 'support_ticket_messages',
-        'newsletter_subscriptions', 'merchant_transactions',
+        'newsletter_subscriptions', 'holi_giveaway_registrations', 'merchant_transactions',
         'live_streams', 'live_stream_comments', 'live_stream_viewers',
         'homepage_categories', 'recently_viewed', 'carousels',
         'tax_rates', 'tax_categories', 'youtube_tokens', 'system_monitoring'
