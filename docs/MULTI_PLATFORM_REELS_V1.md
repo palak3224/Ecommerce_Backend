@@ -27,21 +27,28 @@ Allow merchants to upload reels in **two ways**:
 
 Keep the same endpoint: **`POST /api/reels`** (multipart/form-data), but validate based on `type`.
 
+#### Product URL: required for both types
+
+- **`product_url`** is **required for both AOIN and external reels** and stored in the same column (`reels.product_url`). This keeps link handling unified: the frontend can always use `reel.product_url` for the “Buy” / product link.
+- Must be a valid URL (e.g. https). For AOIN, this is typically the store’s product page URL (e.g. `https://yoursite.com/product/123`). For external, it is the external platform product link.
+
 #### Mode A: `type="aoin"` (current flow)
 
 - Required:
   - `video` (file)
   - `description` (string)
   - `product_id` (int)
+  - **`product_url`** (string; product page URL, e.g. AOIN product detail link)
 - Backend continues to derive:
   - category, price, product info, product image(s) from AOIN product tables.
+- Backend stores the provided `product_url` on the reel (no longer derived from config).
 
 #### Mode B: `type="external"` (new flow)
 
 Required (minimal, enough to render a full card in feed):
 - `video` (file)
 - `description` (string)
-- `product_url` (string; clickable external link)
+- **`product_url`** (string; clickable external link) — required for both types
 - `platform_name` (string; free-text in V1, dropdown later)
 - `category` (string)
 - `price` (number) + `currency` (string like `INR`)
@@ -58,19 +65,24 @@ Required (minimal, enough to render a full card in feed):
 
 ## Validation rules (V1)
 
+### Product URL (required for both)
+
+- **`product_url`** is required for both AOIN and external reels.
+- Must be a valid URL (https, non-empty, within length limit). Stored in `reels.product_url` for both types.
+
 ### Mutually exclusive requirements
 
 - If `type="aoin"`:
-  - `product_id` is required
-  - external fields are ignored or rejected (choose one behavior and keep consistent)
+  - `product_id` and **`product_url`** are required
+  - external-only fields (e.g. product_name, platform) are ignored or rejected
 - If `type="external"`:
   - `product_id` must be absent/null
-  - all external required fields must be present
+  - **`product_url`** and all other external required fields must be present
 
-### External URL rules (recommended)
+### URL rules
 
-- Must be a valid URL.
-- (Optional) V1 allowlist of domains (to reduce abuse): `amazon.*`, `flipkart.*`, etc.
+- Must be a valid URL (https).
+- (Optional) V1 allowlist of domains for external (to reduce abuse): `amazon.*`, `flipkart.*`, etc.
 
 ## Visibility rules (V1)
 
@@ -87,6 +99,7 @@ Keep simple:
 To keep frontend changes small, return a unified shape:
 
 - Common reel fields (existing): `reel_id`, `merchant_id`, `video_url`, `thumbnail_url`, `description`, stats, timestamps, `type`
+- **`product_url`** is always present for both types (stored on the reel); use it for the product / “Buy” link.
 - For `type="aoin"`:
   - include existing `product` object (from AOIN)
 - For `type="external"`:
@@ -99,6 +112,7 @@ To keep frontend changes small, return a unified shape:
     - `product_image_url`
 
 Frontend logic:
+- Use `reel.product_url` for the product link in both cases.
 - If `type==="aoin"` render AOIN product card.
 - Else render external card + “Buy on {platform}” link.
 
@@ -125,8 +139,10 @@ Frontend logic:
 ### Upload controller
 
 - Update `ReelsController.upload_reel()` to:
-  - accept `type`
+  - require **`product_url`** for both AOIN and external reels (validate URL format; store in `reels.product_url`)
+  - accept `type` (or infer from product_id vs product_name)
   - branch validation for AOIN vs external
+  - for AOIN: store the provided `product_url` on the reel (do not derive from config)
   - store external snapshot fields when external
 
 ## Frontend changes (when implementing)
@@ -135,10 +151,11 @@ Frontend logic:
 
 - Add a toggle:
   - “AOIN product” vs “External product”
+- **Product URL**: show one “Product URL” field for both types (required). For AOIN, frontend may pre-fill from selected product (e.g. `window.location.origin + '/product/' + product_id`) or let the merchant paste it.
 - If AOIN:
-  - show product picker (existing)
+  - show product picker (existing) and product URL input (required)
 - If External:
-  - show inputs: URL, platform, category, price, currency, image URL/upload
+  - show inputs: product URL (required), platform, category, price, currency, image URL/upload
 
 ### Feed rendering
 

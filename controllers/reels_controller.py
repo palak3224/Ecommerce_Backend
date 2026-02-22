@@ -235,6 +235,7 @@ class ReelsController:
                 )
 
             # Determine path: AOIN (product_id) vs external (product_url + product_name)
+            # product_url is required for both types (unified storage and link handling)
             product_id_raw = request.form.get('product_id')
             product_url = (request.form.get('product_url') or '').strip()
             product_name = (request.form.get('product_name') or '').strip()
@@ -242,20 +243,36 @@ class ReelsController:
             category_id_raw = request.form.get('category_id')
             category_name_raw = (request.form.get('category_name') or '').strip()
 
+            if not product_url:
+                return create_error_response(
+                    VALIDATION_ERROR,
+                    'product_url is required for both AOIN and external reels',
+                    {'field': 'product_url', 'required': True},
+                    HTTPStatus.BAD_REQUEST
+                )
+            ok, url_err = _validate_product_url(product_url)
+            if not ok:
+                return create_error_response(
+                    VALIDATION_ERROR,
+                    url_err,
+                    {'field': 'product_url'},
+                    HTTPStatus.BAD_REQUEST
+                )
+
             has_aoin = product_id_raw not in (None, '')
-            has_external = bool(product_url and product_name)
+            has_external = not has_aoin and bool(product_name)
 
             if has_aoin and has_external:
                 return create_error_response(
                     VALIDATION_ERROR,
-                    'Provide either product_id (AOIN reel) or product_url and product_name (external reel), not both',
+                    'Provide either product_id (AOIN reel) or product_name (external reel), not both. product_url is required for both.',
                     {'fields': ['product_id', 'product_url', 'product_name']},
                     HTTPStatus.BAD_REQUEST
                 )
             if not has_aoin and not has_external:
                 return create_error_response(
                     VALIDATION_ERROR,
-                    'Provide either product_id (AOIN reel) or product_url and product_name (external reel)',
+                    'Provide either product_id (AOIN reel) or product_name (external reel). product_url is required for both.',
                     {'fields': ['product_id', 'product_url', 'product_name']},
                     HTTPStatus.BAD_REQUEST
                 )
@@ -404,15 +421,7 @@ class ReelsController:
                 )
             
             # Create reel record first (without video URL) to get reel_id
-            base_url = (
-                current_app.config.get('PRODUCT_PAGE_BASE_URL')
-                or current_app.config.get('FRONTEND_URL')
-                or 'https://aoinstore.com'
-            )
-            if isinstance(base_url, str):
-                base_url = base_url.rstrip('/')
-            else:
-                base_url = ''
+            # product_url is required for both types and stored on the reel
             reel = None
             try:
                 if has_aoin:
@@ -420,7 +429,7 @@ class ReelsController:
                         merchant_id=merchant.id,
                         product_id=product_id,
                         platform=REELS_PLATFORM_AOIN,
-                        product_url=f"{base_url}/product/{product_id}" if base_url else None,
+                        product_url=product_url,
                         video_url='',
                         video_public_id='',
                         description=description,

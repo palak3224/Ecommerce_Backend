@@ -41,8 +41,8 @@ def upload_reel():
       - in: formData
         name: product_url
         type: string
-        required: false
-        description: "External reel: Product URL (https). Required with product_name if no product_id."
+        required: true
+        description: "Required for both types. Product page URL (https). AOIN: e.g. your store product link. External: external platform product link."
       - in: formData
         name: product_name
         type: string
