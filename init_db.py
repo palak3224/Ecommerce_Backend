@@ -482,6 +482,134 @@ def init_shops():
     db.session.commit()
     print("Shops initialized successfully.")
 
+def run_migration_006_reels_external():
+    """
+    Migration 006: Make reels.product_id nullable and add external reel columns.
+    Safe to run multiple times (idempotent). Fixes IntegrityError 1048 for external reels.
+    """
+    print("\nRunning migration 006 (reels external / product_id nullable):")
+    print("--------------------------------------------------------------")
+    inspector = db.inspect(db.engine)
+    if 'reels' not in inspector.get_table_names():
+        print("  ℹ reels table does not exist yet; skipping (will be created with correct schema).")
+        return
+    existing_columns = {col['name']: col for col in inspector.get_columns('reels')}
+    product_id_col = existing_columns.get('product_id')
+    if not product_id_col:
+        print("  ℹ reels.product_id not found; skipping.")
+        return
+    product_id_nullable = product_id_col.get('nullable', False)
+    with db.engine.connect() as conn:
+        # 1. Make product_id nullable if it isn't already
+        if not product_id_nullable:
+            try:
+                r = conn.execute(text("""
+                    SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reels'
+                    AND CONSTRAINT_TYPE = 'FOREIGN KEY' AND CONSTRAINT_NAME = 'fk_reels_product'
+                """))
+                if r.fetchone():
+                    conn.execute(text("ALTER TABLE reels DROP FOREIGN KEY fk_reels_product"))
+                    conn.commit()
+                    print("  ✓ Dropped foreign key fk_reels_product")
+            except Exception as e:
+                if "1091" in str(e) or "check that it exists" in str(e).lower():
+                    pass
+                else:
+                    print(f"  ⚠ Drop FK: {e}")
+            try:
+                conn.execute(text("ALTER TABLE reels MODIFY COLUMN product_id INT NULL"))
+                conn.commit()
+                print("  ✓ product_id is now nullable")
+            except Exception as e:
+                print(f"  ✗ Failed to make product_id nullable: {e}")
+                return
+            try:
+                conn.execute(text(
+                    "ALTER TABLE reels ADD CONSTRAINT fk_reels_product "
+                    "FOREIGN KEY (product_id) REFERENCES products(product_id)"
+                ))
+                conn.commit()
+                print("  ✓ Re-added foreign key fk_reels_product")
+            except Exception as e:
+                if "Duplicate" in str(e) or "already exists" in str(e).lower():
+                    print("  ℹ fk_reels_product already exists")
+                else:
+                    print(f"  ⚠ Re-add FK: {e}")
+        else:
+            print("  ✓ product_id already nullable")
+        # 2. Add external columns if missing
+        for col_name, col_def in [
+            ('product_url', 'VARCHAR(2048) NULL'),
+            ('product_name', 'VARCHAR(500) NULL'),
+            ('category_id', 'INT NULL'),
+            ('category_name', 'VARCHAR(255) NULL'),
+            ('platform', 'VARCHAR(50) NULL'),
+        ]:
+            if col_name in existing_columns:
+                continue
+            try:
+                conn.execute(text(f"ALTER TABLE reels ADD COLUMN {col_name} {col_def}"))
+                conn.commit()
+                print(f"  ✓ Added column {col_name}")
+            except Exception as e:
+                if "Duplicate column" in str(e):
+                    pass
+                else:
+                    print(f"  ⚠ Add column {col_name}: {e}")
+        # Refresh column list for FK/index checks
+        inspector = db.inspect(db.engine)
+        existing_columns = {col['name']: col for col in inspector.get_columns('reels')}
+        # 3. Add FK for category_id if column exists and constraint missing
+        if 'category_id' in existing_columns:
+            try:
+                r = conn.execute(text("""
+                    SELECT 1 FROM information_schema.TABLE_CONSTRAINTS
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reels'
+                    AND CONSTRAINT_NAME = 'fk_reels_category_id'
+                """))
+                if not r.fetchone():
+                    conn.execute(text(
+                        "ALTER TABLE reels ADD CONSTRAINT fk_reels_category_id "
+                        "FOREIGN KEY (category_id) REFERENCES categories(category_id)"
+                    ))
+                    conn.commit()
+                    print("  ✓ Added foreign key fk_reels_category_id")
+            except Exception as e:
+                if "Duplicate" in str(e) or "already exists" in str(e).lower():
+                    pass
+                else:
+                    print(f"  ⚠ Add fk_reels_category_id: {e}")
+        # 4. Add platform index if missing
+        existing_indexes = {idx['name'] for idx in inspector.get_indexes('reels')}
+        if 'idx_reels_platform' not in existing_indexes:
+            try:
+                conn.execute(text("CREATE INDEX idx_reels_platform ON reels(platform)"))
+                conn.commit()
+                print("  ✓ Created index idx_reels_platform")
+            except Exception as e:
+                if "Duplicate" in str(e) or "already exists" in str(e).lower():
+                    pass
+                else:
+                    print(f"  ⚠ Create index: {e}")
+        # 5. Backfill existing reels as AOIN
+        base_url = os.getenv('PRODUCT_PAGE_BASE_URL') or os.getenv('FRONTEND_URL') or 'https://aoinstore.com'
+        try:
+            conn.execute(text("""
+                UPDATE reels
+                SET platform = 'aoin', product_url = CONCAT(:base, '/product/', product_id)
+                WHERE product_id IS NOT NULL AND (platform IS NULL OR platform = '')
+            """), {"base": base_url})
+            conn.commit()
+        except Exception as e:
+            print(f"  ⚠ Backfill: {e}")
+    print("  " + "=" * 46)
+    print("  MIGRATION 006 COMPLETED SUCCESSFULLY")
+    print("  " + "=" * 46)
+    print("  Reels now support external products (product_id nullable).")
+    print("  " + "=" * 46)
+
+
 def init_reels():
     """Initialize reels tables."""
     print("\nInitializing Reels Tables:")
@@ -1275,7 +1403,8 @@ def init_database():
         migrate_business_phone_column_size()
         migrate_carousel_orientation()
         migrate_phone_verification_user_id_nullable()
-        
+        run_migration_006_reels_external()
+
         # Initialize data
         init_country_configs()
         init_tax_categories()
