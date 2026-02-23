@@ -18,6 +18,7 @@ from services.reels_s3_service import get_reels_s3_service
 from werkzeug.utils import secure_filename
 from sqlalchemy import desc, and_, or_
 from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.exc import IntegrityError as SQLAlchemyIntegrityError
 from datetime import datetime, timezone, timedelta
 from http import HTTPStatus
 import os
@@ -26,7 +27,7 @@ from controllers.reels_errors import (
     REEL_UPLOAD_FAILED, STORAGE_ERROR, VALIDATION_ERROR,
     PRODUCT_VALIDATION_ERROR, FILE_VALIDATION_ERROR,
     AUTHORIZATION_ERROR, NOT_FOUND_ERROR, TRANSACTION_ERROR,
-    create_error_response
+    SCHEMA_MIGRATION_REQUIRED, create_error_response
 )
 from controllers.reels_constants import (
     REELS_PLATFORMS_ALLOWED,
@@ -457,6 +458,32 @@ class ReelsController:
                 if not reel_id:
                     raise ValueError("Failed to generate reel_id")
                     
+            except SQLAlchemyIntegrityError as e:
+                db.session.rollback()
+                err_str = str(e).lower()
+                if 'product_id' in err_str and ('cannot be null' in err_str or '1048' in str(e)):
+                    current_app.logger.warning(
+                        "Reels schema migration required: product_id is NOT NULL. %s", str(e)
+                    )
+                    return create_error_response(
+                        SCHEMA_MIGRATION_REQUIRED,
+                        'External reels require a database schema update. The reels table must allow NULL for product_id.',
+                        {
+                            'error_details': str(e),
+                            'fix': 'Run migration 006 (alembic upgrade head) or execute migrations/sql/006_make_reels_product_id_nullable.sql on your database.',
+                        },
+                        HTTPStatus.SERVICE_UNAVAILABLE
+                    )
+                current_app.logger.error(f"IntegrityError creating reel record: {str(e)}", exc_info=True)
+                return create_error_response(
+                    TRANSACTION_ERROR,
+                    'Failed to create reel record',
+                    {
+                        'error_details': str(e),
+                        'suggestion': 'Please try again or contact support'
+                    },
+                    HTTPStatus.INTERNAL_SERVER_ERROR
+                )
             except Exception as e:
                 db.session.rollback()
                 current_app.logger.error(f"Failed to create reel record: {str(e)}", exc_info=True)

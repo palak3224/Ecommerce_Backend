@@ -1,4 +1,4 @@
-# Multi‑Platform Product Reels (V1) — Feature Notes
+# Multi‑Platform Product Reels (V2) — Feature Notes
 
 ## Context (current behavior)
 
@@ -15,7 +15,7 @@ Allow merchants to upload reels in **two ways**:
 1. **AOIN product reel** (existing flow): reel is linked to an internal AOIN product.
 2. **External platform product reel** (new flow): reel promotes a product on another platform (e.g., Amazon/Flipkart/etc.), and the reel stores a lightweight product “snapshot” (price/category/image/link/platform) so the feed has everything it needs.
 
-## V1 design (keep it simple)
+## V2 design (keep it simple)
 
 ### Key concept: reel `type`
 
@@ -49,21 +49,21 @@ Required (minimal, enough to render a full card in feed):
 - `video` (file)
 - `description` (string)
 - **`product_url`** (string; clickable external link) — required for both types
-- `platform_name` (string; free-text in V1, dropdown later)
+- `platform_name` (string; free-text in V2, dropdown later)
 - `category` (string)
 - `price` (number) + `currency` (string like `INR`)
 - **product image**:
   - simplest: `product_image_url` (string)
   - optional alternative (if desired): `product_image` (file upload) stored via Cloudinary/S3 like other media
 
-**Important V1 decision**: no scraping. Merchant supplies the fields (snapshot).
+**Important V2 decision**: no scraping. Merchant supplies the fields (snapshot).
 
-### “Synced” meaning in V1
+### “Synced” meaning in V2
 
 - **AOIN reels** stay synced through `product_id` and live product data.
 - **External reels** are “synced” via a stored snapshot so the reel always renders consistently, even if the external page changes.
 
-## Validation rules (V1)
+## Validation rules (V2)
 
 ### Product URL (required for both)
 
@@ -82,9 +82,9 @@ Required (minimal, enough to render a full card in feed):
 ### URL rules
 
 - Must be a valid URL (https).
-- (Optional) V1 allowlist of domains for external (to reduce abuse): `amazon.*`, `flipkart.*`, etc.
+- (Optional) V2 allowlist of domains for external (to reduce abuse): `amazon.*`, `flipkart.*`, etc.
 
-## Visibility rules (V1)
+## Visibility rules (V2)
 
 ### AOIN reels
 Keep existing visibility logic (stock/approval/ownership checks).
@@ -162,7 +162,7 @@ Frontend logic:
 - Render based on `reel.type`.
 - External reels should open external URL in a new tab / external browser.
 
-## Out of scope for V1 (explicitly not doing now)
+## Out of scope for V2 (explicitly not doing now)
 
 - Automatic scraping of external URLs for title/price/category/image
 - Real-time external price syncing
