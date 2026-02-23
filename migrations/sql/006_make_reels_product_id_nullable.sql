@@ -40,3 +40,13 @@ WHERE product_id IS NOT NULL;
 -- Verify: run this and confirm product_id shows YES in the Null column:
 -- SHOW CREATE TABLE reels;
 -- Or: SELECT COLUMN_NAME, IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reels' AND COLUMN_NAME = 'product_id';
+
+-- =============================================================================
+-- SUCCESS: If you see the message below, migration 006 ran without errors.
+-- =============================================================================
+SELECT '========================================' AS '';
+SELECT '  MIGRATION 006 COMPLETED SUCCESSFULLY  ' AS '';
+SELECT '========================================' AS '';
+SELECT '  Reels now support external products   ' AS '';
+SELECT '  (product_id nullable). You are done.  ' AS '';
+SELECT '========================================' AS '';
