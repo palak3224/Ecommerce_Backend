@@ -1013,13 +1013,14 @@ def creator_signup_request(first_name, last_name, email, phone):
         if not email or '@' not in email:
             return {"error": "Valid email is required."}, 400
 
-        # Reject if phone or email already registered
-        existing_by_phone = User.get_by_phone(normalized_phone)
-        if existing_by_phone:
-            return {"error": "This phone number is already registered."}, 409
-        existing_by_email = User.get_by_email(email.strip().lower())
-        if existing_by_email:
-            return {"error": "This email is already registered."}, 409
+        # TODO(auth): Re-enable already-registered validation for creator signup when required.
+        # When re-enabled: uncomment below and remove the "existing user" branch in creator_verify_otp (or return 409 there).
+        # existing_by_phone = User.get_by_phone(normalized_phone)
+        # if existing_by_phone:
+        #     return {"error": "This phone number is already registered."}, 409
+        # existing_by_email = User.get_by_email(email.strip().lower())
+        # if existing_by_email:
+        #     return {"error": "This email is already registered."}, 409
 
         # Store pending signup (upsert by phone)
         CreatorSignupPending.upsert(
@@ -1128,7 +1129,40 @@ def creator_verify_otp(phone, otp):
             )
             return {"error": "Invalid or expired OTP."}, 400
 
-        # Create creator user (no password; auth via phone OTP for future logins)
+        # TODO(auth): When re-enabling already-registered validation in signup-request, either remove this
+        # branch (and return 409 on duplicate) or keep it so existing users can still "become" creator via OTP.
+        # If user already exists with this phone (we verified it via OTP), log them in and set role CREATOR
+        existing_user = User.get_by_phone(normalized_phone)
+        if existing_user:
+            existing_user.role = UserRole.CREATOR
+            existing_user.is_phone_verified = True
+            db.session.commit()
+            CreatorSignupPending.delete_by_phone(normalized_phone)
+            verification.user_id = existing_user.id
+            db.session.commit()
+
+            additional_claims = {"role": existing_user.role.value}
+            access_token = create_access_token(identity=str(existing_user.id), additional_claims=additional_claims)
+            refresh_expires = datetime.utcnow() + current_app.config['JWT_REFRESH_TOKEN_EXPIRES']
+            refresh_token_str = RefreshToken.create_token(existing_user.id, refresh_expires)
+
+            return {
+                "message": "Welcome back. Complete your profile by selecting 5 categories.",
+                "access_token": access_token,
+                "refresh_token": refresh_token_str,
+                "expires_in": 3600,
+                "user": {
+                    "id": existing_user.id,
+                    "email": existing_user.email,
+                    "phone": existing_user.phone,
+                    "first_name": existing_user.first_name,
+                    "last_name": existing_user.last_name,
+                    "role": existing_user.role.value,
+                    "is_phone_verified": existing_user.is_phone_verified
+                }
+            }, 200
+
+        # Create new creator user (no password; auth via phone OTP for future logins)
         user = User(
             phone=normalized_phone,
             email=pending.email,
@@ -1169,6 +1203,35 @@ def creator_verify_otp(phone, otp):
         }, 201
     except IntegrityError:
         db.session.rollback()
+        # Fallback: if create still hits unique constraint, try login-as-existing by phone only
+        try:
+            existing_user = User.get_by_phone(normalized_phone)
+            if existing_user:
+                existing_user.role = UserRole.CREATOR
+                existing_user.is_phone_verified = True
+                db.session.commit()
+                CreatorSignupPending.delete_by_phone(normalized_phone)
+                additional_claims = {"role": existing_user.role.value}
+                access_token = create_access_token(identity=str(existing_user.id), additional_claims=additional_claims)
+                refresh_expires = datetime.utcnow() + current_app.config['JWT_REFRESH_TOKEN_EXPIRES']
+                refresh_token_str = RefreshToken.create_token(existing_user.id, refresh_expires)
+                return {
+                    "message": "Welcome back. Complete your profile by selecting 5 categories.",
+                    "access_token": access_token,
+                    "refresh_token": refresh_token_str,
+                    "expires_in": 3600,
+                    "user": {
+                        "id": existing_user.id,
+                        "email": existing_user.email,
+                        "phone": existing_user.phone,
+                        "first_name": existing_user.first_name,
+                        "last_name": existing_user.last_name,
+                        "role": existing_user.role.value,
+                        "is_phone_verified": existing_user.is_phone_verified
+                    }
+                }, 200
+        except Exception:
+            pass
         return {"error": "This phone or email is already registered."}, 409
     except Exception as e:
         db.session.rollback()
