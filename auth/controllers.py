@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from authlib.integrations.flask_client import OAuth
 
 from common.database import db
-from auth.models import User, MerchantProfile, RefreshToken, EmailVerification, UserRole, AuthProvider, PhoneVerification
+from auth.models import User, MerchantProfile, RefreshToken, EmailVerification, UserRole, AuthProvider, PhoneVerification, CreatorSignupPending
 from auth.utils import validate_google_token, normalize_phone_number, validate_phone_number
 from auth.twilio_service import send_otp_sms
 from common.cache import cached, get_redis_client
@@ -994,3 +994,165 @@ def verify_phone_otp_login(phone_number, otp):
     except Exception as e:
         current_app.logger.error(f"Error in phone login: {str(e)}")
         return {"error": "Login failed"}, 500
+
+
+# --- Creator signup (name + email + phone → OTP → verify) ---
+RESEND_OTP_COOLDOWN_SECONDS = 60
+
+
+def creator_signup_request(first_name, last_name, email, phone):
+    """
+    Step 1: Store name/email/phone and send OTP. Creator must verify OTP next.
+    """
+    try:
+        normalized_phone = normalize_phone_number(phone)
+        if not normalized_phone:
+            return {"error": "Invalid phone number format. Use E.164 (e.g. +919876543210)."}, 400
+        if not first_name or not last_name:
+            return {"error": "First name and last name are required."}, 400
+        if not email or '@' not in email:
+            return {"error": "Valid email is required."}, 400
+
+        # Reject if phone or email already registered
+        existing_by_phone = User.get_by_phone(normalized_phone)
+        if existing_by_phone:
+            return {"error": "This phone number is already registered."}, 409
+        existing_by_email = User.get_by_email(email.strip().lower())
+        if existing_by_email:
+            return {"error": "This email is already registered."}, 409
+
+        # Store pending signup (upsert by phone)
+        CreatorSignupPending.upsert(
+            phone=normalized_phone,
+            email=email.strip().lower(),
+            first_name=first_name.strip(),
+            last_name=last_name.strip()
+        )
+
+        # Create and send OTP
+        expires_at = datetime.utcnow() + timedelta(minutes=10)
+        otp = PhoneVerification.create_otp_for_signup(normalized_phone, expires_at)
+        success, message = send_otp_sms(normalized_phone, otp)
+        if not success:
+            return {"error": message or "Failed to send OTP."}, 500
+
+        return {
+            "message": "OTP sent to your phone.",
+            "expires_in": 600
+        }, 200
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Creator signup request error: {str(e)}", exc_info=True)
+        return {"error": "Failed to send OTP."}, 500
+
+
+def creator_resend_otp(phone):
+    """
+    Resend OTP for creator signup. Rate limited (e.g. once per 60 seconds per phone).
+    """
+    try:
+        normalized_phone = normalize_phone_number(phone)
+        if not normalized_phone:
+            return {"error": "Invalid phone number format."}, 400
+
+        pending = CreatorSignupPending.get_by_phone(normalized_phone)
+        if not pending:
+            return {"error": "Session expired. Please enter your details again and request a new OTP."}, 400
+
+        # Rate limit: do not resend within RESEND_OTP_COOLDOWN_SECONDS
+        if pending.last_otp_sent_at:
+            last = pending.last_otp_sent_at
+            if hasattr(last, 'tzinfo') and last.tzinfo:
+                from datetime import timezone
+                now = datetime.now(timezone.utc)
+                then = last if last.tzinfo else last.replace(tzinfo=timezone.utc)
+                elapsed = (now - then).total_seconds()
+            else:
+                elapsed = (datetime.utcnow() - last).total_seconds()
+            if elapsed < RESEND_OTP_COOLDOWN_SECONDS:
+                wait = int(RESEND_OTP_COOLDOWN_SECONDS - elapsed)
+                return {"error": f"Please wait {wait} seconds before requesting another OTP."}, 429
+
+        # Update last_otp_sent_at
+        pending.last_otp_sent_at = datetime.utcnow()
+        db.session.commit()
+
+        expires_at = datetime.utcnow() + timedelta(minutes=10)
+        otp = PhoneVerification.create_otp_for_signup(normalized_phone, expires_at)
+        success, message = send_otp_sms(normalized_phone, otp)
+        if not success:
+            return {"error": message or "Failed to send OTP."}, 500
+
+        return {
+            "message": "OTP sent again.",
+            "expires_in": 600
+        }, 200
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Creator resend OTP error: {str(e)}", exc_info=True)
+        return {"error": "Failed to resend OTP."}, 500
+
+
+def creator_verify_otp(phone, otp):
+    """
+    Verify OTP and create creator user. Returns tokens and user (for redirect to category selection).
+    """
+    try:
+        normalized_phone = normalize_phone_number(phone)
+        if not normalized_phone:
+            return {"error": "Invalid phone number format."}, 400
+
+        pending = CreatorSignupPending.get_by_phone(normalized_phone)
+        if not pending:
+            return {"error": "Session expired. Please enter your details again."}, 400
+
+        verification = PhoneVerification.verify_otp_by_phone(normalized_phone, otp)
+        if not verification:
+            return {"error": "Invalid or expired OTP."}, 400
+
+        # Create creator user (no password; auth via phone OTP for future logins)
+        user = User(
+            phone=normalized_phone,
+            email=pending.email,
+            first_name=pending.first_name,
+            last_name=pending.last_name,
+            role=UserRole.CREATOR,
+            auth_provider=AuthProvider.PHONE.value,
+            is_phone_verified=True,
+            is_email_verified=False,
+            password_hash=None
+        )
+        user.save()
+
+        verification.user_id = user.id
+        db.session.commit()
+
+        CreatorSignupPending.delete_by_phone(normalized_phone)
+
+        additional_claims = {"role": user.role.value}
+        access_token = create_access_token(identity=str(user.id), additional_claims=additional_claims)
+        refresh_expires = datetime.utcnow() + current_app.config['JWT_REFRESH_TOKEN_EXPIRES']
+        refresh_token_str = RefreshToken.create_token(user.id, refresh_expires)
+
+        return {
+            "message": "Account created. Complete your profile by selecting 5 categories.",
+            "access_token": access_token,
+            "refresh_token": refresh_token_str,
+            "expires_in": 3600,
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "phone": user.phone,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "role": user.role.value,
+                "is_phone_verified": user.is_phone_verified
+            }
+        }, 201
+    except IntegrityError:
+        db.session.rollback()
+        return {"error": "This phone or email is already registered."}, 409
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Creator verify OTP error: {str(e)}", exc_info=True)
+        return {"error": "Failed to create account."}, 500

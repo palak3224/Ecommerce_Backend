@@ -37,6 +37,7 @@ from auth.models.models import (
     RefreshToken,
     EmailVerification,
     PhoneVerification,
+    CreatorSignupPending,
     UserRole,
     AuthProvider
 )
@@ -607,6 +608,36 @@ def run_migration_006_reels_external():
     print("  MIGRATION 006 COMPLETED SUCCESSFULLY")
     print("  " + "=" * 46)
     print("  Reels now support external products (product_id nullable).")
+    print("  " + "=" * 46)
+
+
+def run_migration_007_creator_role():
+    """
+    Migration 007: Add 'creator' to users.role enum so Creator signup can create users with role=creator.
+    Idempotent: safe to run multiple times (no-op if already applied).
+    """
+    print("\nRunning migration 007 (creator role):")
+    print("-------------------------------------")
+    inspector = db.inspect(db.engine)
+    if 'users' not in inspector.get_table_names():
+        print("  ℹ users table does not exist yet; skipping.")
+        return
+    with db.engine.connect() as conn:
+        try:
+            conn.execute(text("""
+                ALTER TABLE users MODIFY COLUMN role
+                ENUM('user', 'merchant', 'admin', 'super_admin', 'creator') NOT NULL DEFAULT 'user'
+            """))
+            conn.commit()
+            print("  ✓ users.role enum now includes 'creator'")
+        except Exception as e:
+            err = str(e).lower()
+            if "duplicate" in err or "already exists" in err or "creator" in err:
+                print("  ℹ users.role already supports creator (or column is not ENUM)")
+            else:
+                print(f"  ⚠ Migration 007: {e}")
+    print("  " + "=" * 46)
+    print("  MIGRATION 007 COMPLETED (creator role)")
     print("  " + "=" * 46)
 
 
@@ -1404,6 +1435,7 @@ def init_database():
         migrate_carousel_orientation()
         migrate_phone_verification_user_id_nullable()
         run_migration_006_reels_external()
+        run_migration_007_creator_role()
 
         # Initialize data
         init_country_configs()

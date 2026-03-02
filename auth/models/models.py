@@ -15,6 +15,7 @@ class UserRole(Enum):
     MERCHANT = 'merchant'
     ADMIN = 'admin'
     SUPER_ADMIN = 'super_admin'
+    CREATOR = 'creator'
 
 class AuthProvider(Enum):
     LOCAL = 'local'
@@ -665,3 +666,45 @@ class PhoneVerification(BaseModel):
         db.session.commit()
         
         return verification
+
+
+class CreatorSignupPending(BaseModel):
+    """Stores name/email for creator signup until OTP is verified. One row per phone."""
+    __tablename__ = 'creator_signup_pending'
+
+    id = db.Column(db.Integer, primary_key=True)
+    phone = db.Column(db.String(20), nullable=False, unique=True, index=True)
+    email = db.Column(db.String(255), nullable=False)
+    first_name = db.Column(db.String(100), nullable=False)
+    last_name = db.Column(db.String(100), nullable=False)
+    last_otp_sent_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    @classmethod
+    def get_by_phone(cls, phone):
+        return cls.query.filter_by(phone=phone).first()
+
+    @classmethod
+    def upsert(cls, phone, email, first_name, last_name):
+        row = cls.get_by_phone(phone)
+        if row:
+            row.email = email
+            row.first_name = first_name
+            row.last_name = last_name
+            row.last_otp_sent_at = datetime.utcnow()
+            db.session.commit()
+            return row
+        row = cls(
+            phone=phone,
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            last_otp_sent_at=datetime.utcnow()
+        )
+        row.save()
+        return row
+
+    @classmethod
+    def delete_by_phone(cls, phone):
+        cls.query.filter_by(phone=phone).delete()
+        db.session.commit()

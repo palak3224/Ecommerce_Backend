@@ -7,7 +7,8 @@ from auth.controllers import (
     logout_user, verify_email, google_auth, get_current_user,
     request_password_reset, reset_password,
     resend_verification_email_controller,
-    send_phone_otp, verify_phone_otp_signup, verify_phone_otp_login
+    send_phone_otp, verify_phone_otp_signup, verify_phone_otp_login,
+    creator_signup_request, creator_resend_otp, creator_verify_otp
 )
 from auth.utils import user_role_required, merchant_role_required, admin_role_required
 from auth.models import User, MerchantProfile
@@ -75,6 +76,22 @@ class VerifyPhoneSignupSchema(Schema):
     last_name = fields.Str(required=True)
 
 class VerifyPhoneLoginSchema(Schema):
+    phone = fields.Str(required=True)
+    otp = fields.Str(required=True, validate=validate.Length(equal=6))
+
+
+class CreatorSignupRequestSchema(Schema):
+    first_name = fields.Str(required=True, validate=validate.Length(min=1, max=100))
+    last_name = fields.Str(required=True, validate=validate.Length(min=1, max=100))
+    email = fields.Email(required=True)
+    phone = fields.Str(required=True)
+
+
+class CreatorResendOtpSchema(Schema):
+    phone = fields.Str(required=True)
+
+
+class CreatorVerifyOtpSchema(Schema):
     phone = fields.Str(required=True)
     otp = fields.Str(required=True, validate=validate.Length(equal=6))
 
@@ -1066,6 +1083,55 @@ def verify_phone_login_route():
         data = schema.load(request.json)
         
         response, status_code = verify_phone_otp_login(data['phone'], data['otp'])
+        return jsonify(response), status_code
+    except ValidationError as e:
+        return jsonify({"error": "Validation error", "details": e.messages}), 400
+
+
+# --- Creator signup: name + email + phone → OTP → verify (with resend OTP) ---
+
+@auth_bp.route('/creator/signup-request', methods=['POST'])
+def creator_signup_request_route():
+    """
+    Creator signup step 1: Submit name, email, phone. Sends OTP to phone.
+    """
+    try:
+        schema = CreatorSignupRequestSchema()
+        data = schema.load(request.json)
+        response, status_code = creator_signup_request(
+            data['first_name'],
+            data['last_name'],
+            data['email'],
+            data['phone']
+        )
+        return jsonify(response), status_code
+    except ValidationError as e:
+        return jsonify({"error": "Validation error", "details": e.messages}), 400
+
+
+@auth_bp.route('/creator/resend-otp', methods=['POST'])
+def creator_resend_otp_route():
+    """
+    Resend OTP for creator signup. Rate limited (e.g. once per 60 seconds).
+    """
+    try:
+        schema = CreatorResendOtpSchema()
+        data = schema.load(request.json)
+        response, status_code = creator_resend_otp(data['phone'])
+        return jsonify(response), status_code
+    except ValidationError as e:
+        return jsonify({"error": "Validation error", "details": e.messages}), 400
+
+
+@auth_bp.route('/creator/verify-otp', methods=['POST'])
+def creator_verify_otp_route():
+    """
+    Creator signup step 2: Verify OTP and create creator account. Returns tokens and user.
+    """
+    try:
+        schema = CreatorVerifyOtpSchema()
+        data = schema.load(request.json)
+        response, status_code = creator_verify_otp(data['phone'], data['otp'])
         return jsonify(response), status_code
     except ValidationError as e:
         return jsonify({"error": "Validation error", "details": e.messages}), 400
