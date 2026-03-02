@@ -275,6 +275,20 @@ curl -X POST "${BASE}/api/auth/phone/verify-login" \
 - **OTP:** Exactly 6 digits; allow digits only in the input.
 - **Resend:** Disable the resend button for 60 seconds after the last successful send/resend; show a countdown to avoid 429.
 
+### Avoiding "Invalid or expired OTP" when the code is correct
+
+1. **Use the same phone value for verify as for signup-request**  
+   Store the **exact** string you sent in `signup-request` (e.g. `+919876543210`) and send that same string in `verify-otp`. If you send a different format (e.g. without `+` or with different spacing), the backend won’t find the OTP.
+
+2. **Send OTP as a 6-digit string**  
+   e.g. `"otp": "123456"`. The backend accepts digits-only and normalizes; sending as a string avoids any number vs string mismatch.
+
+3. **Don’t double-submit**  
+   After the user taps “Verify”, disable the button until the response is back. If the request is sent twice, the first one consumes the OTP and the second will get **"OTP already used. Please request a new OTP."**
+
+4. **Use the latest OTP**  
+   If the user clicked “Resend OTP”, they must enter the **new** code. The previous code is no longer valid.
+
 ---
 
 ## 8. Related docs

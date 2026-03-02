@@ -1097,17 +1097,35 @@ def creator_verify_otp(phone, otp):
     """
     Verify OTP and create creator user. Returns tokens and user (for redirect to category selection).
     """
+    import re
     try:
         normalized_phone = normalize_phone_number(phone)
         if not normalized_phone:
             return {"error": "Invalid phone number format."}, 400
 
+        # Normalize OTP: digits only, exactly 6 (handles int from JSON or spaces)
+        otp_str = re.sub(r'\D', '', str(otp).strip()) if otp is not None else ""
+        if len(otp_str) != 6:
+            return {"error": "OTP must be 6 digits."}, 400
+
         pending = CreatorSignupPending.get_by_phone(normalized_phone)
         if not pending:
             return {"error": "Session expired. Please enter your details again."}, 400
 
-        verification = PhoneVerification.verify_otp_by_phone(normalized_phone, otp)
+        verification = PhoneVerification.verify_otp_by_phone(normalized_phone, otp_str)
         if not verification:
+            # Helpful message if OTP was already used (e.g. double submit)
+            used = PhoneVerification.query.filter_by(
+                phone=normalized_phone,
+                otp=otp_str,
+                is_used=True
+            ).first()
+            if used:
+                return {"error": "OTP already used. Please request a new OTP."}, 400
+            current_app.logger.debug(
+                "Creator verify OTP: no match for phone ending %s (check phone matches signup-request)",
+                normalized_phone[-4:] if len(normalized_phone) >= 4 else "****"
+            )
             return {"error": "Invalid or expired OTP."}, 400
 
         # Create creator user (no password; auth via phone OTP for future logins)
