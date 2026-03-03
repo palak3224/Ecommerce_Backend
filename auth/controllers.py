@@ -1000,6 +1000,14 @@ def verify_phone_otp_login(phone_number, otp):
 RESEND_OTP_COOLDOWN_SECONDS = 60
 
 
+def _creator_error(message, code="ERROR", status=400, detail=None):
+    """Consistent error shape for frontend: error, code, optional detail."""
+    out = {"error": message, "code": code}
+    if detail is not None:
+        out["detail"] = detail
+    return out, status
+
+
 def creator_signup_request(first_name, last_name, email, phone):
     """
     Step 1: Store name/email/phone and send OTP. Creator must verify OTP next.
@@ -1007,11 +1015,17 @@ def creator_signup_request(first_name, last_name, email, phone):
     try:
         normalized_phone = normalize_phone_number(phone)
         if not normalized_phone:
-            return {"error": "Invalid phone number format. Use E.164 (e.g. +919876543210)."}, 400
+            return _creator_error(
+                "Invalid phone number format. Use E.164 (e.g. +919876543210).",
+                "VALIDATION_ERROR", 400, {"field": "phone"}
+            )
         if not first_name or not last_name:
-            return {"error": "First name and last name are required."}, 400
+            return _creator_error(
+                "First name and last name are required.",
+                "VALIDATION_ERROR", 400, {"field": "first_name" if not first_name else "last_name"}
+            )
         if not email or '@' not in email:
-            return {"error": "Valid email is required."}, 400
+            return _creator_error("Valid email is required.", "VALIDATION_ERROR", 400, {"field": "email"})
 
         # TODO(auth): Re-enable already-registered validation for creator signup when required.
         # When re-enabled: uncomment below and remove the "existing user" branch in creator_verify_otp (or return 409 there).
@@ -1035,7 +1049,10 @@ def creator_signup_request(first_name, last_name, email, phone):
         otp = PhoneVerification.create_otp_for_signup(normalized_phone, expires_at)
         success, message = send_otp_sms(normalized_phone, otp)
         if not success:
-            return {"error": message or "Failed to send OTP."}, 500
+            return _creator_error(
+                message or "Could not send OTP. Check your number and try again.",
+                "OTP_SEND_FAILED", 500
+            )
 
         return {
             "message": "OTP sent to your phone.",
@@ -1044,7 +1061,10 @@ def creator_signup_request(first_name, last_name, email, phone):
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Creator signup request error: {str(e)}", exc_info=True)
-        return {"error": "Failed to send OTP."}, 500
+        return _creator_error(
+            "Could not send OTP. Please try again.",
+            "SERVER_ERROR", 500
+        )
 
 
 def creator_resend_otp(phone):
@@ -1054,11 +1074,14 @@ def creator_resend_otp(phone):
     try:
         normalized_phone = normalize_phone_number(phone)
         if not normalized_phone:
-            return {"error": "Invalid phone number format."}, 400
+            return _creator_error("Invalid phone number format.", "VALIDATION_ERROR", 400, {"field": "phone"})
 
         pending = CreatorSignupPending.get_by_phone(normalized_phone)
         if not pending:
-            return {"error": "Session expired. Please enter your details again and request a new OTP."}, 400
+            return _creator_error(
+                "Session expired. Please enter your details again and request a new OTP.",
+                "SESSION_EXPIRED", 400
+            )
 
         # Rate limit: do not resend within RESEND_OTP_COOLDOWN_SECONDS
         if pending.last_otp_sent_at:
@@ -1072,7 +1095,10 @@ def creator_resend_otp(phone):
                 elapsed = (datetime.utcnow() - last).total_seconds()
             if elapsed < RESEND_OTP_COOLDOWN_SECONDS:
                 wait = int(RESEND_OTP_COOLDOWN_SECONDS - elapsed)
-                return {"error": f"Please wait {wait} seconds before requesting another OTP."}, 429
+                return _creator_error(
+                    f"Please wait {wait} seconds before requesting another OTP.",
+                    "RATE_LIMITED", 429, {"retry_after_seconds": wait}
+                )
 
         # Update last_otp_sent_at
         pending.last_otp_sent_at = datetime.utcnow()
@@ -1082,7 +1108,10 @@ def creator_resend_otp(phone):
         otp = PhoneVerification.create_otp_for_signup(normalized_phone, expires_at)
         success, message = send_otp_sms(normalized_phone, otp)
         if not success:
-            return {"error": message or "Failed to send OTP."}, 500
+            return _creator_error(
+                message or "Could not resend OTP. Try again.",
+                "OTP_SEND_FAILED", 500
+            )
 
         return {
             "message": "OTP sent again.",
@@ -1091,7 +1120,7 @@ def creator_resend_otp(phone):
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Creator resend OTP error: {str(e)}", exc_info=True)
-        return {"error": "Failed to resend OTP."}, 500
+        return _creator_error("Could not resend OTP. Please try again.", "SERVER_ERROR", 500)
 
 
 def creator_verify_otp(phone, otp):
@@ -1102,16 +1131,19 @@ def creator_verify_otp(phone, otp):
     try:
         normalized_phone = normalize_phone_number(phone)
         if not normalized_phone:
-            return {"error": "Invalid phone number format."}, 400
+            return _creator_error("Invalid phone number format.", "VALIDATION_ERROR", 400, {"field": "phone"})
 
         # Normalize OTP: digits only, exactly 6 (handles int from JSON or spaces)
         otp_str = re.sub(r'\D', '', str(otp).strip()) if otp is not None else ""
         if len(otp_str) != 6:
-            return {"error": "OTP must be 6 digits."}, 400
+            return _creator_error("OTP must be 6 digits.", "VALIDATION_ERROR", 400, {"field": "otp"})
 
         pending = CreatorSignupPending.get_by_phone(normalized_phone)
         if not pending:
-            return {"error": "Session expired. Please enter your details again."}, 400
+            return _creator_error(
+                "Session expired. Please enter your details again.",
+                "SESSION_EXPIRED", 400
+            )
 
         verification = PhoneVerification.verify_otp_by_phone(normalized_phone, otp_str)
         if not verification:
@@ -1122,12 +1154,18 @@ def creator_verify_otp(phone, otp):
                 is_used=True
             ).first()
             if used:
-                return {"error": "OTP already used. Please request a new OTP."}, 400
+                return _creator_error(
+                    "This code was already used. Please request a new OTP.",
+                    "OTP_ALREADY_USED", 400
+                )
             current_app.logger.debug(
                 "Creator verify OTP: no match for phone ending %s (check phone matches signup-request)",
                 normalized_phone[-4:] if len(normalized_phone) >= 4 else "****"
             )
-            return {"error": "Invalid or expired OTP."}, 400
+            return _creator_error(
+                "Invalid or expired code. Check the number and try again or request a new OTP.",
+                "OTP_INVALID", 400
+            )
 
         # TODO(auth): When re-enabling already-registered validation in signup-request, either remove this
         # branch (and return 409 on duplicate) or keep it so existing users can still "become" creator via OTP.
@@ -1232,8 +1270,28 @@ def creator_verify_otp(phone, otp):
                 }, 200
         except Exception:
             pass
-        return {"error": "This phone or email is already registered."}, 409
+        return _creator_error(
+            "This phone or email is already registered. Try logging in instead.",
+            "ALREADY_REGISTERED", 409
+        )
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"Creator verify OTP error: {str(e)}", exc_info=True)
-        return {"error": "Failed to create account."}, 500
+        err_msg = str(e)
+        current_app.logger.error(f"Creator verify OTP error: {err_msg}", exc_info=True)
+        try:
+            import traceback
+            print("[Creator verify OTP ERROR]", err_msg, flush=True)
+            traceback.print_exc()
+        except Exception:
+            pass
+        # Always return proper shape for frontend; in DEBUG add detail for devs
+        user_message = (
+            "We couldn’t create your account right now. Please try again or contact support if it persists."
+        )
+        code = "CREATOR_SIGNUP_FAILED"
+        detail = None
+        if current_app.config.get("DEBUG"):
+            detail = err_msg
+            if "enum" in err_msg.lower() or "truncat" in err_msg.lower():
+                detail = f"{err_msg} (Hint: run migration 007 to add creator role to DB)"
+        return _creator_error(user_message, code, 500, detail)

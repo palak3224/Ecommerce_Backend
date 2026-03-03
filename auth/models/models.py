@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timezone
 from enum import Enum
 import re
-from sqlalchemy import TypeDecorator, String
+from sqlalchemy import TypeDecorator, String, Enum as SQLEnum
 
 from common.database import db, BaseModel
 from auth.models.merchant_document import VerificationStatus, DocumentType
@@ -74,7 +74,12 @@ class User(BaseModel):
     date_of_birth = db.Column(db.Date, nullable=True)  # Date of birth (optional)
     gender = db.Column(db.String(20), nullable=True)  # Gender: 'male', 'female', 'other', 'prefer_not_to_say'
     profile_img = db.Column(db.String(512), nullable=True)  # URL for Cloudinary profile image
-    role = db.Column(db.Enum(UserRole), default=UserRole.USER, nullable=False)
+    # Use enum values ('user', 'super_admin', etc.) in DB so existing data and migrations match
+    role = db.Column(
+        SQLEnum(UserRole, values_callable=lambda obj: [e.value for e in obj], name="userrole"),
+        default=UserRole.USER,
+        nullable=False
+    )
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     is_email_verified = db.Column(db.Boolean, default=False, nullable=False)
     is_phone_verified = db.Column(db.Boolean, default=False, nullable=False)

@@ -28,6 +28,39 @@ Use the same base URL and CORS/credentials setup as the rest of your app (e.g. `
 
 ---
 
+## 2.1 Standard error shape (all creator auth APIs)
+
+Every error response from the creator signup/verify endpoints uses this shape:
+
+```json
+{
+  "error": "Human-readable message to show the user",
+  "code": "MACHINE_READABLE_CODE"
+}
+```
+
+Optional field (e.g. for validation or debug):
+
+- **`detail`** — extra info: `{ "field": "phone" }`, `{ "retry_after_seconds": 45 }`, or (when backend is in DEBUG) a technical message.
+
+**Error codes:**
+
+| Code | HTTP | Meaning | Suggested UI |
+|------|------|---------|--------------|
+| `VALIDATION_ERROR` | 400 | Invalid/missing field (check `detail.field`) | Show message under the field. |
+| `SESSION_EXPIRED` | 400 | No pending signup for this phone; user must re-enter details. | Redirect to step 1 (name, email, phone). |
+| `OTP_INVALID` | 400 | Wrong or expired OTP. | “Invalid or expired code. Try again or resend.” |
+| `OTP_ALREADY_USED` | 400 | OTP was already used (e.g. double submit). | “This code was already used. Request a new OTP.” |
+| `RATE_LIMITED` | 429 | Resend OTP too soon (check `detail.retry_after_seconds`). | Disable resend; show countdown. |
+| `ALREADY_REGISTERED` | 409 | Phone or email already registered. | “Already registered. Try logging in.” |
+| `OTP_SEND_FAILED` | 500 | Could not send SMS. | “Could not send OTP. Check number and try again.” |
+| `CREATOR_SIGNUP_FAILED` | 500 | Account creation failed (server/config issue). | Show `error`; if `detail` is present (e.g. in DEBUG), you can show or log it. |
+| `SERVER_ERROR` | 500 | Generic server error. | “Something went wrong. Please try again.” |
+
+**Example:** Show the user `response.error`; use `response.code` for specific behaviour (e.g. redirect on `SESSION_EXPIRED`, countdown on `RATE_LIMITED`).
+
+---
+
 ## 3. Creator Signup APIs
 
 All three endpoints are under **`/api/auth/creator/`** and do **not** require a token.
