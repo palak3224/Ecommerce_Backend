@@ -70,6 +70,7 @@ from routes.translate_routes import translate_bp
 from routes.razorpay_routes import razorpay_bp
 from routes.ai_image_upload import ai_image_upload_bp
 from routes.reels_routes import reels_bp
+from routes.creator_routes import creator_bp
 from routes.follow_routes import follow_bp
 from routes.recommendation_routes import recommendation_bp
 from routes.notification_routes import notification_bp
@@ -424,6 +425,7 @@ def create_app(config_name='default'):
     app.register_blueprint(razorpay_bp)
     app.register_blueprint(ai_image_upload_bp)
     app.register_blueprint(reels_bp)
+    app.register_blueprint(creator_bp, url_prefix="/api/creator")
     app.register_blueprint(follow_bp)
     app.register_blueprint(recommendation_bp)
     app.register_blueprint(notification_bp)

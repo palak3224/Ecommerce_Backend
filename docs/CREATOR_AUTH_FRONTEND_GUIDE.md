@@ -246,8 +246,8 @@ Use **`user.role === "creator"`** to redirect to the Creator dashboard (or onboa
   → On 201: Store access_token (and refresh_token), store user
   → Redirect to [Select 5 categories] (onboarding)
 
-[Select 5 categories]
-  → POST /api/auth/creator/onboarding (with Bearer token) when that API is ready
+[Select 5 categories + availability]
+  → POST /api/creator/onboarding with Bearer token (category_ids, availability, optional language_preferences, portfolio_links)
   → Then redirect to Creator dashboard
 ```
 
@@ -299,6 +299,22 @@ curl -X POST "${BASE}/api/auth/phone/verify-login" \
   -H "Content-Type: application/json" \
   -d '{"phone": "+919876543210", "otp": "123456"}'
 ```
+
+**Step 4 — Complete onboarding (categories + availability)**  
+Use the `access_token` from verify-otp in the `Authorization` header.
+```bash
+curl -X POST "${BASE}/api/creator/onboarding" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -d '{
+    "category_ids": [5, 138, 156, 165, 184],
+    "availability": "available",
+    "language_preferences": "en"
+  }'
+```
+
+**Success (201):** `{ "message": "Onboarding completed. Your creator account is ready.", "creator_profile": { ... }, "categories": [ ... ] }`  
+**Errors:** 400 validation (e.g. fewer than 5 categories, invalid availability), 401/403 if not creator or token missing.
 
 ---
 

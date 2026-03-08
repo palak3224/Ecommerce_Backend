@@ -713,3 +713,39 @@ class CreatorSignupPending(BaseModel):
     def delete_by_phone(cls, phone):
         cls.query.filter_by(phone=phone).delete()
         db.session.commit()
+
+
+class CreatorProfile(BaseModel):
+    """Creator profile: one per user with role CREATOR. Categories and availability."""
+    __tablename__ = 'creator_profiles'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False, unique=True)
+    availability = db.Column(db.String(20), nullable=False, default='available')
+    language_preferences = db.Column(db.String(100), nullable=True)
+    portfolio_links = db.Column(db.JSON, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    user = db.relationship('User', backref=db.backref('creator_profile', uselist=False))
+
+    @classmethod
+    def get_by_user_id(cls, user_id):
+        return cls.query.filter_by(user_id=user_id).first()
+
+
+class CreatorCategory(BaseModel):
+    """Creator's selected categories (min 5). Links creator_profile to categories."""
+    __tablename__ = 'creator_categories'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    creator_id = db.Column(db.Integer, db.ForeignKey('creator_profiles.id', ondelete='CASCADE'), nullable=False)
+    category_id = db.Column(db.Integer, db.ForeignKey('categories.category_id', ondelete='CASCADE'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (db.UniqueConstraint('creator_id', 'category_id', name='uk_creator_category'),)
+
+    @classmethod
+    def delete_by_creator_id(cls, creator_id):
+        cls.query.filter_by(creator_id=creator_id).delete()
+        db.session.commit()

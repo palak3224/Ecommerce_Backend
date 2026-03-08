@@ -122,6 +122,11 @@ def super_admin_role_required(fn):
     """Decorator for endpoints that require super admin role."""
     return role_required([UserRole.SUPER_ADMIN.value])(fn)
 
+
+def creator_role_required(fn):
+    """Decorator for endpoints that require creator role."""
+    return role_required([UserRole.CREATOR.value])(fn)
+
 def get_google_provider_cfg():
     """Get Google OAuth provider configuration."""
     import requests

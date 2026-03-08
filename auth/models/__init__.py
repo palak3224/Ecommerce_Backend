@@ -5,6 +5,8 @@ from .models import (
     EmailVerification,
     PhoneVerification,
     CreatorSignupPending,
+    CreatorProfile,
+    CreatorCategory,
     UserRole,
     AuthProvider
 )

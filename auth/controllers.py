@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from authlib.integrations.flask_client import OAuth
 
 from common.database import db
-from auth.models import User, MerchantProfile, RefreshToken, EmailVerification, UserRole, AuthProvider, PhoneVerification, CreatorSignupPending
+from auth.models import User, MerchantProfile, RefreshToken, EmailVerification, UserRole, AuthProvider, PhoneVerification, CreatorSignupPending, CreatorProfile, CreatorCategory
 from auth.utils import validate_google_token, normalize_phone_number, validate_phone_number
 from auth.twilio_service import send_otp_sms
 from common.cache import cached, get_redis_client
@@ -1295,3 +1295,93 @@ def creator_verify_otp(phone, otp):
             if "enum" in err_msg.lower() or "truncat" in err_msg.lower():
                 detail = f"{err_msg} (Hint: run migration 007 to add creator role to DB)"
         return _creator_error(user_message, code, 500, detail)
+
+
+def creator_onboarding(user_id, category_ids, availability, language_preferences=None, portfolio_links=None):
+    """
+    Complete creator onboarding: save categories (min 5) and availability for the given creator user.
+    Creates or updates creator_profile and creator_categories. Call after OTP verify (user already has CREATOR role).
+    """
+    try:
+        from models import Category
+
+        if not category_ids or not isinstance(category_ids, list):
+            return _creator_error(
+                "At least 5 categories are required.",
+                "VALIDATION_ERROR", 400, {"field": "category_ids", "min_count": 5}
+            )
+        if len(category_ids) < 5:
+            return _creator_error(
+                "At least 5 categories are required.",
+                "VALIDATION_ERROR", 400,
+                {"field": "category_ids", "min_count": 5, "provided_count": len(category_ids)}
+            )
+        if availability not in ("available", "busy"):
+            return _creator_error(
+                "Availability must be 'available' or 'busy'.",
+                "VALIDATION_ERROR", 400, {"field": "availability"}
+            )
+
+        user = User.get_by_id(user_id)
+        if not user or user.role != UserRole.CREATOR:
+            return _creator_error("Creator account not found.", "FORBIDDEN", 403)
+
+        # Validate that all category_ids exist
+        distinct_ids = list(set(category_ids))
+        found = db.session.query(Category).filter(
+            Category.category_id.in_(distinct_ids),
+            Category.is_active == True
+        ).all()
+        if len(found) < 5:
+            return _creator_error(
+                "Some categories are invalid or inactive. Please select at least 5 valid categories.",
+                "VALIDATION_ERROR", 400, {"field": "category_ids"}
+            )
+
+        profile = CreatorProfile.get_by_user_id(user_id)
+        if not profile:
+            profile = CreatorProfile(
+                user_id=user_id,
+                availability=availability,
+                language_preferences=language_preferences or None,
+                portfolio_links=portfolio_links
+            )
+            profile.save()
+        else:
+            profile.availability = availability
+            profile.language_preferences = language_preferences or profile.language_preferences
+            if portfolio_links is not None:
+                profile.portfolio_links = portfolio_links
+            db.session.commit()
+
+        CreatorCategory.delete_by_creator_id(profile.id)
+        for c in found:
+            cc = CreatorCategory(creator_id=profile.id, category_id=c.category_id)
+            db.session.add(cc)
+        db.session.commit()
+
+        categories_out = [
+            {"category_id": c.category_id, "name": c.name, "slug": c.slug}
+            for c in found
+        ]
+
+        return {
+            "message": "Onboarding completed. Your creator account is ready.",
+            "creator_profile": {
+                "id": profile.id,
+                "user_id": profile.user_id,
+                "availability": profile.availability,
+                "language_preferences": profile.language_preferences,
+                "portfolio_links": profile.portfolio_links,
+                "created_at": profile.created_at.isoformat() if profile.created_at else None,
+                "updated_at": profile.updated_at.isoformat() if profile.updated_at else None,
+            },
+            "categories": categories_out,
+        }, 201
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Creator onboarding error: {str(e)}", exc_info=True)
+        return _creator_error(
+            "Could not save your preferences. Please try again.",
+            "SERVER_ERROR", 500
+        )
