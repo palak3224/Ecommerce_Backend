@@ -594,12 +594,13 @@ class PublicShopProductController:
                 else_=func.coalesce(ShopProduct.discount_pct, 0)
             )
 
+            # Same base filters as get_featured_products (no parent_product_id) so we include
+            # all published products; otherwise shops with only variant products get empty results.
             products = ShopProduct.query.filter(
                 ShopProduct.shop_id == shop_id,
                 ShopProduct.deleted_at.is_(None),
                 ShopProduct.active_flag.is_(True),
-                ShopProduct.is_published.is_(True),
-                ShopProduct.parent_product_id.is_(None)
+                ShopProduct.is_published.is_(True)
             ).order_by(desc(effective_discount_pct)).limit(limit).all()
 
             product_data = []
