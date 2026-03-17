@@ -10,7 +10,7 @@ from models.shop.shop_product_stock import ShopProductStock
 from models.shop.shop_product_meta import ShopProductMeta
 from models.shop.shop_product_variant import ShopProductVariant, ShopVariantAttributeValue
 from models.enums import MediaType
-from sqlalchemy import desc, or_, func, and_
+from sqlalchemy import desc, or_, func, and_, case
 from datetime import datetime, timezone
 
 class PublicShopProductController:
@@ -558,6 +558,84 @@ class PublicShopProductController:
             return jsonify({
                 'success': False,
                 'message': f'Error fetching featured products: {str(e)}'
+            }), 500
+
+    @staticmethod
+    def get_heavy_discount_products(shop_id):
+        """Get the top N products with the highest discount % for a shop.
+        Discount % is: when on active special offer, (selling_price - special_price) / selling_price * 100;
+        otherwise the stored discount_pct (or 0). Returns up to 4 products (or query param limit) ordered by discount % descending."""
+        try:
+            shop = Shop.query.filter(
+                Shop.shop_id == shop_id,
+                Shop.deleted_at.is_(None),
+                Shop.is_active.is_(True)
+            ).first()
+
+            if not shop:
+                return jsonify({
+                    'success': False,
+                    'message': 'Shop not found or not active'
+                }), 404
+
+            limit = request.args.get('limit', 4, type=int)
+            limit = min(max(1, limit), 20)
+            today = datetime.now(timezone.utc).date()
+
+            # Effective discount: if on special and selling_price > 0 => (selling_price - special_price) / selling_price * 100, else discount_pct
+            special_active = and_(
+                ShopProduct.special_price.isnot(None),
+                or_(ShopProduct.special_start.is_(None), ShopProduct.special_start <= today),
+                or_(ShopProduct.special_end.is_(None), ShopProduct.special_end >= today),
+                ShopProduct.selling_price > 0
+            )
+            effective_discount_pct = case(
+                (special_active, (ShopProduct.selling_price - ShopProduct.special_price) / ShopProduct.selling_price * 100),
+                else_=func.coalesce(ShopProduct.discount_pct, 0)
+            )
+
+            products = ShopProduct.query.filter(
+                ShopProduct.shop_id == shop_id,
+                ShopProduct.deleted_at.is_(None),
+                ShopProduct.active_flag.is_(True),
+                ShopProduct.is_published.is_(True),
+                ShopProduct.parent_product_id.is_(None)
+            ).order_by(desc(effective_discount_pct)).limit(limit).all()
+
+            product_data = []
+            for product in products:
+                product_dict = product.serialize()
+                product_dict = PublicShopProductController.enhance_product_with_meta(
+                    product_dict, product.product_id
+                )
+                media = PublicShopProductController.get_product_media(product.product_id)
+                if media:
+                    product_dict['primary_image'] = media['url']
+                stock = ShopProductStock.query.filter_by(product_id=product.product_id).first()
+                if stock:
+                    product_dict['stock'] = stock.serialize()
+                    product_dict['is_in_stock'] = stock.stock_qty > 0
+                else:
+                    product_dict['is_in_stock'] = False
+                # Add effective discount_pct for display (computed same as ordering)
+                _, is_on_special = product.get_current_listed_inclusive_price()
+                if is_on_special and product.selling_price and float(product.selling_price) > 0 and product.special_price is not None:
+                    product_dict['discount_pct'] = round((float(product.selling_price) - float(product.special_price)) / float(product.selling_price) * 100, 2)
+                else:
+                    product_dict['discount_pct'] = float(product.discount_pct) if product.discount_pct is not None else 0.0
+                product_data.append(product_dict)
+
+            return jsonify({
+                'success': True,
+                'shop': shop.serialize(),
+                'heavy_discount_products': product_data,
+                'total': len(product_data)
+            }), 200
+
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'message': f'Error fetching heavy discount products: {str(e)}'
             }), 500
 
     @staticmethod

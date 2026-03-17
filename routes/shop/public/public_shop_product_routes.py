@@ -172,6 +172,48 @@ def get_featured_products(shop_id):
     """
     return PublicShopProductController.get_featured_products(shop_id)
 
+@public_shop_product_bp.route('/api/public/shops/<int:shop_id>/products/heavy-discount', methods=['GET'])
+@cross_origin()
+def get_heavy_discount_products(shop_id):
+    """
+    Get the 4 products with the highest discount % for a shop.
+    Discount % is computed from active special offer (selling vs special price) or from stored discount_pct.
+    ---
+    tags:
+      - Public Shop Products
+    parameters:
+      - in: path
+        name: shop_id
+        type: integer
+        required: true
+        description: ID of the shop
+      - in: query
+        name: limit
+        type: integer
+        description: "Number of products to return (default: 4, max: 20)"
+    responses:
+      200:
+        description: List of products with highest discount %
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            shop:
+              type: object
+            heavy_discount_products:
+              type: array
+              items:
+                type: object
+            total:
+              type: integer
+      404:
+        description: Shop not found or not active
+      500:
+        description: Internal server error
+    """
+    return PublicShopProductController.get_heavy_discount_products(shop_id)
+
 @public_shop_product_bp.route('/api/public/shops/<int:shop_id>/products/<int:product_id>/media', methods=['GET'])
 @cross_origin()
 def get_product_media_gallery(shop_id, product_id):
