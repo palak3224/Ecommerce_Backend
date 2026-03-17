@@ -312,5 +312,5 @@ class FeatureProductController:
                 }
             }
         except Exception as e:
-            current_app.logger.error(f"Error getting heavy discount products: {str(e)}")
-            raise RuntimeError("Failed to retrieve heavy discount products") from e
+            current_app.logger.exception("Error getting heavy discount products: %s", str(e))
+            raise

@@ -22,8 +22,11 @@ def get_heavy_discount_products():
         result = FeatureProductController.get_heavy_discount_products(limit=limit)
         return success_response(result)
     except Exception as e:
+        err_msg = str(e)
+        err_detail = str(e.__cause__) if e.__cause__ else None
         return jsonify({
             'success': False,
-            'message': str(e),
+            'message': err_msg,
+            'detail': err_detail,
             'data': None
         }), 500
