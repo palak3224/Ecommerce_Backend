@@ -30,6 +30,7 @@ from routes.order_routes import order_bp
 from routes.user_address_routes import user_address_bp
 from routes.currency_routes import currency_bp
 from routes.feature_product_routes import feature_product_bp
+from routes.heavy_discount_routes import heavy_discount_bp
 
 from routes.promo_product_routes import promo_product_bp
 from auth.admin_routes import admin_bp
@@ -382,6 +383,7 @@ def create_app(config_name='default'):
     app.register_blueprint(user_address_bp, url_prefix='/api/user-address')
     app.register_blueprint(currency_bp)
     app.register_blueprint(feature_product_bp, url_prefix='/api/featured-products')
+    app.register_blueprint(heavy_discount_bp)
     app.register_blueprint(promo_product_bp, url_prefix='/api/promo-products')
     app.register_blueprint(payment_card_bp)
     app.register_blueprint(review_bp, url_prefix='/api/reviews')
