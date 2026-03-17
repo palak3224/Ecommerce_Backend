@@ -283,13 +283,17 @@ class FeatureProductController:
                 selling_price = getattr(product, 'selling_price', 0)
                 special_price = getattr(product, 'special_price', None)
                 discount_pct = getattr(product, 'discount_pct', None)
-                current_price = special_price if special_price is not None else selling_price
+                # Convert to float to avoid Decimal/float operand errors
+                sp = float(selling_price) if selling_price is not None else 0.0
+                spp = float(special_price) if special_price is not None else None
+                current_price = spp if spp is not None else sp
 
-                if special_price is not None and selling_price > special_price:
-                    original_price = selling_price
-                    product_data['discount_pct'] = round((float(selling_price) - float(special_price)) / float(selling_price) * 100, 2)
-                elif discount_pct and discount_pct > 0 and current_price:
-                    original_price = current_price / (1 - (float(discount_pct) / 100))
+                if special_price is not None and sp > (spp or 0):
+                    original_price = sp
+                    product_data['discount_pct'] = round((sp - spp) / sp * 100, 2) if spp is not None else 0.0
+                elif discount_pct and float(discount_pct) > 0 and current_price is not None:
+                    d = float(discount_pct) / 100
+                    original_price = current_price / (1 - d)
                     product_data['discount_pct'] = float(discount_pct)
                 else:
                     original_price = current_price
@@ -297,8 +301,8 @@ class FeatureProductController:
 
                 product_data['price'] = float(current_price) if current_price is not None else 0.0
                 product_data['originalPrice'] = float(original_price) if original_price is not None else None
-                product_data['selling_price'] = float(selling_price) if selling_price is not None else None
-                product_data['special_price'] = float(special_price) if special_price is not None else None
+                product_data['selling_price'] = sp
+                product_data['special_price'] = spp
 
                 serialized_products.append(product_data)
 
