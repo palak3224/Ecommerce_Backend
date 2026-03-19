@@ -17,6 +17,7 @@ class Reel(BaseModel):
     # External product fields (when product_id is null)
     product_url = db.Column(db.String(2048), nullable=True)
     product_name = db.Column(db.String(500), nullable=True)
+    external_product_price = db.Column(db.Numeric(12, 2), nullable=True)  # Display price for external reels
     category_id = db.Column(db.Integer, db.ForeignKey('categories.category_id'), nullable=True)
     category_name = db.Column(db.String(255), nullable=True)
     platform = db.Column(db.String(50), nullable=True, index=True)  # aoin | flipkart | amazon | myntra | other
@@ -182,8 +183,9 @@ class Reel(BaseModel):
                     'selling_price': float(self.product.selling_price) if self.product.selling_price else None,
                 }
             else:
-                # External reel: no product object; product_url, product_name, category already on reel
+                # External reel: no product object; product_url, product_name, price, category already on reel
                 all_data['product_name'] = self.product_name
+                all_data['price'] = float(self.external_product_price) if self.external_product_price is not None else None
                 all_data['category_id'] = self.category_id
                 all_data['category_name'] = self.category_name
         

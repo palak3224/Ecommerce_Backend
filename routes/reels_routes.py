@@ -63,6 +63,11 @@ def upload_reel():
         type: string
         required: false
         description: External reel optional category name
+      - in: formData
+        name: price
+        type: number
+        required: false
+        description: "External reel: Display price for the product (e.g. 999.99). Optional; must be >= 0 if provided. Returned in reel response as price."
     responses:
       201:
         description: Reel uploaded successfully

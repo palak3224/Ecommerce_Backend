@@ -51,6 +51,7 @@ Sending both modes (e.g. `product_id` and `product_url` + `product_name`) or nei
 |-------|------|----------|-------------|
 | product_url | string | Yes (for external) | Full URL of the product page. Must start with **https://**. Max **2048** characters. |
 | product_name | string | Yes (for external) | Display name of the product. Max **500** characters. |
+| price | number | No | Display price for the product (e.g. 999.99). Must be **≥ 0** if provided. Returned in reel response as **price**. |
 | platform | string | No | One of: **aoin**, **flipkart**, **amazon**, **myntra**, **other**. Default **other**. Max 50 characters. |
 | category_id | integer | No | Your app’s category ID (must exist and be active). Used for filtering and display. |
 | category_name | string | No | Display name for the category. Max **255** characters. |
@@ -61,7 +62,7 @@ Sending both modes (e.g. `product_id` and `product_url` + `product_name`) or nei
 
 - **Mode:** Either (a) only `product_id` (AOIN) or (b) both `product_url` and `product_name` (external). Not both, not neither.
 - **AOIN:** `product_id` must be an integer; product must belong to the merchant and be approved, active, in stock, and a parent product.
-- **External:** `product_url` must be **https** and within length; `platform` if sent must be from the allowlist; `category_id` if sent must exist and be active; string lengths as above.
+- **External:** `product_url` must be **https** and within length; `platform` if sent must be from the allowlist; `category_id` if sent must exist and be active; `price` if sent must be a valid number **≥ 0**; string lengths as above.
 
 ---
 
@@ -95,6 +96,7 @@ Sending both modes (e.g. `product_id` and `product_url` + `product_name`) or nei
 | created_at, updated_at | string | ISO 8601. |
 | product | object | **Only for AOIN.** Contains product_id, product_name, category_id, category_name, stock_qty, selling_price. |
 | product_name | string | **Only for external.** The name you sent. |
+| price | number or null | **Only for external.** Display price if sent when uploading; null otherwise. |
 | category_id, category_name | mixed | **Only for external.** If you sent them. |
 | merchant | object | When included: merchant_id, business_name, profile_img. |
 

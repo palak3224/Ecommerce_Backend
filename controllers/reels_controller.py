@@ -82,10 +82,10 @@ def _validate_platform(platform):
     return True, p
 
 
-def _validate_external_reel_payload(product_url, product_name, platform, category_id_raw, category_name):
+def _validate_external_reel_payload(product_url, product_name, platform, category_id_raw, category_name, price_raw=None):
     """
     Validate external reel form payload. Returns (True, data_dict, None) or (False, None, error_response).
-    data_dict: product_url, product_name, platform, category_id (int or None), category_name (str).
+    data_dict: product_url, product_name, platform, category_id (int or None), category_name (str), external_product_price (Decimal or None).
     """
     ok, err = _validate_product_url(product_url)
     if not ok:
@@ -100,6 +100,17 @@ def _validate_external_reel_payload(product_url, product_name, platform, categor
     product_name = product_name.strip()
     if len(product_name) > REELS_PRODUCT_NAME_MAX_LENGTH:
         return False, None, (VALIDATION_ERROR, f'product_name must be {REELS_PRODUCT_NAME_MAX_LENGTH} characters or less', {'field': 'product_name'})
+    # Optional price: non-negative number (display price for external product)
+    external_product_price = None
+    if price_raw not in (None, ''):
+        try:
+            from decimal import Decimal
+            p = Decimal(str(price_raw).strip())
+            if p < 0:
+                return False, None, (VALIDATION_ERROR, 'price must be 0 or greater', {'field': 'price'})
+            external_product_price = round(p, 2)
+        except Exception:
+            return False, None, (VALIDATION_ERROR, 'price must be a valid number', {'field': 'price'})
     category_id = None
     if category_id_raw not in (None, ''):
         try:
@@ -120,6 +131,7 @@ def _validate_external_reel_payload(product_url, product_name, platform, categor
         'platform': platform_val,
         'category_id': category_id,
         'category_name': category_name_str or None,
+        'external_product_price': external_product_price,
     }, None
 
 
@@ -243,6 +255,7 @@ class ReelsController:
             platform_raw = (request.form.get('platform') or 'other').strip()
             category_id_raw = request.form.get('category_id')
             category_name_raw = (request.form.get('category_name') or '').strip()
+            price_raw = request.form.get('price')
 
             if not product_url:
                 return create_error_response(
@@ -304,7 +317,7 @@ class ReelsController:
                     )
             else:
                 ok, data, err_tuple = _validate_external_reel_payload(
-                    product_url, product_name, platform_raw, category_id_raw, category_name_raw
+                    product_url, product_name, platform_raw, category_id_raw, category_name_raw, price_raw=price_raw
                 )
                 if not ok:
                     err_code, err_msg, err_extra = err_tuple
@@ -443,6 +456,7 @@ class ReelsController:
                         product_id=None,
                         product_url=external_data['product_url'],
                         product_name=external_data['product_name'],
+                        external_product_price=external_data.get('external_product_price'),
                         platform=external_data['platform'],
                         category_id=external_data['category_id'],
                         category_name=external_data['category_name'],
