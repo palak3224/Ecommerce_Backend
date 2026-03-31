@@ -1721,9 +1721,35 @@ class ReelsController:
                     view_duration = None
                 elif reel.duration_seconds and view_duration > reel.duration_seconds:
                     view_duration = reel.duration_seconds  # Cap at reel duration
-            
+
+            # Determine whether this should increment the public views counter.
+            # Align behavior with GET /api/reels/{reel_id}: count first view, or a meaningful re-watch.
+            should_increment_view_count = False
+            try:
+                has_viewed = UserReelView.has_user_viewed(current_user_id, reel_id)
+                if not has_viewed:
+                    should_increment_view_count = True
+                elif view_duration is not None:
+                    existing_view = UserReelView.query.filter_by(user_id=current_user_id, reel_id=reel_id).first()
+                    if existing_view and existing_view.view_duration is not None:
+                        duration_increase = view_duration - existing_view.view_duration
+                        if duration_increase > 0 and duration_increase >= (existing_view.view_duration * 0.25):
+                            should_increment_view_count = True
+                    else:
+                        # Previous view had no duration, this one does - count as re-watch
+                        should_increment_view_count = True
+            except Exception as e:
+                current_app.logger.warning(f"Failed to evaluate view increment rules: {str(e)}")
+
             # Track the view (this will also cleanup old views)
             UserReelView.track_view(current_user_id, reel_id, view_duration=view_duration)
+
+            # Increment public views counter if applicable
+            if should_increment_view_count:
+                try:
+                    reel.increment_views()
+                except Exception as e:
+                    current_app.logger.warning(f"Failed to increment view count: {str(e)}")
             
             # Update category preference if applicable
             if reel.product and reel.product.category_id:
