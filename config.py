@@ -96,6 +96,7 @@ class Config:
     TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
     TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
     TWILIO_PHONE_NUMBER = os.getenv('TWILIO_PHONE_NUMBER')
+    DEV_OTP_BYPASS = os.getenv('DEV_OTP_BYPASS', 'false').lower() == 'true'
     
     # Notification Cleanup Configuration
     NOTIFICATION_CLEANUP_ENABLED = os.getenv('NOTIFICATION_CLEANUP_ENABLED', 'true').lower() in ('1', 'true', 'yes')

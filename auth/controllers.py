@@ -847,14 +847,14 @@ def send_phone_otp(phone_number):
         
         # Send OTP via Twilio
         success, message = send_otp_sms(normalized_phone, otp)
-        
+
         if not success:
             return {"error": message}, 500
-        
-        return {
-            "message": "OTP sent successfully",
-            "expires_in": 600  # 10 minutes in seconds
-        }, 200
+
+        response = {"message": "OTP sent successfully", "expires_in": 600}
+        if current_app.config.get('DEV_OTP_BYPASS'):
+            response["dev_otp"] = otp
+        return response, 200
         
     except Exception as e:
         current_app.logger.error(f"Error sending phone OTP: {str(e)}")
@@ -1054,10 +1054,10 @@ def creator_signup_request(first_name, last_name, email, phone):
                 "OTP_SEND_FAILED", 500
             )
 
-        return {
-            "message": "OTP sent to your phone.",
-            "expires_in": 600
-        }, 200
+        response = {"message": "OTP sent to your phone.", "expires_in": 600}
+        if current_app.config.get('DEV_OTP_BYPASS'):
+            response["dev_otp"] = otp
+        return response, 200
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Creator signup request error: {str(e)}", exc_info=True)
@@ -1113,10 +1113,10 @@ def creator_resend_otp(phone):
                 "OTP_SEND_FAILED", 500
             )
 
-        return {
-            "message": "OTP sent again.",
-            "expires_in": 600
-        }, 200
+        response = {"message": "OTP sent again.", "expires_in": 600}
+        if current_app.config.get('DEV_OTP_BYPASS'):
+            response["dev_otp"] = otp
+        return response, 200
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Creator resend OTP error: {str(e)}", exc_info=True)

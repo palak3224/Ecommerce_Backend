@@ -16,14 +16,19 @@ def send_otp_sms(phone_number, otp_code):
         tuple: (success: bool, message: str)
     """
     try:
+        # Dev bypass: skip Twilio and return OTP directly
+        if current_app.config.get('DEV_OTP_BYPASS'):
+            current_app.logger.warning(f"[DEV_OTP_BYPASS] OTP for {phone_number}: {otp_code}")
+            return True, f"dev_otp:{otp_code}"
+
         account_sid = current_app.config.get('TWILIO_ACCOUNT_SID')
         auth_token = current_app.config.get('TWILIO_AUTH_TOKEN')
         from_number = current_app.config.get('TWILIO_PHONE_NUMBER')
-        
+
         if not all([account_sid, auth_token, from_number]):
             current_app.logger.error("Twilio credentials not configured")
             return False, "SMS service not configured"
-        
+
         # Initialize Twilio client
         client = Client(account_sid, auth_token)
         
