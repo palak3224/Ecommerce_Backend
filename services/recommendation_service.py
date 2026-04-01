@@ -2,7 +2,6 @@
 from datetime import datetime, timezone, timedelta
 from flask import current_app
 from sqlalchemy import desc, func, and_, or_
-from sqlalchemy.orm import joinedload
 from common.database import db
 from common.cache import get_redis_client
 from models.reel import Reel
@@ -76,10 +75,7 @@ class RecommendationService:
         
         # Get visible reels from followed merchants with eager loading
         query = Reel.get_visible_reels()
-        query = query.options(
-            joinedload(Reel.product).joinedload(Product.category),
-            joinedload(Reel.merchant)
-        )
+        query = query.options(*Reel.loader_options_for_api())
         query = query.filter(Reel.merchant_id.in_(merchant_ids))
         
         if exclude_reel_ids:
@@ -116,10 +112,7 @@ class RecommendationService:
         
         # Get visible reels from preferred categories with eager loading
         query = Reel.get_visible_reels()
-        query = query.options(
-            joinedload(Reel.product).joinedload(Product.category),
-            joinedload(Reel.merchant)
-        )
+        query = query.options(*Reel.loader_options_for_api())
         query = query.join(Product).filter(Product.category_id.in_(category_ids))
         
         if exclude_reel_ids:
@@ -201,10 +194,7 @@ class RecommendationService:
         # Get visible reels from last 7 days with eager loading
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=7)
         query = Reel.get_visible_reels()
-        query = query.options(
-            joinedload(Reel.product).joinedload(Product.category),
-            joinedload(Reel.merchant)
-        )
+        query = query.options(*Reel.loader_options_for_api())
         query = query.filter(Reel.created_at >= cutoff_date)
         
         if exclude_reel_ids:
@@ -283,10 +273,7 @@ class RecommendationService:
         
         # Get visible reels with eager loading
         query = Reel.get_visible_reels()
-        query = query.options(
-            joinedload(Reel.product).joinedload(Product.category),
-            joinedload(Reel.merchant)
-        )
+        query = query.options(*Reel.loader_options_for_api())
         query = query.filter(Reel.reel_id.in_(similar_reel_ids))
         query = query.order_by(desc(Reel.likes_count), desc(Reel.created_at))
         
@@ -435,10 +422,7 @@ class RecommendationService:
                     data = json.loads(cached)
                     # Convert reel IDs back to Reel objects with eager loading
                     reel_ids = data['reel_ids']
-                    reels = Reel.query.options(
-                        joinedload(Reel.product).joinedload(Product.category),
-                        joinedload(Reel.merchant)
-                    ).filter(Reel.reel_id.in_(reel_ids)).all()
+                    reels = Reel.query.options(*Reel.loader_options_for_api()).filter(Reel.reel_id.in_(reel_ids)).all()
                     # Sort by original order
                     reel_dict = {r.reel_id: r for r in reels}
                     reels = [reel_dict[rid] for rid in reel_ids if rid in reel_dict]
@@ -524,10 +508,7 @@ class RecommendationService:
         remaining = per_page - len(feed_reels)
         if remaining > 0:
             query = Reel.get_visible_reels()
-            query = query.options(
-                joinedload(Reel.product).joinedload(Product.category),
-                joinedload(Reel.merchant)
-            )
+            query = query.options(*Reel.loader_options_for_api())
             if seen_reel_ids:
                 query = query.filter(~Reel.reel_id.in_(seen_reel_ids))
             query = query.order_by(desc(Reel.created_at))
@@ -648,10 +629,7 @@ class RecommendationService:
         remaining = per_page - len(feed_reels)
         if remaining > 0:
             query = Reel.get_visible_reels()
-            query = query.options(
-                joinedload(Reel.product).joinedload(Product.category),
-                joinedload(Reel.merchant)
-            )
+            query = query.options(*Reel.loader_options_for_api())
             if seen_reel_ids:
                 query = query.filter(~Reel.reel_id.in_(seen_reel_ids))
             query = query.order_by(desc(Reel.created_at))

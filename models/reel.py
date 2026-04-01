@@ -180,6 +180,7 @@ class Reel(BaseModel):
                 all_data['category_id'] = self.product.category_id
                 all_data['category_name'] = self.product.category.name if self.product.category else None
                 all_data['price'] = float(self.product.selling_price) if self.product.selling_price is not None else None
+                image_urls = Reel._product_image_urls(self.product)
                 all_data['product'] = {
                     'product_id': self.product.product_id,
                     'product_name': self.product.product_name,
@@ -187,6 +188,8 @@ class Reel(BaseModel):
                     'category_name': self.product.category.name if self.product.category else None,
                     'stock_qty': self.product.stock.stock_qty if self.product.stock else 0,
                     'selling_price': float(self.product.selling_price) if self.product.selling_price else None,
+                    'primary_image': image_urls[0] if image_urls else None,
+                    'product_images': image_urls,
                 }
             else:
                 # External reel: no product object; product_url, product_name, price, category already on reel
@@ -243,6 +246,31 @@ class Reel(BaseModel):
         """Increment shares count."""
         self.shares_count += 1
         db.session.commit()
+    
+    @staticmethod
+    def _product_image_urls(product):
+        """Ordered image URLs for an AOIN product (main image first, then sort_order)."""
+        from models.enums import MediaType
+        if not product or not getattr(product, 'media', None):
+            return []
+        images = [
+            m for m in product.media
+            if m.type == MediaType.IMAGE and m.deleted_at is None
+        ]
+        if not images:
+            return []
+        images.sort(key=lambda m: (0 if m.is_main_image else 1, m.sort_order or 0, m.media_id or 0))
+        return [m.url for m in images]
+    
+    @classmethod
+    def loader_options_for_api(cls):
+        """Eager loads for serialize() with product + merchant (avoids N+1 on product media)."""
+        from sqlalchemy.orm import joinedload, selectinload
+        return (
+            joinedload(cls.product).joinedload(Product.category),
+            joinedload(cls.product).selectinload(Product.media),
+            joinedload(cls.merchant),
+        )
     
     @classmethod
     def get_visible_reels(cls, query=None):

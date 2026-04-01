@@ -623,6 +623,7 @@ class ReelsController:
             except Exception:
                 pass  # Silently fail if cache invalidation fails
             
+            reel = Reel.query.options(*Reel.loader_options_for_api()).filter_by(reel_id=reel.reel_id).first()
             return jsonify({
                 'status': 'success',
                 'message': 'Reel uploaded successfully.',
@@ -658,7 +659,7 @@ class ReelsController:
             JSON response with reel data
         """
         try:
-            reel = Reel.query.filter_by(reel_id=reel_id).first()
+            reel = Reel.query.options(*Reel.loader_options_for_api()).filter_by(reel_id=reel_id).first()
             
             if not reel:
                 return jsonify({'error': 'Reel not found'}), HTTPStatus.NOT_FOUND
@@ -822,10 +823,7 @@ class ReelsController:
                     is_own_reels = (merchant.user_id == current_user_id)
             
             # Build query with eager loading to prevent N+1 queries
-            query = Reel.query.options(
-                joinedload(Reel.product).joinedload(Product.category),
-                joinedload(Reel.merchant)
-            ).filter_by(merchant_id=merchant_id)
+            query = Reel.query.options(*Reel.loader_options_for_api()).filter_by(merchant_id=merchant_id)
             
             # If not own reels or not including all, filter visible only
             if not is_own_reels or not include_all:
@@ -941,10 +939,7 @@ class ReelsController:
         try:
             # Get only visible reels with eager loading to prevent N+1 queries
             query = Reel.get_visible_reels()
-            query = query.options(
-                joinedload(Reel.product).joinedload(Product.category),
-                joinedload(Reel.merchant)
-            )
+            query = query.options(*Reel.loader_options_for_api())
             
             # Get filter parameters
             category_id = request.args.get('category_id', type=int)
@@ -1083,7 +1078,7 @@ class ReelsController:
                 return jsonify({'error': 'User not found'}), HTTPStatus.NOT_FOUND
             
             # Get reel
-            reel = Reel.query.filter_by(reel_id=reel_id).first()
+            reel = Reel.query.options(*Reel.loader_options_for_api()).filter_by(reel_id=reel_id).first()
             if not reel:
                 return jsonify({'error': 'Reel not found'}), HTTPStatus.NOT_FOUND
             
@@ -1618,6 +1613,10 @@ class ReelsController:
             # Join with Reel to get full reel data and filter for visible reels only
             query = db.session.query(UserReelView, Reel).join(
                 Reel, UserReelView.reel_id == Reel.reel_id
+            ).options(
+                joinedload(UserReelView.reel).joinedload(Reel.product).joinedload(Product.category),
+                joinedload(UserReelView.reel).joinedload(Reel.product).selectinload(Product.media),
+                joinedload(UserReelView.reel).joinedload(Reel.merchant),
             ).filter(
                 UserReelView.user_id == current_user_id,
                 Reel.deleted_at == None,
@@ -1813,8 +1812,11 @@ class ReelsController:
             per_page = request.args.get('per_page', 20, type=int)
             per_page = min(per_page, 100)  # Max 100 per page
             
-            # Get user's shared reels
-            shared_records = UserReelShare.get_user_shared_reels(current_user_id)
+            shared_records = UserReelShare.query.filter_by(user_id=current_user_id).options(
+                selectinload(UserReelShare.reel).joinedload(Reel.product).joinedload(Product.category),
+                selectinload(UserReelShare.reel).joinedload(Reel.product).selectinload(Product.media),
+                selectinload(UserReelShare.reel).joinedload(Reel.merchant),
+            ).order_by(UserReelShare.shared_at.desc()).all()
             
             # Paginate
             total = len(shared_records)
@@ -1897,10 +1899,7 @@ class ReelsController:
             query = Reel.get_visible_reels()
             query = query.outerjoin(Product, Reel.product_id == Product.product_id)
             query = query.join(MerchantProfile, Reel.merchant_id == MerchantProfile.id)
-            query = query.options(
-                joinedload(Reel.product).joinedload(Product.category),
-                joinedload(Reel.merchant)
-            )
+            query = query.options(*Reel.loader_options_for_api())
             from sqlalchemy import text
             search_terms = search_query.replace('"', '\\"')
             search_like = f'%{search_query}%'
@@ -1969,10 +1968,7 @@ class ReelsController:
                     query = Reel.get_visible_reels()
                     query = query.outerjoin(Product, Reel.product_id == Product.product_id)
                     query = query.join(MerchantProfile, Reel.merchant_id == MerchantProfile.id)
-                    query = query.options(
-                        joinedload(Reel.product).joinedload(Product.category),
-                        joinedload(Reel.merchant)
-                    )
+                    query = query.options(*Reel.loader_options_for_api())
                     search_like = f'%{search_query}%'
                     query = query.filter(or_(
                         Reel.description.like(search_like),
@@ -2460,7 +2456,7 @@ class ReelsController:
             JSON response
         """
         try:
-            reel = Reel.query.filter_by(reel_id=reel_id).first()
+            reel = Reel.query.options(*Reel.loader_options_for_api()).filter_by(reel_id=reel_id).first()
             if not reel:
                 return create_error_response(
                     NOT_FOUND_ERROR,
@@ -2511,7 +2507,7 @@ class ReelsController:
             JSON response
         """
         try:
-            reel = Reel.query.filter_by(reel_id=reel_id).first()
+            reel = Reel.query.options(*Reel.loader_options_for_api()).filter_by(reel_id=reel_id).first()
             if not reel:
                 return create_error_response(
                     NOT_FOUND_ERROR,
@@ -2577,7 +2573,7 @@ class ReelsController:
             JSON response
         """
         try:
-            reel = Reel.query.filter_by(reel_id=reel_id).first()
+            reel = Reel.query.options(*Reel.loader_options_for_api()).filter_by(reel_id=reel_id).first()
             if not reel:
                 return create_error_response(
                     NOT_FOUND_ERROR,
@@ -2635,7 +2631,7 @@ class ReelsController:
             per_page = min(per_page, 100)  # Max 100 per page
             
             # Query pending reels (if approval is required in future)
-            query = Reel.query.filter(
+            query = Reel.query.options(*Reel.loader_options_for_api()).filter(
                 Reel.approval_status == 'pending',
                 Reel.deleted_at.is_(None)
             )
