@@ -174,6 +174,12 @@ class Reel(BaseModel):
         # Include product info: AOIN reels get full product object; external get product_name/category from reel
         if include_product:
             if self.product_id is not None and self.product:
+                # AOIN reel: derive pricing from the linked product so clients can always display a price
+                # consistently across AOIN and external reels.
+                all_data['product_name'] = self.product.product_name
+                all_data['category_id'] = self.product.category_id
+                all_data['category_name'] = self.product.category.name if self.product.category else None
+                all_data['price'] = float(self.product.selling_price) if self.product.selling_price is not None else None
                 all_data['product'] = {
                     'product_id': self.product.product_id,
                     'product_name': self.product.product_name,
