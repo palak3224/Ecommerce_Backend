@@ -503,6 +503,13 @@ def get_public_profile(merchant_id):
         
         if not merchant_profile:
             return jsonify({"error": "Merchant not found"}), HTTPStatus.NOT_FOUND
+
+        if merchant_profile.account_deleted_at is not None:
+            return jsonify({"error": "Merchant not found"}), HTTPStatus.NOT_FOUND
+
+        u = User.query.get(merchant_profile.user_id)
+        if u and not u.is_active:
+            return jsonify({"error": "Merchant not found"}), HTTPStatus.NOT_FOUND
         
         # Check if user is authenticated and following the merchant
         is_following = False

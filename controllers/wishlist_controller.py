@@ -2,6 +2,7 @@ from flask import jsonify, request
 from common.database import db
 from models.wishlist_item import WishlistItem
 from models.product import Product
+from auth.models.models import MerchantProfile
 from models.product_stock import ProductStock
 from models.product_media import ProductMedia
 from sqlalchemy.exc import IntegrityError
@@ -34,12 +35,17 @@ class WishlistController:
 
         product_id = data['product_id']
         
-        # Check if product exists and is active
-        product = Product.query.filter(
-            Product.product_id == product_id,
-            Product.active_flag == True,
-            Product.deleted_at.is_(None)
-        ).first()
+        # Check if product exists and is active (merchant account not closed)
+        product = (
+            Product.query.join(MerchantProfile, Product.merchant_id == MerchantProfile.id)
+            .filter(
+                MerchantProfile.account_deleted_at.is_(None),
+                Product.product_id == product_id,
+                Product.active_flag == True,
+                Product.deleted_at.is_(None),
+            )
+            .first()
+        )
         
         if not product:
             return jsonify({

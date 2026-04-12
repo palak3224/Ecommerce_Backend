@@ -256,6 +256,11 @@ class MerchantProfile(BaseModel):
     shiprocket_pickup_location_name = db.Column(db.String(100), nullable=True)
     contact_person_name = db.Column(db.String(100), nullable=True)  # Contact person for pickup location
 
+    # Account deletion (24h grace; soft close — rows retained for legal/ops)
+    account_deletion_requested_at = db.Column(db.DateTime, nullable=True)
+    account_deletion_effective_at = db.Column(db.DateTime, nullable=True, index=True)
+    account_deleted_at = db.Column(db.DateTime, nullable=True)
+
     # Relationships
     user = db.relationship('User', back_populates='merchant_profile')
     documents = db.relationship('MerchantDocument', back_populates='merchant', cascade='all, delete-orphan')

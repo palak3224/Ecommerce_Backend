@@ -79,39 +79,33 @@ class S3ProductMediaService:
             Exception: If upload fails
         """
         try:
-            print(f"[S3_UPLOAD] Starting S3 upload for product {product_id}")
-            print(f"[S3_UPLOAD] Filename: {file.filename}")
-            print(f"[S3_UPLOAD] Content type: {file.content_type}")
-            print(f"[S3_UPLOAD] Bucket: {self.bucket_name}")
-            print(f"[S3_UPLOAD] Region: {self.region}")
-            current_app.logger.info(f"[S3_UPLOAD] Starting S3 upload for product {product_id}: filename={file.filename}, content_type={file.content_type}, bucket={self.bucket_name}")
-            
-            # Generate unique S3 key
-            print(f"[S3_UPLOAD] Generating S3 key...")
+            log = current_app.logger
+            log.info(
+                "[S3_UPLOAD] start product_id=%s filename=%s content_type=%s bucket=%s region=%s",
+                product_id,
+                file.filename,
+                file.content_type,
+                self.bucket_name,
+                self.region,
+            )
+
             s3_key = self._generate_unique_filename(file.filename, product_id)
-            print(f"[S3_UPLOAD] Generated S3 key: {s3_key}")
-            current_app.logger.info(f"[S3_UPLOAD] Generated S3 key: {s3_key}")
-            
-            # Reset file pointer to beginning (important for file streams)
-            # Check if file is seekable before seeking
-            print(f"[S3_UPLOAD] Checking file pointer position...")
-            if hasattr(file, 'seek') and hasattr(file, 'tell'):
+            log.info("[S3_UPLOAD] s3_key=%s", s3_key)
+
+            if hasattr(file, "seek") and hasattr(file, "tell"):
                 try:
                     current_pos = file.tell()
-                    print(f"[S3_UPLOAD] Current file position: {current_pos}")
                     if current_pos != 0:
-                        print(f"[S3_UPLOAD] Resetting file pointer to 0...")
                         file.seek(0)
-                        print(f"[S3_UPLOAD] File pointer reset to 0")
-                        current_app.logger.info(f"[S3_UPLOAD] Reset file pointer from position {current_pos} to 0")
+                        log.info("[S3_UPLOAD] reset file pointer from %s to 0", current_pos)
                     else:
-                        print(f"[S3_UPLOAD] File pointer already at position 0")
+                        log.debug("[S3_UPLOAD] file pointer already at 0")
                 except (IOError, OSError) as seek_error:
-                    print(f"[S3_UPLOAD] WARNING: Could not seek file: {seek_error}")
-                    current_app.logger.warning(f"[S3_UPLOAD] Could not seek file to beginning: {seek_error}. Continuing anyway.")
+                    log.warning(
+                        "[S3_UPLOAD] could not seek file: %s (continuing)", seek_error
+                    )
             else:
-                print(f"[S3_UPLOAD] WARNING: File object does not support seek/tell")
-                current_app.logger.warning("[S3_UPLOAD] File object does not support seek/tell operations")
+                log.warning("[S3_UPLOAD] file object does not support seek/tell")
             
             # Determine content type
             content_type = file.content_type or 'application/octet-stream'
@@ -144,39 +138,33 @@ class S3ProductMediaService:
             
             # boto3 automatically uses multipart upload for large files
             # The client is already configured with multipart support in __init__
-            print(f"[S3_UPLOAD] Starting boto3 upload_fileobj()...")
-            print(f"[S3_UPLOAD] Bucket: {self.bucket_name}")
-            print(f"[S3_UPLOAD] Key: {s3_key}")
-            print(f"[S3_UPLOAD] Content type: {content_type}")
-            print(f"[S3_UPLOAD] Upload args: {upload_args}")
-            current_app.logger.info(f"[S3_UPLOAD] Uploading to S3: bucket={self.bucket_name}, key={s3_key}, content_type={content_type}")
-            
-            # This is the actual AWS S3 upload call
-            print(f"[S3_UPLOAD] Calling s3_client.upload_fileobj() - THIS IS THE AWS UPLOAD...")
+            log.debug("[S3_UPLOAD] upload_args=%s", upload_args)
+            log.info(
+                "[S3_UPLOAD] upload_fileobj bucket=%s key=%s content_type=%s",
+                self.bucket_name,
+                s3_key,
+                content_type,
+            )
+
             self.s3_client.upload_fileobj(
                 file,
                 self.bucket_name,
                 s3_key,
                 ExtraArgs=upload_args
             )
-            print(f"[S3_UPLOAD] SUCCESS: boto3 upload_fileobj() completed!")
-            current_app.logger.info(f"[S3_UPLOAD] S3 upload completed successfully for key: {s3_key}")
-            
-            # Construct CloudFront URL
-            print(f"[S3_UPLOAD] Constructing CloudFront URL...")
+            log.info("[S3_UPLOAD] upload complete key=%s", s3_key)
+
             cloudfront_url = f"{self.cloudfront_base_url.rstrip('/')}/{s3_key}"
-            print(f"[S3_UPLOAD] CloudFront URL: {cloudfront_url}")
-            
-            media_type = 'video' if content_type.startswith('video/') else 'image'
-            print(f"[S3_UPLOAD] Upload successful! Media type: {media_type}")
-            current_app.logger.info(f"[S3_UPLOAD] Successfully uploaded product {media_type} to S3: {s3_key}")
-            
+
+            media_type = "video" if content_type.startswith("video/") else "image"
+            log.info("[S3_UPLOAD] success media_type=%s key=%s", media_type, s3_key)
+
             result = {
-                'url': cloudfront_url,
-                's3_key': s3_key,
-                'filename': file.filename
+                "url": cloudfront_url,
+                "s3_key": s3_key,
+                "filename": file.filename,
             }
-            print(f"[S3_UPLOAD] Returning result: {result}")
+            log.debug("[S3_UPLOAD] result keys=%s", list(result.keys()))
             return result
             
         except ClientError as e:

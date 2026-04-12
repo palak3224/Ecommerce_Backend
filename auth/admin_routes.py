@@ -124,6 +124,12 @@ def get_all_merchants():
                 "verification_notes": profile.verification_notes,
                 "created_at": profile.created_at.isoformat(),
                 "updated_at": profile.updated_at.isoformat(),
+                "account_deleted_at": profile.account_deleted_at.isoformat()
+                if getattr(profile, "account_deleted_at", None)
+                else None,
+                "account_deletion_effective_at": profile.account_deletion_effective_at.isoformat()
+                if getattr(profile, "account_deletion_effective_at", None)
+                else None,
                 "user": {
                     "id": user.id,
                     "email": user.email,

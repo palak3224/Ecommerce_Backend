@@ -280,10 +280,19 @@ class Reel(BaseModel):
         External: product_id null, product_url set, reel-level only (not deleted, active).
         """
         from models.product import Product
+        from auth.models.models import MerchantProfile
+
         if query is None:
             query = cls.query
-        
-        base = query.filter(cls.deleted_at.is_(None), cls.is_active == True)
+
+        closed_merchant_ids = db.session.query(MerchantProfile.id).filter(
+            MerchantProfile.account_deleted_at.isnot(None)
+        )
+        base = query.filter(
+            cls.deleted_at.is_(None),
+            cls.is_active == True,
+            ~cls.merchant_id.in_(closed_merchant_ids),
+        )
         
         # Visible AOIN reels: has product, product valid, stock > 0
         aoin_subq = (

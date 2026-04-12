@@ -1,9 +1,14 @@
+import logging
 from datetime import datetime
+
 from common.database import db, BaseModel
 from models.shop.shop_product import ShopProduct
 from models.shop.shop import Shop
 from auth.models.models import User  # Assuming User model is here
 import json
+
+logger = logging.getLogger(__name__)
+
 
 class ShopCart(BaseModel):
     __tablename__ = 'shop_carts'
@@ -67,46 +72,50 @@ class ShopCartItem(BaseModel):
             from models.shop.shop_product_media import ShopProductMedia
             from models.enums import MediaType
             
-            print(f"Looking for images for product_id: {shop_product.product_id}")
-            
-            # Get primary image for the product
+            logger.debug(
+                "Shop cart image lookup product_id=%s", shop_product.product_id
+            )
+
             primary_media = ShopProductMedia.query.filter_by(
                 product_id=shop_product.product_id,
                 type=MediaType.IMAGE,
                 is_primary=True,
                 deleted_at=None
             ).first()
-            
-            print(f"Primary media found: {primary_media}")
-            
+
+            logger.debug("Primary media for product_id=%s: %s", shop_product.product_id, primary_media)
+
             if primary_media:
                 main_image = primary_media.url
-                print(f"Using primary image: {main_image}")
+                logger.debug("Using primary image url=%s", main_image)
             else:
-                # If no primary image, get the first image
                 first_image = ShopProductMedia.query.filter_by(
                     product_id=shop_product.product_id,
                     type=MediaType.IMAGE,
                     deleted_at=None
                 ).order_by(ShopProductMedia.sort_order).first()
-                
-                print(f"First image found: {first_image}")
-                
+
+                logger.debug("First image for product_id=%s: %s", shop_product.product_id, first_image)
+
                 if first_image:
                     main_image = first_image.url
-                    print(f"Using first image: {main_image}")
+                    logger.debug("Using first image url=%s", main_image)
                 else:
-                    print(f"No images found for product_id: {shop_product.product_id}")
-                    
-                    # Let's check what media exists for this product
+                    logger.debug(
+                        "No images for product_id=%s; listing media rows",
+                        shop_product.product_id,
+                    )
                     all_media = ShopProductMedia.query.filter_by(
                         product_id=shop_product.product_id,
                         deleted_at=None
                     ).all()
-                    print(f"All media for product {shop_product.product_id}: {[m.url for m in all_media]}")
+                    logger.debug(
+                        "All media urls for product_id=%s: %s",
+                        shop_product.product_id,
+                        [m.url for m in all_media],
+                    )
         except Exception as e:
-            # Log the error but don't fail the cart creation
-            print(f"Error getting product image: {e}")
+            logger.warning("Error getting product image for cart: %s", e, exc_info=True)
             main_image = None
         
         # Get stock quantity
@@ -115,7 +124,7 @@ class ShopCartItem(BaseModel):
             if hasattr(shop_product, 'stock') and shop_product.stock:
                 stock_qty = shop_product.stock.stock_qty
         except Exception as e:
-            print(f"Error getting stock quantity: {e}")
+            logger.warning("Error getting stock quantity: %s", e, exc_info=True)
             stock_qty = 0
         
         product_data = shop_product.serialize(include_variants=False)

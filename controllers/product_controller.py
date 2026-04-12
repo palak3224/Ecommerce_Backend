@@ -1,3 +1,5 @@
+import logging
+
 from flask import request, jsonify
 from common.database import db
 from models.product import Product
@@ -12,7 +14,11 @@ from models.product_attribute import ProductAttribute
 from datetime import datetime, timedelta
 from models.order import OrderItem, Order
 from models.review import Review
+from auth.models.models import MerchantProfile
 import json
+
+logger = logging.getLogger(__name__)
+
 
 class ProductController:
     @staticmethod
@@ -71,11 +77,16 @@ class ProductController:
             min_rating = request.args.get('min_rating', type=float)
             min_discount = request.args.get('min_discount', type=float)
             
-            # Base query - only show approved products and filter by parent_product_id
-            query = Product.query.filter(
-                Product.deleted_at.is_(None),
-                Product.active_flag.is_(True),
-                Product.approval_status == 'approved'
+            # Base query - only show approved products from merchants whose account is not closed
+            query = (
+                Product.query.join(
+                    MerchantProfile, Product.merchant_id == MerchantProfile.id
+                ).filter(
+                    MerchantProfile.account_deleted_at.is_(None),
+                    Product.deleted_at.is_(None),
+                    Product.active_flag.is_(True),
+                    Product.approval_status == 'approved',
+                )
             )
 
             # Filter based on show_variants parameter
@@ -105,7 +116,7 @@ class ProductController:
                     else:
                         query = query.filter(Product.category_id == category_id)
                 except ValueError:
-                    print(f"Invalid category_id: {category_id}")
+                    logger.warning("Invalid category_id: %s", category_id)
             
             # Apply brand filter
             if brand_id:
@@ -117,7 +128,7 @@ class ProductController:
                         brand_id = int(brand_id)
                         query = query.filter(Product.brand_id == brand_id)
                 except ValueError:
-                    print(f"Invalid brand_id: {brand_id}")
+                    logger.warning("Invalid brand_id: %s", brand_id)
 
             # Apply price range filter
             if min_price is not None:
@@ -346,7 +357,7 @@ class ProductController:
                 }
             })
         except Exception as e:
-            print(f"Error in get_all_products: {str(e)}")
+            logger.exception("Error in get_all_products: %s", e)
             return jsonify({
                 'error': str(e),
                 'products': [],
@@ -363,12 +374,17 @@ class ProductController:
     @staticmethod
     def get_product(product_id):
         """Get a single product by ID"""
-        product = Product.query.filter_by(
-            product_id=product_id,
-            deleted_at=None,
-            active_flag=True,
-            approval_status='approved'  # Only show approved products
-        ).first_or_404()
+        product = (
+            Product.query.join(MerchantProfile, Product.merchant_id == MerchantProfile.id)
+            .filter(
+                MerchantProfile.account_deleted_at.is_(None),
+                Product.product_id == product_id,
+                Product.deleted_at.is_(None),
+                Product.active_flag.is_(True),
+                Product.approval_status == 'approved',
+            )
+            .first_or_404()
+        )
         
         # Get product data with media
         product_dict = product.serialize()
@@ -395,9 +411,11 @@ class ProductController:
             
             products = []
             for rv in recently_viewed:
-                if (rv.product and 
-                    rv.product.active_flag and 
-                    not rv.product.deleted_at and 
+                if (rv.product and
+                    rv.product.merchant and
+                    rv.product.merchant.account_deleted_at is None and
+                    rv.product.active_flag and
+                    not rv.product.deleted_at and
                     rv.product.approval_status == 'approved'):  # Only show approved products
                     product_dict = rv.product.serialize()
                     media = ProductController.get_product_media(rv.product.product_id)
@@ -426,25 +444,30 @@ class ProductController:
             ).all()
             
             # Log the number of brands found
-            print(f"Found {len(brands)} active brands")
+            logger.debug("Found %s active brands", len(brands))
             
             # Serialize and return the brands
             return jsonify([brand.serialize() for brand in brands])
         except Exception as e:
-            print(f"Error fetching brands: {str(e)}")
+            logger.exception("Error fetching brands: %s", e)
             return jsonify([]), 500
 
     @staticmethod
     def get_product_details(product_id):
         """Get detailed product information including media, meta data, and attributes"""
         try:
-            # Get base product information - only show approved products
-            product = Product.query.filter_by(
-                product_id=product_id,
-                deleted_at=None,
-                active_flag=True,
-                approval_status='approved'  # Only show approved products
-            ).first_or_404()
+            # Get base product information - only show approved products from open merchants
+            product = (
+                Product.query.join(MerchantProfile, Product.merchant_id == MerchantProfile.id)
+                .filter(
+                    MerchantProfile.account_deleted_at.is_(None),
+                    Product.product_id == product_id,
+                    Product.deleted_at.is_(None),
+                    Product.active_flag.is_(True),
+                    Product.approval_status == 'approved',
+                )
+                .first_or_404()
+            )
 
             # Get product media
             # Order product media: thumbnail first, then main image, then others by sort and date
@@ -599,7 +622,7 @@ class ProductController:
                     # Commit the changes
                     db.session.commit()
             except Exception as e:
-                print(f"Error tracking recently viewed: {str(e)}")
+                logger.warning("Error tracking recently viewed: %s", e, exc_info=True)
                 # Continue with the response even if tracking fails
 
             # Get variants and parent product information
@@ -724,7 +747,7 @@ class ProductController:
             return jsonify(response_data)
 
         except Exception as e:
-            print(f"Error in get_product_details: {str(e)}")
+            logger.exception("Error in get_product_details: %s", e)
             return jsonify({
                 "error": "Failed to fetch product details",
                 "message": str(e)
@@ -771,7 +794,7 @@ class ProductController:
                     category_id = int(category_id)
                     query = query.filter(Product.category_id == category_id)
                 except ValueError:
-                    print(f"Invalid category_id: {category_id}")
+                    logger.warning("Invalid category_id: %s", category_id)
             
             # Apply other filters
             if min_price is not None:
@@ -855,7 +878,7 @@ class ProductController:
             })
             
         except Exception as e:
-            print(f"Error in get_products_by_brand: {str(e)}")
+            logger.exception("Error in get_products_by_brand: %s", e)
             return jsonify({
                 'error': str(e),
                 'products': [],
@@ -1000,7 +1023,7 @@ class ProductController:
             })
             
         except Exception as e:
-            print(f"Error in get_products_by_category: {str(e)}")
+            logger.exception("Error in get_products_by_category: %s", e)
             return jsonify({
                 'error': str(e),
                 'products': [],
@@ -1089,7 +1112,7 @@ class ProductController:
             })
 
         except Exception as e:
-            print(f"Error in get_product_variants: {str(e)}")
+            logger.exception("Error in get_product_variants: %s", e)
             return jsonify({
                 'error': 'Failed to fetch product variants',
                 'message': str(e)
@@ -1158,7 +1181,7 @@ class ProductController:
             })
             
         except Exception as e:
-            print(f"Error in get_new_products: {str(e)}")
+            logger.exception("Error in get_new_products: %s", e)
             return jsonify({
                 'error': str(e),
                 'products': [],
@@ -1228,7 +1251,7 @@ class ProductController:
                 desc('total_ordered')
             ).all()
             
-            print(f"Found {len(product_counts)} products with orders")
+            logger.debug("Found %s products with orders", len(product_counts))
             
             # Get the product IDs
             product_ids = [pc[0] for pc in product_counts]
@@ -1265,7 +1288,7 @@ class ProductController:
                         # Only include products from the selected category
                         query = query.filter(Product.category_id == category_id)
                 except ValueError:
-                    print(f"Invalid category_id: {category_id}")
+                    logger.warning("Invalid category_id: %s", category_id)
             
             # Apply brand filter
             if brand_id:
@@ -1278,7 +1301,7 @@ class ProductController:
                         brand_id = int(brand_id)
                         query = query.filter(Product.brand_id == brand_id)
                 except ValueError:
-                    print(f"Invalid brand_id: {brand_id}")
+                    logger.warning("Invalid brand_id: %s", brand_id)
 
             # Apply price range filter
             if min_price is not None:
@@ -1369,7 +1392,7 @@ class ProductController:
                 
                 product_data.append(product_dict)
             
-            print(f"Returning {len(product_data)} products")
+            logger.debug("Returning %s products", len(product_data))
             
             return jsonify({
                 'products': product_data,
@@ -1384,7 +1407,7 @@ class ProductController:
             })
             
         except Exception as e:
-            print(f"Error in get_trendy_deals: {str(e)}")
+            logger.exception("Error in get_trendy_deals: %s", e)
             return jsonify({
                 'error': str(e),
                 'products': [],

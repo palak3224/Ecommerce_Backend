@@ -40,11 +40,11 @@ class Config:
     GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
     GOOGLE_DISCOVERY_URL = 'https://accounts.google.com/.well-known/openid-configuration'
 
-    # Redis Cache - DISABLED by default to avoid connection errors
-    # Set CACHE_TYPE='redis' and REDIS_URL in environment if you want to use Redis
-    CACHE_TYPE = 'null'  # Always use null cache - no Redis connection attempts
+    # Redis / Flask-Caching — see docs/backend_cache_redis.md for full picture.
+    # Flask-Caching: null backend by default (create_app also forces null + strips REDIS URLs).
+    # Direct Redis via common.cache.get_redis_client still exists for some features.
+    CACHE_TYPE = 'null'  # null = Flask-Caching does not use Redis for @cache in normal boot
     CACHE_DEFAULT_TIMEOUT = 300  # 5 minutes
-    # Don't set REDIS_URL or CACHE_REDIS_URL - this prevents Flask-Caching from trying to connect
 
     # Cloudinary
     CLOUDINARY_CLOUD_NAME = os.getenv('CLOUDINARY_CLOUD_NAME')
@@ -105,6 +105,15 @@ class Config:
     NOTIFICATION_CLEANUP_BATCH_SIZE = int(os.getenv('NOTIFICATION_CLEANUP_BATCH_SIZE', '100'))
     NOTIFICATION_CLEANUP_MAX_BATCHES = int(os.getenv('NOTIFICATION_CLEANUP_MAX_BATCHES', '10'))
 
+    # Merchant account deletion (App Store / privacy): grace period then soft close
+    ACCOUNT_DELETION_GRACE_HOURS = int(os.getenv('ACCOUNT_DELETION_GRACE_HOURS', '24'))
+    MERCHANT_ACCOUNT_DELETION_JOB_ENABLED = os.getenv(
+        'MERCHANT_ACCOUNT_DELETION_JOB_ENABLED', 'true'
+    ).lower() in ('1', 'true', 'yes')
+    MERCHANT_ACCOUNT_DELETION_JOB_INTERVAL_MINUTES = int(
+        os.getenv('MERCHANT_ACCOUNT_DELETION_JOB_INTERVAL_MINUTES', '10')
+    )
+
 class DevelopmentConfig(Config):
     """Configuration for development environment."""
     DEBUG = True
@@ -116,14 +125,30 @@ class ProductionConfig(Config):
     SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URI')
     DEBUG = False
 
+
+class TestingConfig(Config):
+    """Configuration for automated tests (no real DB or background jobs)."""
+    TESTING = True
+    DEBUG = False
+    SECRET_KEY = 'test-secret-key-not-for-production'
+    JWT_SECRET_KEY = 'test-jwt-secret-not-for-production'
+    SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
+    SQLALCHEMY_ENGINE_OPTIONS = {}
+    NOTIFICATION_CLEANUP_ENABLED = False
+    MERCHANT_ACCOUNT_DELETION_JOB_ENABLED = False
+    FEATURE_TRANSLATION = False
+    CACHE_TYPE = 'null'
+
+
 # Environment mapping
 config = {
     'development': DevelopmentConfig,
     'production': ProductionConfig,
+    'testing': TestingConfig,
     'default': DevelopmentConfig
 }
 
-def get_config():
-    """Return the configuration class based on FLASK_ENV."""
-    env = os.getenv('FLASK_ENV', 'default')
+def get_config(config_name=None):
+    """Return the configuration class based on config_name or FLASK_ENV."""
+    env = config_name if config_name is not None else os.getenv('FLASK_ENV', 'default')
     return config.get(env, config['default'])

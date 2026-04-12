@@ -1277,13 +1277,9 @@ def creator_verify_otp(phone, otp):
     except Exception as e:
         db.session.rollback()
         err_msg = str(e)
-        current_app.logger.error(f"Creator verify OTP error: {err_msg}", exc_info=True)
-        try:
-            import traceback
-            print("[Creator verify OTP ERROR]", err_msg, flush=True)
-            traceback.print_exc()
-        except Exception:
-            pass
+        current_app.logger.error(
+            "Creator verify OTP error: %s", err_msg, exc_info=True
+        )
         # Always return proper shape for frontend; in DEBUG add detail for devs
         user_message = (
             "We couldn’t create your account right now. Please try again or contact support if it persists."

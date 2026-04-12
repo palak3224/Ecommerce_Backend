@@ -79,6 +79,9 @@ def role_required(required_roles):
                     if '/products/' in request.path and '/media' in request.path:
                         print(f"[ROLE_CHECK] User not found")
                     return jsonify({"error": "User not found"}), 404
+
+                if not user.is_active:
+                    return jsonify({"error": "Account is disabled"}), 403
                 
                 # Check if user has required role
                 if user.role.value not in required_roles:

@@ -1,3 +1,5 @@
+import logging
+
 from flask import Blueprint, request, jsonify
 from controllers.product_controller import ProductController
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
@@ -12,6 +14,7 @@ from models.category import Category
 from models.brand import Brand
 
 product_bp = Blueprint('product', __name__)
+logger = logging.getLogger(__name__)
 
 @product_bp.route('/api/products', methods=['GET', 'OPTIONS'])
 @cross_origin()
@@ -279,7 +282,7 @@ def get_recently_viewed():
         return jsonify(products), 200
         
     except Exception as e:
-        print(f"Error in get_recently_viewed: {str(e)}")
+        logger.exception("Error in get_recently_viewed: %s", e)
         return jsonify({
             "error": "Failed to fetch recently viewed products",
             "message": str(e)
@@ -476,7 +479,7 @@ def get_product_details(product_id):
         return ProductController.get_product_details(product_id)
         
     except Exception as e:
-        print(f"Error in get_product_details route: {str(e)}")
+        logger.exception("Error in get_product_details route: %s", e)
         return jsonify({
             "error": "Failed to fetch product details",
             "message": str(e)
@@ -1008,7 +1011,7 @@ def get_trendy_deals():
     try:
         return ProductController.get_trendy_deals()
     except Exception as e:
-        print(f"Error in get_trendy_deals route: {str(e)}")
+        logger.exception("Error in get_trendy_deals route: %s", e)
         return jsonify({
             "error": "Failed to fetch trendy deals",
             "message": str(e),
@@ -1097,7 +1100,7 @@ def get_product_reviews(product_id):
         })
 
     except Exception as e:
-        print(f"Error in get_product_reviews: {str(e)}")
+        logger.exception("Error in get_product_reviews: %s", e)
         return jsonify({
             'error': 'Failed to fetch product reviews',
             'message': str(e)
@@ -1183,7 +1186,7 @@ def get_product_discounts():
         })
 
     except Exception as e:
-        print(f"Error in get_product_discounts: {str(e)}")
+        logger.exception("Error in get_product_discounts: %s", e)
         return jsonify({
             'error': 'Failed to fetch discounted products',
             'message': str(e)
@@ -1235,7 +1238,7 @@ def get_search_suggestions():
         })
 
     except Exception as e:
-        print(f"Error in get_search_suggestions: {str(e)}")
+        logger.exception("Error in get_search_suggestions: %s", e)
         return jsonify({
             'error': str(e),
             'products': [],

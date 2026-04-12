@@ -166,7 +166,8 @@ class MerchantSettingsController:
                 "role": user.role.value,
                 "is_email_verified": user.is_email_verified,
                 "is_phone_verified": user.is_phone_verified,
-                "is_active": user.is_active
+                "is_active": user.is_active,
+                "has_password": bool(user.password_hash),
             }, 200
 
         except SQLAlchemyError as e:

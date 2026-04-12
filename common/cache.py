@@ -1,3 +1,10 @@
+"""
+Flask-Caching + optional direct Redis.
+
+Flask-Caching is forced to a null backend in create_app (no Redis for the extension by default).
+get_redis_client() is still used by features (auth, reels, translate, etc.) and may hit localhost
+or REDIS_URL. See docs/backend_cache_redis.md.
+"""
 import json
 import functools
 from flask_caching import Cache
@@ -7,10 +14,10 @@ import redis
 cache = Cache()
 
 def get_redis_client(app=None):
-    """Get Redis client based on app config or environment variables.
-    
-    Returns:
-        redis.Redis: Redis client if connection successful, None otherwise
+    """Return a Redis client or None. Independent of Flask-Caching CACHE_TYPE=null.
+
+    Uses app.config['REDIS_URL'] when set; otherwise tries redis://localhost:6379/0.
+    On failure returns None (optional app.logger.warning).
     """
     try:
         if app and app.config.get('REDIS_URL'):

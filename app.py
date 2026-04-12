@@ -7,6 +7,7 @@ import cloudinary
 import cloudinary.uploader
 import cloudinary.api
 from config import get_config
+from common.logging_config import configure_app_logging
 from common.database import db
 from common.cache import cache
 from auth.routes import auth_bp
@@ -20,6 +21,7 @@ from models.system_monitoring import SystemMonitoring
 
 from routes.superadmin_routes import superadmin_bp
 from routes.merchant_routes import merchant_dashboard_bp
+from routes.merchant_account_deletion_routes import merchant_account_deletion_bp
 from routes.product_routes import product_bp
 from routes.category_routes import category_bp
 from routes.brand_routes import brand_bp
@@ -114,10 +116,11 @@ def add_headers(response):
     response.headers['Access-Control-Max-Age'] = '3600'  # Cache preflight requests for 1 hour
     return response
 
-def create_app(config_name='default'):
-    """Application factory."""
+def create_app(config_name=None):
+    """Application factory. Pass config_name='testing' for pytest; otherwise FLASK_ENV selects config."""
     app = Flask(__name__)
-    app.config.from_object(get_config())
+    app.config.from_object(get_config(config_name))
+    configure_app_logging(app)
     # Set max content length for file uploads (100MB for videos)
     app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB
     # Increase request timeout for large file uploads (10 minutes)
@@ -241,11 +244,11 @@ def create_app(config_name='default'):
             except:
                 pass
     
-    # Initialize cache - use null cache (no Redis required)
-    # Set CACHE_TYPE to null BEFORE init_app to prevent any Redis connection attempts
+    # Flask-Caching: null backend only. Feature code may still use get_redis_client() — see
+    # docs/backend_cache_redis.md (audit §9).
     app.config['CACHE_TYPE'] = 'null'
-    app.config.pop('REDIS_URL', None)  # Remove REDIS_URL to prevent Flask-Caching from trying to connect
-    app.config.pop('CACHE_REDIS_URL', None)  # Remove CACHE_REDIS_URL as well
+    app.config.pop('REDIS_URL', None)
+    app.config.pop('CACHE_REDIS_URL', None)
     try:
         cache.init_app(app)
     except Exception as e:
@@ -371,6 +374,7 @@ def create_app(config_name='default'):
     app.register_blueprint(document_bp, url_prefix='/api/merchant/documents')
     app.register_blueprint(superadmin_bp, url_prefix='/api/superadmin')
     app.register_blueprint(merchant_dashboard_bp, url_prefix='/api/merchant-dashboard')
+    app.register_blueprint(merchant_account_deletion_bp, url_prefix='/api/merchant-dashboard')
     app.register_blueprint(country_bp)
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
     app.register_blueprint(product_bp)
@@ -866,12 +870,60 @@ def create_app(config_name='default'):
             f"Notification cleanup scheduler started "
             f"(runs every {interval_hours} hours, deletes notifications older than {days_old} days)"
         )
+
+    def start_merchant_account_deletion_scheduler():
+        """Finalize merchant account deletions after grace period (APScheduler)."""
+        if not app.config.get("MERCHANT_ACCOUNT_DELETION_JOB_ENABLED", True):
+            app.logger.info("Merchant account deletion scheduler is disabled")
+            return
+
+        interval_minutes = int(
+            app.config.get("MERCHANT_ACCOUNT_DELETION_JOB_INTERVAL_MINUTES", 10)
+        )
+        sched = BackgroundScheduler()
+
+        def deletion_job():
+            with app.app_context():
+                from services.merchant_account_deletion_service import (
+                    run_finalize_due_accounts,
+                )
+
+                result = run_finalize_due_accounts()
+                if result.get("finalized"):
+                    app.logger.info(
+                        "Merchant account deletion job finalized %s account(s)",
+                        result["finalized"],
+                    )
+                if result.get("errors"):
+                    for err in result["errors"]:
+                        app.logger.error("Merchant deletion job error: %s", err)
+
+        sched.add_job(
+            deletion_job,
+            "interval",
+            minutes=interval_minutes,
+            id="merchant_account_deletion_finalize",
+            replace_existing=True,
+            max_instances=1,
+        )
+        sched.start()
+        app.logger.info(
+            "Merchant account deletion scheduler started (runs every %s minutes)",
+            interval_minutes,
+        )
     
     # Start scheduler after app is created
     try:
         start_notification_cleanup_scheduler()
     except Exception as e:
         app.logger.error(f"Failed to start notification cleanup scheduler: {str(e)}")
+
+    try:
+        start_merchant_account_deletion_scheduler()
+    except Exception as e:
+        app.logger.error(
+            f"Failed to start merchant account deletion scheduler: {str(e)}"
+        )
 
     return app
 

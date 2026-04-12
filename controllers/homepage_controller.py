@@ -1,5 +1,6 @@
 from models.homepage import HomepageCategory
 from models.product import Product
+from auth.models.models import MerchantProfile
 from models.category import Category
 from models.product_media import ProductMedia
 from models.enums import MediaType
@@ -63,13 +64,20 @@ class HomepageController:
             def get_category_products(category_id, level=0):
                 """Recursively get all products from a category and its subcategories (excluding variants)"""
                 # Get direct products in this category that are approved and not variants
-                direct_products = Product.query.filter(
-                    Product.category_id == category_id,
-                    Product.active_flag == True,
-                    Product.deleted_at == None,
-                    Product.approval_status == 'approved',  # Only get approved products
-                    Product.parent_product_id.is_(None)  # Exclude variants
-                ).all()
+                direct_products = (
+                    Product.query.join(
+                        MerchantProfile, Product.merchant_id == MerchantProfile.id
+                    )
+                    .filter(
+                        MerchantProfile.account_deleted_at.is_(None),
+                        Product.category_id == category_id,
+                        Product.active_flag == True,
+                        Product.deleted_at == None,
+                        Product.approval_status == 'approved',
+                        Product.parent_product_id.is_(None),
+                    )
+                    .all()
+                )
                 
                 # Get all active subcategories
                 subcategories = Category.query.filter(
@@ -94,18 +102,25 @@ class HomepageController:
                 ).all()
                 
                 # Get products for main category (excluding products in subcategories and variants)
-                main_category_products = Product.query.filter(
-                    Product.category_id == main_category.category_id,
-                    Product.active_flag == True,
-                    Product.deleted_at == None,
-                    Product.approval_status == 'approved',  # Only get approved products
-                    Product.parent_product_id.is_(None),  # Exclude variants
-                    ~Product.product_id.in_(
-                        db.session.query(Product.product_id)
-                        .join(Category, Product.category_id == Category.category_id)
-                        .filter(Category.parent_id == main_category.category_id)
+                main_category_products = (
+                    Product.query.join(
+                        MerchantProfile, Product.merchant_id == MerchantProfile.id
                     )
-                ).all()
+                    .filter(
+                        MerchantProfile.account_deleted_at.is_(None),
+                        Product.category_id == main_category.category_id,
+                        Product.active_flag == True,
+                        Product.deleted_at == None,
+                        Product.approval_status == 'approved',
+                        Product.parent_product_id.is_(None),
+                        ~Product.product_id.in_(
+                            db.session.query(Product.product_id)
+                            .join(Category, Product.category_id == Category.category_id)
+                            .filter(Category.parent_id == main_category.category_id)
+                        ),
+                    )
+                    .all()
+                )
                 
                 # Get products for each subcategory
                 subcategory_data = []

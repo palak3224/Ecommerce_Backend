@@ -1,3 +1,4 @@
+"""AWS Translate with Redis-backed cache. If Redis is unavailable, see docs/backend_cache_redis.md."""
 import hashlib
 from typing import List, Dict, Tuple
 from flask import current_app
