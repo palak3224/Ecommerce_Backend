@@ -22,6 +22,7 @@ from models.system_monitoring import SystemMonitoring
 from routes.superadmin_routes import superadmin_bp
 from routes.merchant_routes import merchant_dashboard_bp
 from routes.merchant_account_deletion_routes import merchant_account_deletion_bp
+from routes.user_account_deletion_routes import user_account_deletion_bp
 from routes.product_routes import product_bp
 from routes.category_routes import category_bp
 from routes.brand_routes import brand_bp
@@ -375,6 +376,7 @@ def create_app(config_name=None):
     app.register_blueprint(superadmin_bp, url_prefix='/api/superadmin')
     app.register_blueprint(merchant_dashboard_bp, url_prefix='/api/merchant-dashboard')
     app.register_blueprint(merchant_account_deletion_bp, url_prefix='/api/merchant-dashboard')
+    app.register_blueprint(user_account_deletion_bp, url_prefix='/api/users')
     app.register_blueprint(country_bp)
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
     app.register_blueprint(product_bp)
@@ -911,6 +913,43 @@ def create_app(config_name=None):
             "Merchant account deletion scheduler started (runs every %s minutes)",
             interval_minutes,
         )
+
+    def start_user_account_deletion_scheduler():
+        """Finalize user account deletions after grace period (APScheduler)."""
+        if not app.config.get("USER_ACCOUNT_DELETION_JOB_ENABLED", True):
+            app.logger.info("User account deletion scheduler is disabled")
+            return
+
+        interval_minutes = int(app.config.get("USER_ACCOUNT_DELETION_JOB_INTERVAL_MINUTES", 10))
+        sched = BackgroundScheduler()
+
+        def deletion_job():
+            with app.app_context():
+                from services.user_account_deletion_service import run_finalize_due_accounts
+
+                result = run_finalize_due_accounts()
+                if result.get("finalized"):
+                    app.logger.info(
+                        "User account deletion job finalized %s account(s)",
+                        result["finalized"],
+                    )
+                if result.get("errors"):
+                    for err in result["errors"]:
+                        app.logger.error("User deletion job error: %s", err)
+
+        sched.add_job(
+            deletion_job,
+            "interval",
+            minutes=interval_minutes,
+            id="user_account_deletion_finalize",
+            replace_existing=True,
+            max_instances=1,
+        )
+        sched.start()
+        app.logger.info(
+            "User account deletion scheduler started (runs every %s minutes)",
+            interval_minutes,
+        )
     
     # Start scheduler after app is created
     try:
@@ -924,6 +963,11 @@ def create_app(config_name=None):
         app.logger.error(
             f"Failed to start merchant account deletion scheduler: {str(e)}"
         )
+
+    try:
+        start_user_account_deletion_scheduler()
+    except Exception as e:
+        app.logger.error(f"Failed to start user account deletion scheduler: {str(e)}")
 
     return app
 

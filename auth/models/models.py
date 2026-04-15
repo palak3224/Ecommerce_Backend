@@ -86,6 +86,11 @@ class User(BaseModel):
     auth_provider = db.Column(AuthProviderType(), default=AuthProvider.LOCAL, nullable=False)
     provider_user_id = db.Column(db.String(255), nullable=True)  # For OAuth provider user ID
     last_login = db.Column(db.DateTime, nullable=True)
+
+    # Account deletion (24h grace; soft close — rows retained for legal/ops)
+    account_deletion_requested_at = db.Column(db.DateTime, nullable=True)
+    account_deletion_effective_at = db.Column(db.DateTime, nullable=True, index=True)
+    account_deleted_at = db.Column(db.DateTime, nullable=True)
     
     # Relationships
     merchant_profile = db.relationship('MerchantProfile', back_populates='user', uselist=False)

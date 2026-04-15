@@ -704,6 +704,65 @@ def run_migration_008_merchant_account_deletion():
     print("  " + "=" * 46)
 
 
+def run_migration_009_user_account_deletion():
+    """
+    Migration 009: users account deletion grace + soft close timestamps.
+    Idempotent: adds columns/index only if missing.
+    """
+    print("\nRunning migration 009 (user account deletion columns):")
+    print("----------------------------------------------------------")
+    inspector = db.inspect(db.engine)
+    if "users" not in inspector.get_table_names():
+        print("  ℹ users table does not exist yet; skipping.")
+        return
+    existing = {c["name"] for c in inspector.get_columns("users")}
+    cols = [
+        ("account_deletion_requested_at", "DATETIME NULL"),
+        ("account_deletion_effective_at", "DATETIME NULL"),
+        ("account_deleted_at", "DATETIME NULL"),
+    ]
+    with db.engine.connect() as conn:
+        for name, ddl in cols:
+            if name not in existing:
+                try:
+                    conn.execute(text(f"ALTER TABLE users ADD COLUMN {name} {ddl}"))
+                    conn.commit()
+                    print(f"  ✓ Added users.{name}")
+                except Exception as e:
+                    print(f"  ⚠ Could not add {name}: {e}")
+            else:
+                print(f"  ℹ users.{name} already exists")
+        try:
+            r = conn.execute(
+                text(
+                    """
+                    SELECT COUNT(*) AS c FROM information_schema.statistics
+                    WHERE table_schema = DATABASE()
+                      AND table_name = 'users'
+                      AND index_name = 'idx_users_deletion_effective'
+                    """
+                )
+            )
+            row = r.fetchone()
+            index_exists = (row[0] if row else 0) > 0
+            if not index_exists:
+                conn.execute(
+                    text(
+                        "CREATE INDEX idx_users_deletion_effective "
+                        "ON users (account_deletion_effective_at, account_deleted_at)"
+                    )
+                )
+                conn.commit()
+                print("  ✓ Created index idx_users_deletion_effective")
+            else:
+                print("  ℹ Index idx_users_deletion_effective already exists")
+        except Exception as e:
+            print(f"  ⚠ Index migration: {e}")
+    print("  " + "=" * 46)
+    print("  MIGRATION 009 COMPLETED (user account deletion)")
+    print("  " + "=" * 46)
+
+
 def init_reels():
     """Initialize reels tables."""
     print("\nInitializing Reels Tables:")
@@ -1500,6 +1559,7 @@ def init_database():
         run_migration_006_reels_external()
         run_migration_007_creator_role()
         run_migration_008_merchant_account_deletion()
+        run_migration_009_user_account_deletion()
 
         # Initialize data
         init_country_configs()

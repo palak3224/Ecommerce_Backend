@@ -114,6 +114,14 @@ class Config:
         os.getenv('MERCHANT_ACCOUNT_DELETION_JOB_INTERVAL_MINUTES', '10')
     )
 
+    # User (buyer) account deletion: grace period then soft close
+    USER_ACCOUNT_DELETION_JOB_ENABLED = os.getenv(
+        'USER_ACCOUNT_DELETION_JOB_ENABLED', 'true'
+    ).lower() in ('1', 'true', 'yes')
+    USER_ACCOUNT_DELETION_JOB_INTERVAL_MINUTES = int(
+        os.getenv('USER_ACCOUNT_DELETION_JOB_INTERVAL_MINUTES', '10')
+    )
+
 class DevelopmentConfig(Config):
     """Configuration for development environment."""
     DEBUG = True
@@ -136,6 +144,7 @@ class TestingConfig(Config):
     SQLALCHEMY_ENGINE_OPTIONS = {}
     NOTIFICATION_CLEANUP_ENABLED = False
     MERCHANT_ACCOUNT_DELETION_JOB_ENABLED = False
+    USER_ACCOUNT_DELETION_JOB_ENABLED = False
     FEATURE_TRANSLATION = False
     CACHE_TYPE = 'null'
 
