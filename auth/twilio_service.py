@@ -1,7 +1,18 @@
 """Twilio service for sending OTP SMS messages."""
+import re
 from flask import current_app
 from twilio.rest import Client
 from twilio.base.exceptions import TwilioRestException
+
+
+def _is_apple_review_test_phone(phone_e164: str) -> bool:
+    if not phone_e164:
+        return False
+    digits = re.sub(r"\D", "", str(phone_e164))
+    if len(digits) < 10:
+        return False
+    last10 = digits[-10:]
+    return re.match(r"^(\d)\1{4}(\d)\2{4}$", last10) is not None
 
 
 def send_otp_sms(phone_number, otp_code):
@@ -16,6 +27,13 @@ def send_otp_sms(phone_number, otp_code):
         tuple: (success: bool, message: str)
     """
     try:
+        # Apple review bypass: skip Twilio for specific "test numbers"
+        if current_app.config.get("APPLE_REVIEW_OTP_BYPASS") and _is_apple_review_test_phone(phone_number):
+            current_app.logger.warning(
+                f"[APPLE_REVIEW_OTP_BYPASS] Skipping SMS for {phone_number}. OTP: {otp_code}"
+            )
+            return True, "OTP bypassed for Apple review"
+
         # Dev bypass: skip Twilio and return OTP directly
         if current_app.config.get('DEV_OTP_BYPASS'):
             current_app.logger.warning(f"[DEV_OTP_BYPASS] OTP for {phone_number}: {otp_code}")

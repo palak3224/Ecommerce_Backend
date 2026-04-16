@@ -602,10 +602,10 @@ class PhoneVerification(BaseModel):
         ).order_by(cls.created_at.desc()).first()
     
     @classmethod
-    def create_otp(cls, user_id, phone, expires_at):
+    def create_otp(cls, user_id, phone, expires_at, otp_override=None):
         """Create a new OTP for existing user."""
         import random
-        otp = ''.join(random.choices('0123456789', k=6))
+        otp = str(otp_override) if otp_override is not None else ''.join(random.choices('0123456789', k=6))
         verification = cls(
             user_id=user_id,
             phone=phone,
@@ -616,10 +616,10 @@ class PhoneVerification(BaseModel):
         return otp
     
     @classmethod
-    def create_otp_for_signup(cls, phone, expires_at):
+    def create_otp_for_signup(cls, phone, expires_at, otp_override=None):
         """Create a new OTP for sign-up (no user_id)."""
         import random
-        otp = ''.join(random.choices('0123456789', k=6))
+        otp = str(otp_override) if otp_override is not None else ''.join(random.choices('0123456789', k=6))
         verification = cls(
             user_id=None,  # No user_id for sign-up
             phone=phone,

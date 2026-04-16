@@ -97,6 +97,12 @@ class Config:
     TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
     TWILIO_PHONE_NUMBER = os.getenv('TWILIO_PHONE_NUMBER')
     DEV_OTP_BYPASS = os.getenv('DEV_OTP_BYPASS', 'false').lower() == 'true'
+
+    # App Store / Apple review helper:
+    # If enabled, specific "test phone numbers" (last 10 digits match 5-5 pattern like 1111122222)
+    # will NOT send SMS via Twilio and will accept a fixed OTP code (default 123456).
+    APPLE_REVIEW_OTP_BYPASS = os.getenv('APPLE_REVIEW_OTP_BYPASS', 'false').lower() in ('1', 'true', 'yes')
+    APPLE_REVIEW_OTP_CODE = os.getenv('APPLE_REVIEW_OTP_CODE', '123456')
     
     # Notification Cleanup Configuration
     NOTIFICATION_CLEANUP_ENABLED = os.getenv('NOTIFICATION_CLEANUP_ENABLED', 'true').lower() in ('1', 'true', 'yes')

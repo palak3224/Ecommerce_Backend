@@ -9,7 +9,13 @@ from authlib.integrations.flask_client import OAuth
 
 from common.database import db
 from auth.models import User, MerchantProfile, RefreshToken, EmailVerification, UserRole, AuthProvider, PhoneVerification, CreatorSignupPending, CreatorProfile, CreatorCategory
-from auth.utils import validate_google_token, normalize_phone_number, validate_phone_number
+from auth.utils import (
+    validate_google_token,
+    normalize_phone_number,
+    validate_phone_number,
+    is_apple_review_test_phone,
+    get_apple_review_fixed_otp,
+)
 from auth.twilio_service import send_otp_sms
 from common.cache import cached, get_redis_client
 from auth.email_utils import send_verification_email, send_password_reset_email
@@ -837,13 +843,17 @@ def send_phone_otp(phone_number):
         
         # Generate OTP
         expires_at = datetime.utcnow() + timedelta(minutes=10)
+
+        otp_override = None
+        if current_app.config.get("APPLE_REVIEW_OTP_BYPASS") and is_apple_review_test_phone(normalized_phone):
+            otp_override = get_apple_review_fixed_otp()
         
         if existing_user:
             # Login flow - user exists
-            otp = PhoneVerification.create_otp(existing_user.id, normalized_phone, expires_at)
+            otp = PhoneVerification.create_otp(existing_user.id, normalized_phone, expires_at, otp_override=otp_override)
         else:
             # Sign-up flow - user doesn't exist
-            otp = PhoneVerification.create_otp_for_signup(normalized_phone, expires_at)
+            otp = PhoneVerification.create_otp_for_signup(normalized_phone, expires_at, otp_override=otp_override)
         
         # Send OTP via Twilio
         success, message = send_otp_sms(normalized_phone, otp)
@@ -1046,7 +1056,12 @@ def creator_signup_request(first_name, last_name, email, phone):
 
         # Create and send OTP
         expires_at = datetime.utcnow() + timedelta(minutes=10)
-        otp = PhoneVerification.create_otp_for_signup(normalized_phone, expires_at)
+
+        otp_override = None
+        if current_app.config.get("APPLE_REVIEW_OTP_BYPASS") and is_apple_review_test_phone(normalized_phone):
+            otp_override = get_apple_review_fixed_otp()
+
+        otp = PhoneVerification.create_otp_for_signup(normalized_phone, expires_at, otp_override=otp_override)
         success, message = send_otp_sms(normalized_phone, otp)
         if not success:
             return _creator_error(
@@ -1105,7 +1120,12 @@ def creator_resend_otp(phone):
         db.session.commit()
 
         expires_at = datetime.utcnow() + timedelta(minutes=10)
-        otp = PhoneVerification.create_otp_for_signup(normalized_phone, expires_at)
+
+        otp_override = None
+        if current_app.config.get("APPLE_REVIEW_OTP_BYPASS") and is_apple_review_test_phone(normalized_phone):
+            otp_override = get_apple_review_fixed_otp()
+
+        otp = PhoneVerification.create_otp_for_signup(normalized_phone, expires_at, otp_override=otp_override)
         success, message = send_otp_sms(normalized_phone, otp)
         if not success:
             return _creator_error(

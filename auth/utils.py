@@ -203,3 +203,29 @@ def validate_phone_number(phone):
     
     normalized = normalize_phone_number(phone)
     return normalized is not None    
+
+
+def is_apple_review_test_phone(phone_e164: str) -> bool:
+    """
+    True if phone's last 10 digits match a 5-5 repeated pattern, e.g. 1111122222, 4444488888.
+    Uses last-10-digits so it works with any country code in E.164.
+    """
+    if not phone_e164:
+        return False
+    digits = re.sub(r"\D", "", str(phone_e164))
+    if len(digits) < 10:
+        return False
+    last10 = digits[-10:]
+    return re.match(r"^(\d)\1{4}(\d)\2{4}$", last10) is not None
+
+
+def get_apple_review_fixed_otp() -> str:
+    """
+    Returns the configured fixed OTP for Apple review bypass (always 6 digits).
+    Falls back to '123456' if misconfigured.
+    """
+    raw = current_app.config.get("APPLE_REVIEW_OTP_CODE", "123456")
+    otp = re.sub(r"\D", "", str(raw))
+    if len(otp) != 6:
+        return "123456"
+    return otp
