@@ -41,6 +41,8 @@ from .user_reel_view import UserReelView
 from .user_reel_share import UserReelShare
 from .user_merchant_follow import UserMerchantFollow
 from .user_category_preference import UserCategoryPreference
+from .user_blocked_merchant import UserBlockedMerchant
+from .user_hidden_category import UserHiddenCategory
 from .merchant_notification import MerchantNotification
 from .holi_giveaway_registration import HoliGiveawayRegistration
 
@@ -73,6 +75,8 @@ __all__ = [
     'UserReelShare',
     'UserMerchantFollow',
     'UserCategoryPreference',
+    'UserBlockedMerchant',
+    'UserHiddenCategory',
     'MerchantNotification',
     'HoliGiveawayRegistration'
 ]

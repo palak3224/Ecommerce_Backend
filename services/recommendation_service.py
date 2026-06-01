@@ -74,7 +74,7 @@ class RecommendationService:
             return []
         
         # Get visible reels from followed merchants with eager loading
-        query = Reel.get_visible_reels()
+        query = Reel.get_visible_reels(user_id=user_id)
         query = query.options(*Reel.loader_options_for_api())
         query = query.filter(Reel.merchant_id.in_(merchant_ids))
         
@@ -111,7 +111,7 @@ class RecommendationService:
         category_ids = [p.category_id for p in preferences]
         
         # Get visible reels from preferred categories with eager loading
-        query = Reel.get_visible_reels()
+        query = Reel.get_visible_reels(user_id=user_id)
         query = query.options(*Reel.loader_options_for_api())
         query = query.join(Product).filter(Product.category_id.in_(category_ids))
         
@@ -176,24 +176,25 @@ class RecommendationService:
         return trending_score
     
     @staticmethod
-    def get_trending_reels(limit=20, time_window_hours=24, exclude_reel_ids=None):
+    def get_trending_reels(limit=20, time_window_hours=24, exclude_reel_ids=None, user_id=None):
         """
         Get trending reels based on engagement and recency.
-        
+
         Args:
             limit: Maximum number of reels to return
             time_window_hours: Time window for trending (24h, 7d, 30d)
             exclude_reel_ids: Set of reel IDs to exclude
-            
+            user_id: Optional user ID to apply that user's "not interested" filters
+
         Returns:
             List of Reel objects sorted by trending score
         """
         if exclude_reel_ids is None:
             exclude_reel_ids = set()
-        
+
         # Get visible reels from last 7 days with eager loading
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=7)
-        query = Reel.get_visible_reels()
+        query = Reel.get_visible_reels(user_id=user_id)
         query = query.options(*Reel.loader_options_for_api())
         query = query.filter(Reel.created_at >= cutoff_date)
         
@@ -272,7 +273,7 @@ class RecommendationService:
             similar_reel_ids = [rid for rid in similar_reel_ids if rid not in exclude_reel_ids]
         
         # Get visible reels with eager loading
-        query = Reel.get_visible_reels()
+        query = Reel.get_visible_reels(user_id=user_id)
         query = query.options(*Reel.loader_options_for_api())
         query = query.filter(Reel.reel_id.in_(similar_reel_ids))
         query = query.order_by(desc(Reel.likes_count), desc(Reel.created_at))
@@ -483,7 +484,7 @@ class RecommendationService:
         # Tier 3: Trending (20%)
         trending_limit = int(per_page * 0.2)
         trending_reels = RecommendationService.get_trending_reels(
-            limit=trending_limit, exclude_reel_ids=seen_reel_ids
+            limit=trending_limit, exclude_reel_ids=seen_reel_ids, user_id=user_id
         )
         if trending_reels:
             tiers_used.append('trending')
@@ -507,7 +508,7 @@ class RecommendationService:
         # Tier 5: General Feed (fill remaining) with eager loading
         remaining = per_page - len(feed_reels)
         if remaining > 0:
-            query = Reel.get_visible_reels()
+            query = Reel.get_visible_reels(user_id=user_id)
             query = query.options(*Reel.loader_options_for_api())
             if seen_reel_ids:
                 query = query.filter(~Reel.reel_id.in_(seen_reel_ids))
@@ -610,7 +611,7 @@ class RecommendationService:
         # 70% trending
         trending_limit = int(per_page * 0.7)
         trending_reels = RecommendationService.get_trending_reels(
-            limit=trending_limit, exclude_reel_ids=seen_reel_ids
+            limit=trending_limit, exclude_reel_ids=seen_reel_ids, user_id=user_id
         )
         for reel in trending_reels:
             feed_reels.append(reel)
@@ -628,7 +629,7 @@ class RecommendationService:
         # Fill remaining with general feed
         remaining = per_page - len(feed_reels)
         if remaining > 0:
-            query = Reel.get_visible_reels()
+            query = Reel.get_visible_reels(user_id=user_id)
             query = query.options(*Reel.loader_options_for_api())
             if seen_reel_ids:
                 query = query.filter(~Reel.reel_id.in_(seen_reel_ids))

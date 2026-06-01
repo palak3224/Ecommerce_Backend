@@ -104,10 +104,11 @@ class RecommendationController:
             }
             time_window_hours = time_window_hours_map.get(time_window, 24)
             
-            # Get trending reels
+            # Get trending reels (apply "not interested" filters only for authenticated users)
             trending_reels = RecommendationService.get_trending_reels(
                 limit=per_page * 2,  # Get more to account for pagination
-                time_window_hours=time_window_hours
+                time_window_hours=time_window_hours,
+                user_id=current_user_id
             )
             
             # Paginate

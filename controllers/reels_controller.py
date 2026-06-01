@@ -937,10 +937,19 @@ class ReelsController:
             JSON response with paginated reel list
         """
         try:
+            # Detect authenticated user (optional) so we can apply that user's
+            # personal "not interested" filters; anonymous users see the full feed.
+            current_user_id = None
+            try:
+                verify_jwt_in_request(optional=True)
+                current_user_id = get_jwt_identity()
+            except Exception:
+                current_user_id = None
+
             # Get only visible reels with eager loading to prevent N+1 queries
-            query = Reel.get_visible_reels()
+            query = Reel.get_visible_reels(user_id=current_user_id)
             query = query.options(*Reel.loader_options_for_api())
-            
+
             # Get filter parameters
             category_id = request.args.get('category_id', type=int)
             merchant_id = request.args.get('merchant_id', type=int)
@@ -1020,16 +1029,7 @@ class ReelsController:
                 fields=fields
             ) for reel in pagination.items]
             
-            # Check if user is authenticated and add is_liked status
-            current_user_id = None
-            try:
-                verify_jwt_in_request(optional=True)
-                current_user_id = get_jwt_identity()
-            except Exception:
-                # No JWT token present, which is fine for public endpoint
-                current_user_id = None
-            
-            # Add is_liked status to each reel
+            # Add is_liked status to each reel (current_user_id resolved above)
             for reel_data in reels_data:
                 if current_user_id:
                     is_liked = UserReelLike.user_has_liked(current_user_id, reel_data['reel_id'])

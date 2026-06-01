@@ -76,6 +76,7 @@ from routes.ai_image_upload import ai_image_upload_bp
 from routes.reels_routes import reels_bp
 from routes.creator_routes import creator_bp
 from routes.follow_routes import follow_bp
+from routes.user_preference_routes import user_preference_bp
 from routes.recommendation_routes import recommendation_bp
 from routes.notification_routes import notification_bp
 
@@ -435,6 +436,7 @@ def create_app(config_name=None):
     app.register_blueprint(reels_bp)
     app.register_blueprint(creator_bp, url_prefix="/api/creator")
     app.register_blueprint(follow_bp)
+    app.register_blueprint(user_preference_bp)
     app.register_blueprint(recommendation_bp)
     app.register_blueprint(notification_bp)
 

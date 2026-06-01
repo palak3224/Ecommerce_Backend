@@ -273,17 +273,34 @@ class Reel(BaseModel):
         )
     
     @classmethod
-    def get_visible_reels(cls, query=None):
+    def get_visible_reels(cls, query=None, user_id=None):
         """
         Get query for visible reels only (AOIN + external).
         AOIN: product_id set, product not deleted/active/approved, stock > 0.
         External: product_id null, product_url set, reel-level only (not deleted, active).
+
+        When user_id is provided, also apply that user's personal "not interested"
+        preferences: reels from merchants the user has blocked are excluded, and
+        reels in categories the user has hidden are excluded (AOIN via the linked
+        product's category, external via the reel's own category_id). This is a
+        user-scoped filter only and has no effect on other users. Passing no
+        user_id preserves the original (anonymous/public) behaviour exactly.
         """
         from models.product import Product
         from auth.models.models import MerchantProfile
+        from sqlalchemy import or_
 
         if query is None:
             query = cls.query
+
+        # Resolve this user's "not interested" preferences (empty for anonymous).
+        blocked_merchant_ids = set()
+        hidden_category_ids = set()
+        if user_id is not None:
+            from models.user_blocked_merchant import UserBlockedMerchant
+            from models.user_hidden_category import UserHiddenCategory
+            blocked_merchant_ids = UserBlockedMerchant.get_blocked_merchant_ids(user_id)
+            hidden_category_ids = UserHiddenCategory.get_hidden_category_ids(user_id)
 
         closed_merchant_ids = db.session.query(MerchantProfile.id).filter(
             MerchantProfile.account_deleted_at.isnot(None)
@@ -293,7 +310,11 @@ class Reel(BaseModel):
             cls.is_active == True,
             ~cls.merchant_id.in_(closed_merchant_ids),
         )
-        
+
+        # Exclude merchants this user marked "not interested".
+        if blocked_merchant_ids:
+            base = base.filter(~cls.merchant_id.in_(blocked_merchant_ids))
+
         # Visible AOIN reels: has product, product valid, stock > 0
         aoin_subq = (
             base.filter(cls.product_id.isnot(None))
@@ -311,6 +332,19 @@ class Reel(BaseModel):
             cls.product_id.is_(None),
             cls.product_url.isnot(None),
         )
+
+        # Exclude categories this user marked "not interested".
+        if hidden_category_ids:
+            # AOIN reels: category comes from the linked product.
+            aoin_subq = aoin_subq.filter(~Product.category_id.in_(hidden_category_ids))
+            # External reels: category stored on the reel (keep reels with no category).
+            external_subq = external_subq.filter(
+                or_(
+                    cls.category_id.is_(None),
+                    ~cls.category_id.in_(hidden_category_ids),
+                )
+            )
+
         aoin_ids = aoin_subq.with_entities(cls.reel_id)
         external_ids = external_subq.with_entities(cls.reel_id)
         union_ids = aoin_ids.union(external_ids)
