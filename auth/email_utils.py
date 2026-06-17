@@ -225,6 +225,38 @@ def send_verification_email(user, token):
         context
     )
 
+def send_verification_email_otp(user, otp):
+    """Sends an OTP-based email verification (for app-based merchant onboarding).
+
+    Unlike send_verification_email (which embeds a clickable link for the website),
+    this email contains a 6-digit code the user types into the app, so there is no
+    browser navigation. Returns True on success, False otherwise.
+    """
+    template_content = """
+        <p>Hello {{ name }},</p>
+        <p>Use the verification code below to verify your email address in the app:</p>
+        <div class="button-wrapper">
+            <p style="font-size: 32px; font-weight: bold; letter-spacing: 8px; margin: 16px 0;">{{ otp }}</p>
+        </div>
+        <p>This code will expire in {{ expiry_minutes }} minutes.</p>
+        <p>If you did not request this, please ignore this email.</p>
+        <p>Best regards,<br>The Team</p>
+    """
+
+    context = {
+        'name': f"{user.first_name} {user.last_name}",
+        'otp': otp,
+        'expiry_minutes': current_app.config.get('MERCHANT_EMAIL_OTP_EXPIRY_MIN', 10),
+        'heading': "Email Verification"
+    }
+
+    return send_email(
+        user.email,
+        "Your AOIN Email Verification Code",
+        template_content,
+        context
+    )
+
 def send_password_reset_email(user, token):
     """Sends password reset email with the new AOIN theme."""
     frontend_url = current_app.config['FRONTEND_URL'].rstrip('/')

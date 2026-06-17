@@ -18,7 +18,7 @@ from auth.utils import (
 )
 from auth.twilio_service import send_otp_sms
 from common.cache import cached, get_redis_client
-from auth.email_utils import send_verification_email, send_password_reset_email
+from auth.email_utils import send_verification_email, send_password_reset_email, send_verification_email_otp
 
 # Initialize OAuth
 oauth = OAuth()
@@ -161,20 +161,43 @@ def register_merchant(data):
         # Initialize required documents based on country
         merchant.update_required_documents()
         db.session.add(merchant)
-        
-        # Create email verification token (inline to avoid premature commit)
-        expires_at = datetime.utcnow() + timedelta(days=1)
+
+        # Decide verification method: "app" -> email OTP (no browser), else -> link.
+        source = (data.get('source') or 'web').strip().lower()
+        is_app = source == 'app'
+
+        # Create email verification record (inline to avoid premature commit)
         token = str(uuid.uuid4())
-        verification = EmailVerification(
-            token=token,
-            user_id=user.id,
-            expires_at=expires_at
-        )
+        otp_code = None
+        if is_app:
+            otp_minutes = int(current_app.config.get('MERCHANT_EMAIL_OTP_EXPIRY_MIN', 10))
+            otp_expires_at = datetime.utcnow() + timedelta(minutes=otp_minutes)
+            import random
+            otp_override = None
+            if current_app.config.get('DEV_OTP_BYPASS'):
+                # In dev/QA the OTP is also echoed in the response; keep it random unless
+                # a fixed code is desired. (No phone here, so no Apple-review bypass.)
+                pass
+            otp_code = str(otp_override) if otp_override is not None else ''.join(random.choices('0123456789', k=6))
+            verification = EmailVerification(
+                token=token,
+                user_id=user.id,
+                otp=otp_code,
+                expires_at=otp_expires_at,
+                created_at=datetime.utcnow(),  # Python UTC so resend throttle is timezone-safe
+            )
+        else:
+            expires_at = datetime.utcnow() + timedelta(days=1)
+            verification = EmailVerification(
+                token=token,
+                user_id=user.id,
+                expires_at=expires_at,
+            )
         db.session.add(verification)
-        
+
         # Commit everything together in a single transaction
         db.session.commit()
-        
+
         # Send verification email (after successful commit)
         # Wrap in try-except to prevent email failures from blocking registration
         email_sent = False
@@ -188,35 +211,46 @@ def register_merchant(data):
                 current_app.logger.warning(f"MAIL_USERNAME or MAIL_PASSWORD not configured. Cannot send verification email to {user.email}")
                 email_error_msg = "Email credentials not configured"
             else:
-                email_sent = send_verification_email(user, token)
+                if is_app:
+                    email_sent = send_verification_email_otp(user, otp_code)
+                else:
+                    email_sent = send_verification_email(user, token)
                 if not email_sent:
                     email_error_msg = "Email sending failed - check server logs"
-                    current_app.logger.error(f"Failed to send verification email to {user.email}. send_verification_email returned False.")
+                    current_app.logger.error(f"Failed to send verification email to {user.email}. Email sender returned False.")
         except Exception as email_error:
             # Log the error but don't fail the registration
             email_error_msg = str(email_error)
             current_app.logger.error(f"Failed to send verification email to {user.email}: {str(email_error)}", exc_info=True)
-        
+
         # Prepare response message
         response_message = "Merchant registered successfully."
         if email_sent:
-            response_message += " Please check your email to verify your account."
+            if is_app:
+                response_message += " Please check your email for the verification code."
+            else:
+                response_message += " Please check your email to verify your account."
         else:
             response_message += " Verification email could not be sent. Please use the resend email feature."
             if email_error_msg:
                 current_app.logger.warning(f"Registration succeeded but email failed for {user.email}: {email_error_msg}")
-        
+
         response = {
             "message": response_message,
             "user_id": user.id,
             "merchant_id": merchant.id,
-            "username": merchant.username  # Return generated/provided username
+            "username": merchant.username,  # Return generated/provided username
+            "verification_method": "otp" if is_app else "link",
         }
-        
+
         if not email_sent:
             response["warning"] = "Verification email not sent. Please use the resend email feature."
             response["email_sent"] = False
-        
+
+        # In dev/QA, echo the OTP so testers (and the Apple reviewer environment) aren't blocked.
+        if is_app and otp_code and current_app.config.get('DEV_OTP_BYPASS'):
+            response["dev_otp"] = otp_code
+
         return response, 201
     except IntegrityError as e:
         db.session.rollback()
@@ -405,7 +439,177 @@ def verify_email(token):
         db.session.rollback()
         current_app.logger.error(f"Email verification error: {str(e)}")
         return {"error": "Email verification failed"}, 500
-    
+
+
+def _build_merchant_login_payload(user, message):
+    """Build a login-style payload (tokens + user + merchant) after OTP verification.
+
+    Mirrors the shape returned by login_user so the app can sign the merchant in
+    immediately after verifying their email OTP.
+    """
+    user.update_last_login()
+    additional_claims = {"role": user.role.value}
+    access_token = create_access_token(identity=str(user.id), additional_claims=additional_claims)
+    refresh_expires = datetime.utcnow() + current_app.config['JWT_REFRESH_TOKEN_EXPIRES']
+    refresh_token_str = RefreshToken.create_token(user.id, refresh_expires)
+
+    payload = {
+        "message": message,
+        "access_token": access_token,
+        "refresh_token": refresh_token_str,
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "role": user.role.value,
+            "is_email_verified": user.is_email_verified,
+        },
+    }
+
+    merchant = MerchantProfile.get_by_user_id(user.id)
+    if merchant:
+        payload["merchant"] = {
+            "id": merchant.id,
+            "user_id": merchant.user_id,
+            "business_name": merchant.business_name,
+            "business_email": merchant.business_email,
+            "verification_status": merchant.verification_status.value if merchant.verification_status else None,
+            "is_verified": merchant.is_verified,
+        }
+    return payload
+
+
+def verify_merchant_email_otp(email, otp):
+    """Verify a merchant's email using the OTP sent for app-based onboarding.
+
+    On success: marks email verified, advances merchant status to EMAIL_VERIFIED
+    (same as the link flow), and returns tokens + user + merchant so the app can
+    log the merchant straight in.
+    """
+    try:
+        from auth.models.merchant_document import VerificationStatus
+
+        email_norm = (email or '').strip().lower()
+        user = User.get_by_email(email_norm)
+        if not user:
+            # Generic message to avoid leaking which emails exist.
+            return {"error": "Invalid or expired OTP"}, 400
+
+        if user.role != UserRole.MERCHANT:
+            return {"error": "This verification method is only for merchant accounts."}, 403
+
+        # Idempotency: already verified -> treat as success and re-issue a session.
+        if user.is_email_verified:
+            return _build_merchant_login_payload(user, "Email already verified"), 200
+
+        if not EmailVerification.verify_email_otp(user.id, otp):
+            return {"error": "Invalid or expired OTP"}, 400
+
+        # Mirror the link-verify status updates.
+        user.is_email_verified = True
+        merchant = MerchantProfile.get_by_user_id(user.id)
+        if merchant and merchant.verification_status != VerificationStatus.APPROVED:
+            merchant.verification_status = VerificationStatus.EMAIL_VERIFIED
+            merchant.is_verified = True
+        db.session.commit()
+
+        return _build_merchant_login_payload(user, "Email verified successfully"), 200
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Merchant email OTP verification error: {str(e)}", exc_info=True)
+        return {"error": "Email verification failed"}, 500
+
+
+def resend_merchant_email_otp(email):
+    """Resend the email-verification OTP to a merchant (app-based onboarding).
+
+    Uses the same Redis-based rate limiting as the link resend when Redis is
+    available, plus a DB-level fallback guard (30s) so it cannot be spammed when
+    Redis is unavailable.
+    """
+    try:
+        email_norm = (email or '').strip().lower()
+        user = User.get_by_email(email_norm)
+
+        # Generic response to avoid leaking which emails exist / are merchants.
+        generic_ok = {"message": "If your email is registered and not verified, a new code has been sent."}
+
+        if not user or user.role != UserRole.MERCHANT:
+            return generic_ok, 200
+        if user.is_email_verified:
+            return {"message": "Your email address is already verified."}, 200
+
+        # DB-level throttle fallback (works even without Redis).
+        if EmailVerification.has_recent_otp(user.id, within_seconds=30):
+            return {"error_code": "RATE_LIMIT_APPLIED",
+                    "message": "Please wait before requesting another code.",
+                    "retry_after": 30}, 429
+
+        # Redis-based daily/tiered limiting (mirrors resend_verification_email_controller).
+        redis_client = get_redis_client(current_app)
+        if redis_client:
+            attempts_key = f"rate_limit:resend_merchant_email_otp_attempts:{email_norm}"
+            last_ts_key = f"rate_limit:resend_merchant_email_otp_last_ts:{email_norm}"
+            last_date_key = f"rate_limit:resend_merchant_email_otp_last_date:{email_norm}"
+            pipe = redis_client.pipeline()
+            pipe.get(attempts_key); pipe.get(last_ts_key); pipe.get(last_date_key)
+            attempts_raw, last_ts_raw, last_date_raw = pipe.execute()
+            attempts = int(attempts_raw) if attempts_raw else 0
+            last_ts = float(last_ts_raw) if last_ts_raw else 0
+            last_date = last_date_raw.decode('utf-8') if last_date_raw else None
+            now_utc = datetime.utcnow()
+            now_ts = now_utc.timestamp()
+            today = now_utc.date().isoformat()
+            if last_date != today:
+                attempts = 0
+                p = redis_client.pipeline()
+                p.set(attempts_key, 0); p.set(last_date_key, today)
+                p.expire(attempts_key, 86400 * 2); p.expire(last_date_key, 86400 * 2); p.expire(last_ts_key, 86400 * 2)
+                p.execute()
+            tiers = [(0, 0), (1, 30), (2, 60), (3, 60)]
+            max_per_day = 4
+            if attempts >= max_per_day:
+                tomorrow = now_utc.date() + timedelta(days=1)
+                next_day = datetime.combine(tomorrow, datetime.min.time(), tzinfo=timezone.utc)
+                return {"error_code": "RATE_LIMIT_EXCEEDED",
+                        "message": "You have reached the maximum number of attempts for today.",
+                        "retry_after": int((next_day - now_utc.replace(tzinfo=timezone.utc)).total_seconds())}, 429
+
+        # Invalidate any prior unused OTPs for this user, then issue a fresh one.
+        EmailVerification.query.filter_by(user_id=user.id, is_used=False).update({"is_used": True})
+        db.session.commit()
+
+        otp_minutes = int(current_app.config.get('MERCHANT_EMAIL_OTP_EXPIRY_MIN', 10))
+        otp_code = EmailVerification.create_email_otp(
+            user.id, datetime.utcnow() + timedelta(minutes=otp_minutes)
+        )
+
+        email_sent = False
+        try:
+            if current_app.config.get('MAIL_SERVER') and current_app.config.get('MAIL_USERNAME') and current_app.config.get('MAIL_PASSWORD'):
+                email_sent = send_verification_email_otp(user, otp_code)
+        except Exception as send_err:
+            current_app.logger.error(f"Failed to send merchant OTP email to {email_norm}: {str(send_err)}", exc_info=True)
+
+        # Record successful send for Redis tier tracking.
+        if email_sent and redis_client:
+            now_utc = datetime.utcnow()
+            p = redis_client.pipeline()
+            p.set(attempts_key, attempts + 1)
+            p.set(last_ts_key, now_utc.timestamp())
+            p.set(last_date_key, now_utc.date().isoformat())
+            p.expire(attempts_key, 86400 * 2); p.expire(last_date_key, 86400 * 2); p.expire(last_ts_key, 86400 * 2)
+            p.execute()
+
+        response = dict(generic_ok)
+        if current_app.config.get('DEV_OTP_BYPASS'):
+            response["dev_otp"] = otp_code
+        return response, 200
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Resend merchant email OTP error for {email}: {str(e)}", exc_info=True)
+        return {"error": "Failed to resend verification code"}, 500
 
 
 def google_auth(token_data):

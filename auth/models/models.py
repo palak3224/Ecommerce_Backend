@@ -1,6 +1,6 @@
 import bcrypt
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 import re
 from sqlalchemy import TypeDecorator, String, Enum as SQLEnum
@@ -546,14 +546,17 @@ class EmailVerification(BaseModel):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     token = db.Column(db.String(255), nullable=False, unique=True)
+    # 6-digit OTP for app-based email verification (web flow uses the link token above).
+    # Nullable so the existing link-based rows are unaffected.
+    otp = db.Column(db.String(6), nullable=True)
     expires_at = db.Column(db.DateTime, nullable=False)
     is_used = db.Column(db.Boolean, default=False, nullable=False)
-    
+
     @classmethod
     def get_by_id(cls, id):
         """Get verification by ID."""
         return cls.query.filter_by(id=id).first()
-    
+
     @classmethod
     def create_token(cls, user_id, expires_at):
         """Create a new verification token."""
@@ -565,12 +568,72 @@ class EmailVerification(BaseModel):
         )
         verification.save()
         return token
-    
+
+    @classmethod
+    def create_email_otp(cls, user_id, expires_at, otp_override=None):
+        """Create a new 6-digit email-verification OTP for app-based merchant verification.
+
+        Mirrors PhoneVerification.create_otp. A unique uuid is still stored in `token`
+        to satisfy the NOT NULL / UNIQUE constraint on that column; verification is done
+        against `otp`. Returns the generated OTP string.
+        """
+        import random
+        otp = str(otp_override) if otp_override is not None else ''.join(random.choices('0123456789', k=6))
+        verification = cls(
+            token=str(uuid.uuid4()),
+            user_id=user_id,
+            otp=otp,
+            expires_at=expires_at,
+            # Set created_at explicitly in Python UTC (like PhoneVerification) so the
+            # has_recent_otp throttle is not affected by the DB server's timezone.
+            created_at=datetime.utcnow()
+        )
+        verification.save()
+        return otp
+
     @classmethod
     def get_by_token(cls, token):
         """Get verification by token."""
         return cls.query.filter_by(token=token, is_used=False).first()
-    
+
+    @classmethod
+    def verify_email_otp(cls, user_id, otp):
+        """Verify an email OTP for a user.
+
+        Returns True if a matching unused, unexpired OTP exists (and marks it used),
+        otherwise False. Does not mutate user/merchant state — that is the caller's
+        responsibility (mirrors how the link flow updates status in the controller).
+        """
+        verification = cls.query.filter_by(
+            user_id=user_id,
+            otp=otp,
+            is_used=False
+        ).order_by(cls.id.desc()).first()
+
+        if not verification:
+            return False
+
+        if verification.expires_at < datetime.utcnow():
+            return False
+
+        verification.is_used = True
+        db.session.commit()
+        return True
+
+    @classmethod
+    def has_recent_otp(cls, user_id, within_seconds=30):
+        """Return True if an OTP was created for this user within `within_seconds`.
+
+        DB-level throttle fallback used when Redis is unavailable, so resend cannot be
+        spammed even without the Redis rate limiter.
+        """
+        cutoff = datetime.utcnow() - timedelta(seconds=within_seconds)
+        return cls.query.filter(
+            cls.user_id == user_id,
+            cls.otp.isnot(None),
+            cls.created_at >= cutoff
+        ).first() is not None
+
     def use(self):
         """Mark verification token as used."""
         self.is_used = True

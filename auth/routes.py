@@ -8,7 +8,8 @@ from auth.controllers import (
     request_password_reset, reset_password,
     resend_verification_email_controller,
     send_phone_otp, verify_phone_otp_signup, verify_phone_otp_login,
-    creator_signup_request, creator_resend_otp, creator_verify_otp
+    creator_signup_request, creator_resend_otp, creator_verify_otp,
+    verify_merchant_email_otp, resend_merchant_email_otp
 )
 from auth.utils import user_role_required, merchant_role_required, admin_role_required
 from auth.models import User, MerchantProfile
@@ -42,6 +43,9 @@ class RegisterMerchantSchema(Schema):
     city = fields.Str(required=True)
     postal_code = fields.Str(required=True)
     role = fields.Str(load_only=True)
+    # Registration origin: "app" -> email OTP verification; "web"/omitted -> email link.
+    # Declared here because marshmallow rejects unknown fields by default (RAISE).
+    source = fields.Str(load_only=True, required=False, validate=validate.OneOf(["web", "app"]))
 
 class LoginSchema(Schema):
     email = fields.Email(required=False)
@@ -926,6 +930,94 @@ def resend_verification_email_route():
 
     except ValidationError as err:
         return jsonify({"error": "Validation error", "details": err.messages}), 400
+
+
+class MerchantVerifyEmailOtpSchema(Schema):
+    email = fields.Email(required=True)
+    otp = fields.Str(required=True, validate=validate.Length(equal=6))
+
+
+class MerchantResendEmailOtpSchema(Schema):
+    email = fields.Email(required=True)
+
+
+@auth_bp.route('/merchant/verify-email-otp', methods=['POST'])
+def verify_merchant_email_otp_route():
+    """
+    Verify a merchant's email using the OTP sent for app-based onboarding.
+    ---
+    tags:
+      - Merchant
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - email
+            - otp
+          properties:
+            email:
+              type: string
+              format: email
+            otp:
+              type: string
+              minLength: 6
+              maxLength: 6
+    responses:
+      200:
+        description: Email verified successfully (returns tokens, user and merchant)
+      400:
+        description: Validation error or invalid/expired OTP
+      403:
+        description: Not a merchant account
+      500:
+        description: Internal server error
+    """
+    try:
+        schema = MerchantVerifyEmailOtpSchema()
+        data = schema.load(request.json)
+        response, status_code = verify_merchant_email_otp(data['email'], data['otp'])
+        return jsonify(response), status_code
+    except ValidationError as e:
+        return jsonify({"error": "Validation error", "details": e.messages}), 400
+
+
+@auth_bp.route('/merchant/resend-email-otp', methods=['POST'])
+def resend_merchant_email_otp_route():
+    """
+    Resend the email-verification OTP to a merchant (app-based onboarding).
+    ---
+    tags:
+      - Merchant
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - email
+          properties:
+            email:
+              type: string
+              format: email
+    responses:
+      200:
+        description: If the email is registered and unverified, a new code was sent
+      400:
+        description: Validation error
+      429:
+        description: Rate limit exceeded
+      500:
+        description: Internal server error
+    """
+    try:
+        schema = MerchantResendEmailOtpSchema()
+        data = schema.load(request.json)
+        response, status_code = resend_merchant_email_otp(data['email'])
+        return jsonify(response), status_code
+    except ValidationError as e:
+        return jsonify({"error": "Validation error", "details": e.messages}), 400
 
 
 @auth_bp.route('/phone/send-otp', methods=['POST'])
