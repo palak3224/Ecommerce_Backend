@@ -103,7 +103,11 @@ class Config:
     # will NOT send SMS via Twilio and will accept a fixed OTP code (default 123456).
     APPLE_REVIEW_OTP_BYPASS = os.getenv('APPLE_REVIEW_OTP_BYPASS', 'false').lower() in ('1', 'true', 'yes')
     APPLE_REVIEW_OTP_CODE = os.getenv('APPLE_REVIEW_OTP_CODE', '123456')
-    
+
+    # Email OTP verification (app-based onboarding) — lifetime of the 6-digit code in minutes.
+    USER_EMAIL_OTP_EXPIRY_MIN = int(os.getenv('USER_EMAIL_OTP_EXPIRY_MIN', '10'))
+    MERCHANT_EMAIL_OTP_EXPIRY_MIN = int(os.getenv('MERCHANT_EMAIL_OTP_EXPIRY_MIN', '10'))
+
     # Notification Cleanup Configuration
     NOTIFICATION_CLEANUP_ENABLED = os.getenv('NOTIFICATION_CLEANUP_ENABLED', 'true').lower() in ('1', 'true', 'yes')
     NOTIFICATION_CLEANUP_DAYS_OLD = int(os.getenv('NOTIFICATION_CLEANUP_DAYS_OLD', '90'))
