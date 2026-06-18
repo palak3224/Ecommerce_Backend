@@ -227,6 +227,61 @@ def get_order(order_id):
             'message': str(e)
         }), 500
 
+
+@order_bp.route('/<string:order_id>/invoice', methods=['GET'])
+@jwt_required()
+@role_required([UserRole.USER.value, UserRole.ADMIN.value])
+def download_invoice(order_id):
+    """
+    Download a GST tax invoice (PDF) for a paid order owned by the current user.
+    ---
+    tags:
+      - Orders
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: order_id
+        type: string
+        required: true
+        description: ID of the order to invoice
+    responses:
+      200:
+        description: PDF invoice
+      400:
+        description: Order not paid yet
+      401:
+        description: Unauthorized
+      403:
+        description: Not allowed to view this invoice
+      404:
+        description: Order not found
+      500:
+        description: Internal server error
+    """
+    from services.invoice_service import build_invoice_data, InvoiceError
+    from services.invoice_pdf import render_invoice_pdf
+    from flask import make_response
+
+    try:
+        user_id = get_jwt_identity()
+        try:
+            data = build_invoice_data(order_id, user_id, require_paid=True)
+        except InvoiceError as ie:
+            return jsonify({'status': 'error', 'message': ie.message}), ie.status
+
+        pdf_bytes = render_invoice_pdf(data)
+        response = make_response(pdf_bytes)
+        response.headers['Content-Type'] = 'application/pdf'
+        response.headers['Content-Disposition'] = (
+            f'attachment; filename="invoice_{order_id}.pdf"'
+        )
+        return response
+    except Exception as e:
+        logger.error(f"Error generating invoice for order {order_id}: {str(e)}", exc_info=True)
+        return jsonify({'status': 'error', 'message': 'Failed to generate invoice'}), 500
+
+
 @order_bp.route('/user', methods=['GET'])
 @jwt_required()
 @role_required([UserRole.USER.value])
