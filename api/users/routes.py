@@ -17,7 +17,13 @@ class UpdateUserProfileSchema(Schema):
     last_name = fields.Str(validate=validate.Length(min=1, max=100))
     date_of_birth = fields.Str(allow_none=True)  # DD-MM-YYYY format string
     gender = fields.Str(validate=validate.OneOf(['male', 'female', 'other', 'prefer_not_to_say']), allow_none=True)
-    
+    # Phone is editable (no OTP verification). Allow null/empty to clear it; otherwise
+    # require 10-15 chars containing only digits, spaces and + - ( ).
+    phone = fields.Str(allow_none=True, validate=validate.Regexp(
+        r'^[\d\s\+\-\(\)]{10,15}$',
+        error="Phone must be 10-15 characters and contain only digits, spaces, +, -, ( and )."
+    ))
+
     @validates_schema
     def validate_date_of_birth(self, data, **kwargs):
         """Validate date_of_birth format (DD-MM-YYYY)"""

@@ -1057,18 +1057,37 @@ def update_user_profile(user_id, data):
             return {"error": "User not found"}, 404
         
         # Fields that are NOT allowed to be updated
-        restricted_fields = ['email', 'phone', 'id', 'password_hash', 'role', 'is_active', 
-                            'is_email_verified', 'is_phone_verified', 'auth_provider', 
+        restricted_fields = ['email', 'id', 'password_hash', 'role', 'is_active',
+                            'is_email_verified', 'is_phone_verified', 'auth_provider',
                             'provider_user_id', 'created_at', 'updated_at']
-        
+
         # Check if user is trying to update restricted fields
         restricted_attempted = [field for field in data.keys() if field in restricted_fields]
         if restricted_attempted:
             return {"error": f"Cannot update restricted fields: {', '.join(restricted_attempted)}"}, 400
-        
-        # Allowed fields to update
-        allowed_fields = ['first_name', 'last_name', 'date_of_birth', 'gender']
-        
+
+        # Allowed fields to update (phone editable without OTP, but uniqueness-guarded below)
+        allowed_fields = ['first_name', 'last_name', 'date_of_birth', 'gender', 'phone']
+
+        # Phone uniqueness guard: a phone may belong to at most one account, because
+        # phone-OTP login looks users up by phone. Reject if another user has it.
+        if 'phone' in data:
+            new_phone = data.get('phone')
+            new_phone = new_phone.strip() if isinstance(new_phone, str) else new_phone
+            if new_phone:  # non-empty -> check for collision
+                existing = User.get_by_phone(new_phone)
+                if existing and existing.id != user.id:
+                    return {"error": "This phone number is already in use by another account."}, 409
+                # Phone changed without verification -> mark unverified so OTP login re-verifies.
+                if new_phone != (user.phone or ""):
+                    user.is_phone_verified = False
+                user.phone = new_phone
+            else:
+                # Empty/null -> clear the phone
+                user.phone = None
+            # Remove so the generic loop below doesn't process it again.
+            data = {k: v for k, v in data.items() if k != 'phone'}
+
         # Update allowed fields
         for field, value in data.items():
             if field in allowed_fields and hasattr(user, field):
@@ -1102,7 +1121,8 @@ def update_user_profile(user_id, data):
                 "first_name": user.first_name,
                 "last_name": user.last_name,
                 "date_of_birth": date_of_birth_str,
-                "gender": user.gender
+                "gender": user.gender,
+                "phone": user.phone
             }
         }, 200
     except Exception as e:
