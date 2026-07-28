@@ -27,6 +27,7 @@ from routes.product_routes import product_bp
 from routes.category_routes import category_bp
 from routes.brand_routes import brand_bp
 from routes.homepage_routes import homepage_bp
+from routes.explore_banner_routes import explore_banner_bp
 from routes.cart_routes import cart_bp
 from routes.wishlist_routes import wishlist_bp
 from routes.order_routes import order_bp
@@ -384,6 +385,7 @@ def create_app(config_name=None):
     app.register_blueprint(category_bp, url_prefix='/api/categories')
     app.register_blueprint(brand_bp, url_prefix='/api/brands')
     app.register_blueprint(homepage_bp, url_prefix='/api/homepage')
+    app.register_blueprint(explore_banner_bp)
     app.register_blueprint(cart_bp, url_prefix='/api/cart')
     app.register_blueprint(wishlist_bp, url_prefix='/api/wishlist')
     app.register_blueprint(order_bp, url_prefix='/api/orders')

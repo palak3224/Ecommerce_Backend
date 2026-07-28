@@ -712,6 +712,18 @@ class S3ProductMediaService:
         s3_key = f"assets/carousel/{uuid.uuid4()}_{secure_name}{file_ext}"
         return self._upload_asset_with_path(file, s3_key)
     
+    def upload_explore_banner_image(self, file):
+        """
+        Upload explore-screen banner image to S3
+        Format: assets/explore-banners/{uuid}_{secure_filename}
+        """
+        file_ext = ''
+        if '.' in file.filename:
+            file_ext = '.' + file.filename.rsplit('.', 1)[1].lower()
+        secure_name = secure_filename(file.filename.rsplit('.', 1)[0] if '.' in file.filename else file.filename)
+        s3_key = f"assets/explore-banners/{uuid.uuid4()}_{secure_name}{file_ext}"
+        return self._upload_asset_with_path(file, s3_key)
+
     def upload_support_attachment(self, file, folder_name="support_attachments"):
         """
         Upload support ticket attachment to S3

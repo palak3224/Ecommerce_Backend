@@ -29,6 +29,7 @@ from .shipment import Shipment, ShipmentItem
 from .shop.shop_order import ShopOrder, ShopOrderItem, ShopOrderStatusHistory
 from .shop.shop_shipment import ShopShipment, ShopShipmentItem
 from .visit_tracking import VisitTracking
+from .explore_banner import ExploreBanner
 
 
 from .gst_rule import GSTRule 
@@ -78,5 +79,6 @@ __all__ = [
     'UserBlockedMerchant',
     'UserHiddenCategory',
     'MerchantNotification',
-    'HoliGiveawayRegistration'
+    'HoliGiveawayRegistration',
+    'ExploreBanner'
 ]
