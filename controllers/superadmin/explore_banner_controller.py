@@ -1,5 +1,6 @@
 import os
-from models.explore_banner import ExploreBanner
+from collections import defaultdict
+from models.explore_banner import ExploreBannerItem
 from common.database import db
 from services.s3_service import get_s3_service
 from flask import current_app
@@ -18,6 +19,10 @@ BANNER_ASPECT_TOLERANCE = 0.02          # ~1 px on a 1200x600 image
 
 class BannerValidationError(ValueError):
     """Raised when an uploaded banner image violates the required spec."""
+
+
+class BannerDeleteError(ValueError):
+    """Raised when deleting an item would violate the minimum-items-per-group rule."""
 
 
 def validate_banner_image(image_file):
@@ -61,32 +66,40 @@ def validate_banner_image(image_file):
         raise BannerValidationError('Banner image must have a 2:1 aspect ratio (e.g. 1200×600 px).')
 
 
-class ExploreBannerController:
-    """Business logic for Explore-screen banners (Superadmin)."""
+class ExploreBannerItemController:
+    """Business logic for Explore-screen banner items (Superadmin)."""
 
     @staticmethod
     def _base_query():
-        """Non-deleted banners."""
-        return ExploreBanner.query.filter_by(deleted_at=None)
+        """Non-deleted banner items."""
+        return ExploreBannerItem.query.filter_by(deleted_at=None)
 
     @staticmethod
-    def list_all():
-        """All non-deleted banners ordered by display_order (for the admin panel)."""
-        return ExploreBannerController._base_query().order_by(ExploreBanner.display_order).all()
+    def list_all_grouped():
+        """All non-deleted items, grouped by `group_key` (for the admin panel)."""
+        items = ExploreBannerItemController._base_query().order_by(ExploreBannerItem.group_key, ExploreBannerItem.display_order).all()
+        grouped = defaultdict(list)
+        for item in items:
+            grouped[item.group_key].append(item)
+        return grouped
 
     @staticmethod
-    def list_active():
-        """Active, non-deleted banners ordered by display_order (for the mobile app)."""
-        return (
-            ExploreBannerController._base_query()
+    def list_active_grouped():
+        """Active, non-deleted items, grouped by `group_key` (for the mobile app)."""
+        items = (
+            ExploreBannerItemController._base_query()
             .filter_by(is_active=True)
-            .order_by(ExploreBanner.display_order)
+            .order_by(ExploreBannerItem.group_key, ExploreBannerItem.display_order)
             .all()
         )
+        grouped = defaultdict(list)
+        for item in items:
+            grouped[item.group_key].append(item)
+        return grouped
 
     @staticmethod
-    def get(banner_id):
-        return ExploreBannerController._base_query().filter_by(id=banner_id).first()
+    def get(item_id):
+        return ExploreBannerItemController._base_query().filter_by(id=item_id).first()
 
     @staticmethod
     def _upload_image(image_file):
@@ -94,10 +107,8 @@ class ExploreBannerController:
         if not hasattr(image_file, 'filename') or not image_file.filename:
             raise Exception("Invalid file object: missing filename")
 
-        # Enforce the banner image spec (format / size / dimensions) before upload.
         validate_banner_image(image_file)
 
-        # Reset pointer to start if needed.
         if hasattr(image_file, 'seek') and hasattr(image_file, 'tell'):
             try:
                 if image_file.tell() != 0:
@@ -116,31 +127,30 @@ class ExploreBannerController:
 
     @staticmethod
     def create(data, image_file=None):
-        """
-        Create a new explore banner.
+        """Create a new explore banner item."""
+        group_key = data.get('group_key')
+        if not group_key or group_key not in ExploreBannerItem.BANNER_GROUPS:
+            raise ValueError(f"Invalid or missing group_key. Must be one of {ExploreBannerItem.BANNER_GROUPS}.")
 
-        Enforces the MAX_BANNERS limit. Requires either an uploaded image
-        file or an image_url in `data`.
-        """
-        existing_count = ExploreBannerController._base_query().count()
-        if existing_count >= ExploreBanner.MAX_BANNERS:
+        existing_count = ExploreBannerItemController._base_query().filter_by(group_key=group_key).count()
+        if existing_count >= ExploreBannerItem.MAX_ITEMS_PER_GROUP:
             raise ValueError(
-                f"Maximum of {ExploreBanner.MAX_BANNERS} explore banners allowed."
+                f"Maximum of {ExploreBannerItem.MAX_ITEMS_PER_GROUP} items allowed for the '{group_key}' banner group."
             )
 
         image_url = data.get('image_url')
         if image_file:
-            image_url = ExploreBannerController._upload_image(image_file)
+            image_url = ExploreBannerItemController._upload_image(image_file)
 
         if not image_url:
             raise ValueError("Banner image is required.")
 
-        # New banners are appended to the end of the carousel.
         display_order = data.get('display_order')
         if display_order is None:
             display_order = existing_count
 
-        banner = ExploreBanner(
+        banner_item = ExploreBannerItem(
+            group_key=group_key,
             image_url=image_url,
             title=data['title'],
             cta_text=data['cta_text'],
@@ -149,72 +159,87 @@ class ExploreBannerController:
             is_active=data.get('is_active', True),
         )
         try:
-            db.session.add(banner)
+            db.session.add(banner_item)
             db.session.commit()
-            return banner
+            return banner_item
         except Exception as e:
             db.session.rollback()
-            current_app.logger.error(f"Failed to create explore banner: {e}", exc_info=True)
+            current_app.logger.error(f"Failed to create explore banner item: {e}", exc_info=True)
             raise
 
     @staticmethod
-    def update(banner_id, data, image_file=None):
-        banner = ExploreBannerController.get(banner_id)
-        if not banner:
-            raise ValueError("Explore banner not found.")
+    def update(item_id, data, image_file=None):
+        banner_item = ExploreBannerItemController.get(item_id)
+        if not banner_item:
+            raise ValueError("Explore banner item not found.")
 
         if image_file:
-            banner.image_url = ExploreBannerController._upload_image(image_file)
+            banner_item.image_url = ExploreBannerItemController._upload_image(image_file)
         elif data.get('image_url'):
-            banner.image_url = data['image_url']
+            banner_item.image_url = data['image_url']
 
+        # group_key cannot be changed on update.
         for field in ('title', 'cta_text', 'cta_path', 'display_order', 'is_active'):
             if field in data and data[field] is not None:
-                setattr(banner, field, data[field])
+                setattr(banner_item, field, data[field])
 
         try:
             db.session.commit()
-            return banner
+            return banner_item
         except Exception as e:
             db.session.rollback()
-            current_app.logger.error(f"Failed to update explore banner {banner_id}: {e}", exc_info=True)
+            current_app.logger.error(f"Failed to update explore banner item {item_id}: {e}", exc_info=True)
             raise
 
     @staticmethod
-    def delete(banner_id):
-        """Soft-delete a banner."""
-        banner = ExploreBannerController.get(banner_id)
-        if not banner:
-            raise ValueError("Explore banner not found.")
-        banner.deleted_at = datetime.utcnow()
+    def delete(item_id):
+        """
+        Soft-delete a banner item, ensuring at least one item remains in the group.
+        """
+        banner_item = ExploreBannerItemController.get(item_id)
+        if not banner_item:
+            raise ValueError("Explore banner item not found.")
+
+        remaining = ExploreBannerItemController._base_query().filter_by(group_key=banner_item.group_key).count()
+        if remaining <= 1:
+            raise BannerDeleteError(f"At least one item is required in the '{banner_item.group_key}' group.")
+
+        banner_item.deleted_at = datetime.utcnow()
         try:
             db.session.commit()
-            return banner
+            return banner_item
         except Exception as e:
             db.session.rollback()
-            current_app.logger.error(f"Failed to delete explore banner {banner_id}: {e}", exc_info=True)
+            current_app.logger.error(f"Failed to delete explore banner item {item_id}: {e}", exc_info=True)
             raise
 
     @staticmethod
-    def reorder(ordered_ids):
+    def reorder(group_key, ordered_ids):
         """
-        Set the carousel order from a list of banner ids. The position of
-        each id in the list becomes its display_order (0-based).
+        Set the carousel order for a specific group from a list of item ids.
         """
-        if not isinstance(ordered_ids, list) or not ordered_ids:
-            raise ValueError("A non-empty list of banner ids is required.")
+        if not group_key or group_key not in ExploreBannerItem.BANNER_GROUPS:
+            raise ValueError(f"Invalid or missing group_key. Must be one of {ExploreBannerItem.BANNER_GROUPS}.")
+        if not isinstance(ordered_ids, list):
+            raise ValueError("A list of banner item ids is required.")
 
-        banners = {b.id: b for b in ExploreBannerController._base_query().all()}
-        unknown = [bid for bid in ordered_ids if bid not in banners]
+        items_in_group = {
+            b.id: b for b in ExploreBannerItemController._base_query().filter_by(group_key=group_key).all()
+        }
+        
+        if len(ordered_ids) != len(items_in_group):
+             raise ValueError("The provided list of IDs does not match the number of items in the group.")
+
+        unknown = [bid for bid in ordered_ids if bid not in items_in_group]
         if unknown:
-            raise ValueError(f"Unknown banner id(s): {unknown}.")
+            raise ValueError(f"Unknown banner item id(s) for this group: {unknown}.")
 
         for index, bid in enumerate(ordered_ids):
-            banners[bid].display_order = index
+            items_in_group[bid].display_order = index
         try:
             db.session.commit()
-            return ExploreBannerController.list_all()
+            return list(items_in_group.values())
         except Exception as e:
             db.session.rollback()
-            current_app.logger.error(f"Failed to reorder explore banners: {e}", exc_info=True)
+            current_app.logger.error(f"Failed to reorder explore banner items for group {group_key}: {e}", exc_info=True)
             raise
