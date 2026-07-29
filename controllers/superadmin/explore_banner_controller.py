@@ -152,7 +152,7 @@ class ExploreBannerItemController:
         if display_order is None:
             display_order = existing_count
 
-        # FIX: Allow empty strings for title, cta_text, cta_path
+        # Allow empty strings for title, cta_text, cta_path
         banner_item = ExploreBannerItem(
             group_key=group_key,
             image_url=image_url,
@@ -184,7 +184,7 @@ class ExploreBannerItemController:
             banner_item.image_url = data['image_url']
 
         # group_key cannot be changed on update.
-        # FIX: Allow empty strings for title, cta_text, cta_path
+        # Allow empty strings for title, cta_text, cta_path
         for field in ('title', 'cta_text', 'cta_path', 'display_order', 'is_active'):
             if field in data:
                 setattr(banner_item, field, data[field])
@@ -206,9 +206,7 @@ class ExploreBannerItemController:
         if not banner_item:
             raise ValueError("Explore banner item not found.")
 
-        # FIX: Allow deletion of all items - removed the guard completely
-        # The frontend already has validation, and groups can have 0 items
-        
+        # Removed the guard completely - groups can have 0 items
         banner_item.deleted_at = datetime.utcnow()
         try:
             db.session.commit()
