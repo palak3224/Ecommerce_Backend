@@ -29,9 +29,9 @@ def _extract_payload():
         body = request.get_json(silent=True) or {}
         data = {
             'group_key': body.get('group_key'),
-            'title': body.get('title'),
-            'cta_text': body.get('cta_text'),
-            'cta_path': body.get('cta_path'),
+            'title': body.get('title', ''),  # FIX: Default to empty string
+            'cta_text': body.get('cta_text', ''),
+            'cta_path': body.get('cta_path', ''),
             'image_url': body.get('image_url'),
             'display_order': body.get('display_order'),
             'is_active': body.get('is_active'),
@@ -40,9 +40,9 @@ def _extract_payload():
         form = request.form
         data = {
             'group_key': form.get('group_key'),
-            'title': form.get('title'),
-            'cta_text': form.get('cta_text'),
-            'cta_path': form.get('cta_path'),
+            'title': form.get('title', ''),  # FIX: Default to empty string
+            'cta_text': form.get('cta_text', ''),
+            'cta_path': form.get('cta_path', ''),
             'image_url': form.get('image_url'),
             'display_order': int(form['display_order']) if form.get('display_order') not in (None, '') else None,
             'is_active': _parse_bool(form.get('is_active')) if form.get('is_active') is not None else None,
@@ -129,9 +129,9 @@ def create_explore_banner_item():
     try:
         data, image_file = _extract_payload()
 
-        missing = [f for f in ('group_key', 'title', 'cta_text', 'cta_path') if not (data.get(f) or '').strip()]
-        if missing:
-            return jsonify({'message': f"Missing required field(s): {', '.join(missing)}."}), \
+        # FIX: Only validate group_key and image - title, cta_text, cta_path are optional
+        if not (data.get('group_key') or '').strip():
+            return jsonify({'message': "Missing required field: group_key."}), \
                 HTTPStatus.BAD_REQUEST
         if not image_file and not data.get('image_url'):
             return jsonify({'message': 'Banner image is required.'}), HTTPStatus.BAD_REQUEST
