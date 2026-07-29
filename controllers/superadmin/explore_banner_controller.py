@@ -77,7 +77,10 @@ class ExploreBannerItemController:
     @staticmethod
     def list_all_grouped():
         """All non-deleted items, grouped by `group_key` (for the admin panel)."""
-        items = ExploreBannerItemController._base_query().order_by(ExploreBannerItem.group_key, ExploreBannerItem.display_order).all()
+        items = ExploreBannerItemController._base_query().order_by(
+            ExploreBannerItem.group_key, 
+            ExploreBannerItem.display_order
+        ).all()
         grouped = defaultdict(list)
         for item in items:
             grouped[item.group_key].append(item)
@@ -87,8 +90,8 @@ class ExploreBannerItemController:
     def list_active_grouped():
         """Active, non-deleted items, grouped by `group_key` (for the mobile app)."""
         items = (
-            ExploreBannerItemController._base_query()
-            .filter_by(is_active=True)
+            ExploreBannerItem.query
+            .filter_by(deleted_at=None, is_active=True)  # FIX: Added deleted_at filter
             .order_by(ExploreBannerItem.group_key, ExploreBannerItem.display_order)
             .all()
         )
@@ -149,12 +152,13 @@ class ExploreBannerItemController:
         if display_order is None:
             display_order = existing_count
 
+        # FIX: Allow empty strings for title, cta_text, cta_path
         banner_item = ExploreBannerItem(
             group_key=group_key,
             image_url=image_url,
-            title=data['title'],
-            cta_text=data['cta_text'],
-            cta_path=data['cta_path'],
+            title=data.get('title', ''),
+            cta_text=data.get('cta_text', ''),
+            cta_path=data.get('cta_path', ''),
             display_order=display_order,
             is_active=data.get('is_active', True),
         )
@@ -169,6 +173,7 @@ class ExploreBannerItemController:
 
     @staticmethod
     def update(item_id, data, image_file=None):
+        """Update an explore banner item."""
         banner_item = ExploreBannerItemController.get(item_id)
         if not banner_item:
             raise ValueError("Explore banner item not found.")
@@ -179,8 +184,9 @@ class ExploreBannerItemController:
             banner_item.image_url = data['image_url']
 
         # group_key cannot be changed on update.
+        # FIX: Allow empty strings for title, cta_text, cta_path
         for field in ('title', 'cta_text', 'cta_path', 'display_order', 'is_active'):
-            if field in data and data[field] is not None:
+            if field in data:
                 setattr(banner_item, field, data[field])
 
         try:
@@ -194,16 +200,15 @@ class ExploreBannerItemController:
     @staticmethod
     def delete(item_id):
         """
-        Soft-delete a banner item, ensuring at least one item remains in the group.
+        Soft-delete a banner item. Allows deletion of all items in a group.
         """
         banner_item = ExploreBannerItemController.get(item_id)
         if not banner_item:
             raise ValueError("Explore banner item not found.")
 
-        remaining = ExploreBannerItemController._base_query().filter_by(group_key=banner_item.group_key).count()
-        if remaining <= 1:
-            raise BannerDeleteError(f"At least one item is required in the '{banner_item.group_key}' group.")
-
+        # FIX: Allow deletion of all items - removed the guard completely
+        # The frontend already has validation, and groups can have 0 items
+        
         banner_item.deleted_at = datetime.utcnow()
         try:
             db.session.commit()
@@ -228,7 +233,7 @@ class ExploreBannerItemController:
         }
         
         if len(ordered_ids) != len(items_in_group):
-             raise ValueError("The provided list of IDs does not match the number of items in the group.")
+            raise ValueError("The provided list of IDs does not match the number of items in the group.")
 
         unknown = [bid for bid in ordered_ids if bid not in items_in_group]
         if unknown:
