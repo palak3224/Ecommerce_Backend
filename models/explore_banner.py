@@ -6,29 +6,22 @@ class ExploreBanner(db.Model):
     """
     Banner shown on the "Explore" screen of the mobile application.
 
-    The Explore screen supports a maximum of 3 banners. Each banner has an
+    The Explore screen shows 1-3 banners as a carousel. Each banner has an
     image, a title, and a call-to-action (button text + navigation path).
-    Managed from the Superadmin panel (Catalog > Explore Screen).
+    Carousel order is controlled by `display_order`. Managed from the
+    Superadmin panel (Catalog > Explore Screen).
     """
     __tablename__ = 'explore_banners'
 
-    # The explore screen has three fixed, named banner slots.
-    SLOTS = ('hero', 'spotlight', 'category')
-    SLOT_LABELS = {
-        'hero': 'Hero Banner',
-        'spotlight': 'Spotlight Banner',
-        'category': 'Category Banner',
-    }
-    # Maximum number of (non-deleted) banners allowed on the explore screen.
-    MAX_BANNERS = len(SLOTS)
+    # Maximum number of (non-deleted) banners in the explore carousel.
+    MAX_BANNERS = 3
 
     id = db.Column(db.Integer, primary_key=True)
-    slot = db.Column(db.String(20), nullable=False)        # 'hero' | 'spotlight' | 'category'
     image_url = db.Column(db.String(500), nullable=False)
     title = db.Column(db.String(255), nullable=False)
     cta_text = db.Column(db.String(100), nullable=False)   # CTA button label, e.g. "Shop Now"
     cta_path = db.Column(db.String(500), nullable=False)   # In-app navigation path, e.g. "/collections/summer"
-    display_order = db.Column(db.Integer, nullable=False, default=0)
+    display_order = db.Column(db.Integer, nullable=False, default=0)  # carousel position (0-based)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -40,8 +33,6 @@ class ExploreBanner(db.Model):
     def serialize(self):
         return {
             'id': self.id,
-            'slot': self.slot,
-            'slot_label': self.SLOT_LABELS.get(self.slot, self.slot),
             'image_url': self.image_url,
             'title': self.title,
             'cta_text': self.cta_text,

@@ -28,7 +28,6 @@ def _extract_payload():
     if request.content_type and 'application/json' in request.content_type and not image_file:
         body = request.get_json(silent=True) or {}
         data = {
-            'slot': body.get('slot'),
             'title': body.get('title'),
             'cta_text': body.get('cta_text'),
             'cta_path': body.get('cta_path'),
@@ -39,7 +38,6 @@ def _extract_payload():
     else:
         form = request.form
         data = {
-            'slot': form.get('slot'),
             'title': form.get('title'),
             'cta_text': form.get('cta_text'),
             'cta_path': form.get('cta_path'),
@@ -87,6 +85,26 @@ def list_explore_banners():
     except Exception as e:
         current_app.logger.error(f"Error listing explore banners: {e}", exc_info=True)
         return jsonify({'message': f'Failed to list explore banners: {str(e)}'}), \
+            HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+@explore_banner_bp.route('/api/superadmin/explore-banners/order', methods=['PUT', 'OPTIONS'])
+@cross_origin()
+@super_admin_role_required
+def reorder_explore_banners():
+    """Set the carousel order. Body: { "order": [id, id, id] }."""
+    if request.method == 'OPTIONS':
+        return '', 200
+    try:
+        body = request.get_json(silent=True) or {}
+        order = body.get('order')
+        banners = ExploreBannerController.reorder(order)
+        return jsonify({'banners': [b.serialize() for b in banners]}), HTTPStatus.OK
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+    except Exception as e:
+        current_app.logger.error(f"Error reordering explore banners: {e}", exc_info=True)
+        return jsonify({'message': f'Failed to reorder explore banners: {str(e)}'}), \
             HTTPStatus.INTERNAL_SERVER_ERROR
 
 

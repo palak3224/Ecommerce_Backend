@@ -7,8 +7,8 @@ from datetime import datetime
 from PIL import Image
 
 # --- Explore banner image specification ---
-BANNER_ALLOWED_EXTS = {'jpg', 'jpeg', 'webp'}
-BANNER_ALLOWED_MIMES = {'image/jpeg', 'image/jpg', 'image/webp'}
+BANNER_ALLOWED_EXTS = {'jpg', 'jpeg', 'png', 'webp'}
+BANNER_ALLOWED_MIMES = {'image/jpeg', 'image/jpg', 'image/png', 'image/webp'}
 BANNER_MAX_BYTES = 5 * 1024 * 1024      # 5 MB
 BANNER_TARGET_W = 1200
 BANNER_TARGET_H = 600
@@ -22,7 +22,7 @@ class BannerValidationError(ValueError):
 
 def validate_banner_image(image_file):
     """
-    Enforce the explore-banner image spec: JPG/WebP, <= 5 MB, 2:1 aspect
+    Enforce the explore-banner image spec: JPG/PNG/WebP, <= 5 MB, 2:1 aspect
     ratio, and at least 1200x600 px. Raises ValueError on any violation.
     Leaves the file pointer reset to the start for the subsequent upload.
     """
@@ -30,7 +30,7 @@ def validate_banner_image(image_file):
     ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
     mime = (getattr(image_file, 'mimetype', '') or getattr(image_file, 'content_type', '') or '').lower()
     if ext not in BANNER_ALLOWED_EXTS and mime not in BANNER_ALLOWED_MIMES:
-        raise BannerValidationError('Banner image must be a JPG or WebP file.')
+        raise BannerValidationError('Banner image must be a JPG, PNG or WebP file.')
 
     # File size
     size = None
@@ -48,7 +48,7 @@ def validate_banner_image(image_file):
         img = Image.open(image_file)
         width, height = img.size
     except Exception:
-        raise BannerValidationError('Could not read the image file. Please upload a valid JPG or WebP.')
+        raise BannerValidationError('Could not read the image file. Please upload a valid JPG, PNG or WebP.')
     finally:
         try:
             image_file.seek(0)
@@ -122,29 +122,11 @@ class ExploreBannerController:
         Enforces the MAX_BANNERS limit. Requires either an uploaded image
         file or an image_url in `data`.
         """
-        existing = ExploreBannerController._base_query().all()
-        if len(existing) >= ExploreBanner.MAX_BANNERS:
+        existing_count = ExploreBannerController._base_query().count()
+        if existing_count >= ExploreBanner.MAX_BANNERS:
             raise ValueError(
                 f"Maximum of {ExploreBanner.MAX_BANNERS} explore banners allowed."
             )
-
-        # Resolve the named slot (hero / spotlight / category).
-        used_slots = {b.slot for b in existing}
-        slot = data.get('slot')
-        if slot:
-            if slot not in ExploreBanner.SLOTS:
-                raise ValueError(
-                    f"slot must be one of: {', '.join(ExploreBanner.SLOTS)}."
-                )
-            if slot in used_slots:
-                raise ValueError(
-                    f"The {ExploreBanner.SLOT_LABELS[slot]} slot is already in use."
-                )
-        else:
-            # Fall back to the first free slot in canonical order.
-            slot = next((s for s in ExploreBanner.SLOTS if s not in used_slots), None)
-            if slot is None:
-                raise ValueError("No free explore banner slot available.")
 
         image_url = data.get('image_url')
         if image_file:
@@ -153,13 +135,17 @@ class ExploreBannerController:
         if not image_url:
             raise ValueError("Banner image is required.")
 
+        # New banners are appended to the end of the carousel.
+        display_order = data.get('display_order')
+        if display_order is None:
+            display_order = existing_count
+
         banner = ExploreBanner(
-            slot=slot,
             image_url=image_url,
             title=data['title'],
             cta_text=data['cta_text'],
             cta_path=data['cta_path'],
-            display_order=ExploreBanner.SLOTS.index(slot),
+            display_order=display_order,
             is_active=data.get('is_active', True),
         )
         try:
@@ -207,4 +193,28 @@ class ExploreBannerController:
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f"Failed to delete explore banner {banner_id}: {e}", exc_info=True)
+            raise
+
+    @staticmethod
+    def reorder(ordered_ids):
+        """
+        Set the carousel order from a list of banner ids. The position of
+        each id in the list becomes its display_order (0-based).
+        """
+        if not isinstance(ordered_ids, list) or not ordered_ids:
+            raise ValueError("A non-empty list of banner ids is required.")
+
+        banners = {b.id: b for b in ExploreBannerController._base_query().all()}
+        unknown = [bid for bid in ordered_ids if bid not in banners]
+        if unknown:
+            raise ValueError(f"Unknown banner id(s): {unknown}.")
+
+        for index, bid in enumerate(ordered_ids):
+            banners[bid].display_order = index
+        try:
+            db.session.commit()
+            return ExploreBannerController.list_all()
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Failed to reorder explore banners: {e}", exc_info=True)
             raise
