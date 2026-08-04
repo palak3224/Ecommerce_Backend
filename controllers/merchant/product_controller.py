@@ -2,11 +2,21 @@
 
 from flask_jwt_extended import get_jwt_identity
 from flask import abort
+from sqlalchemy.exc import IntegrityError
 from common.database import db
+from common.db_errors import describe_integrity_error
 from models.product import Product
 from auth.models.models import MerchantProfile
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from datetime import datetime, timezone
+
+REQUIRED_CREATE_FIELDS = {
+    'sku': 'SKU',
+    'product_name': 'Product name',
+    'category_id': 'Category',
+    'brand_id': 'Brand',
+    'selling_price': 'Selling price',
+}
 
 class MerchantProductController:
     @staticmethod
@@ -38,25 +48,72 @@ class MerchantProductController:
         if not merchant:
             abort(404, "Merchant profile not found")
 
+        # Report *which* field is missing instead of raising a bare KeyError.
+        missing = [
+            label for field, label in REQUIRED_CREATE_FIELDS.items()
+            if data.get(field) in (None, '')
+        ]
+        if missing:
+            raise ValueError(
+                f"{', '.join(missing)} {'is' if len(missing) == 1 else 'are'} required."
+            )
+
+        sku = str(data['sku']).strip()
+
+        # sku is globally unique across every merchant and soft-deleted rows keep
+        # their SKU, so check up front and explain which case the merchant hit.
+        existing = Product.query.filter_by(sku=sku).first()
+        if existing:
+            if existing.merchant_id == merchant.id:
+                if existing.deleted_at is not None:
+                    raise ValueError(
+                        f"SKU '{sku}' belongs to one of your deleted products and cannot "
+                        f"be reused. Please enter a different SKU."
+                    )
+                raise ValueError(
+                    f"You already have a product with SKU '{sku}' "
+                    f"({existing.product_name}). Please enter a different SKU."
+                )
+            raise ValueError(
+                f"SKU '{sku}' is already taken. SKUs are unique across the whole "
+                f"marketplace — please enter a different one."
+            )
+
+        try:
+            selling_price = Decimal(str(data['selling_price']))
+            special_price = (
+                Decimal(str(data['special_price']))
+                if data.get('special_price') is not None else None
+            )
+        except (InvalidOperation, TypeError) as e:
+            raise ValueError(f"Selling price and special price must be valid numbers: {e}")
+
         # selling_price and special_price from data are GST-inclusive
         p = Product(
             merchant_id=merchant.id,
             category_id=data['category_id'],
             brand_id=data['brand_id'],
-            sku=data['sku'],
+            sku=sku,
             product_name=data['product_name'],
-            product_description=data['product_description'],
-            cost_price=data['cost_price'], 
-            selling_price=Decimal(data['selling_price']), # GST-inclusive
-            discount_pct=data.get('discount_pct', Decimal('0.00')), 
-            special_price=Decimal(data['special_price']) if data.get('special_price') is not None else None, # GST-inclusive
+            product_description=data.get('product_description', ''),
+            cost_price=data.get('cost_price', 0),
+            selling_price=selling_price, # GST-inclusive
+            discount_pct=data.get('discount_pct', Decimal('0.00')),
+            special_price=special_price, # GST-inclusive
             special_start=data.get('special_start'),
             special_end=data.get('special_end'),
             approval_status='pending'
         )
         # NO call to p.update_base_price_and_gst_details() here
         db.session.add(p)
-        db.session.commit()
+        try:
+            db.session.commit()
+        except IntegrityError as e:
+            # Another request may have taken the SKU between the check and the commit,
+            # or a FK (category/brand) may not exist.
+            db.session.rollback()
+            message, _status = describe_integrity_error(e, entity='product')
+            raise ValueError(message)
         return p
 
     @staticmethod

@@ -4,9 +4,11 @@ from controllers.merchant.merchant_settings_controller import MerchantSettingsCo
 from http import HTTPStatus
 from auth.utils import merchant_role_required, super_admin_role_required
 from common.database import db
+from common.db_errors import describe_integrity_error, safe_error_message
+from sqlalchemy.exc import IntegrityError
 import cloudinary
 import cloudinary.uploader
-from werkzeug.exceptions import NotFound, ClientDisconnected
+from werkzeug.exceptions import NotFound, ClientDisconnected, HTTPException
 from services.s3_service import get_s3_service
 from models.product import Product
 from models.product_stock import ProductStock
@@ -609,17 +611,34 @@ def create_product():
         
         # Calculate discount percentage if cost_price and selling_price are provided
         if 'cost_price' in data and 'selling_price' in data:
-            cost_price = float(data['cost_price'])
-            selling_price = float(data['selling_price'])
+            try:
+                cost_price = float(data['cost_price'])
+                selling_price = float(data['selling_price'])
+            except (TypeError, ValueError):
+                return jsonify({
+                    'message': 'Cost price and selling price must be valid numbers.',
+                    'error': 'Cost price and selling price must be valid numbers.'
+                }), HTTPStatus.BAD_REQUEST
             data['discount_pct'] = calculate_discount_percentage(cost_price, selling_price)
-        
+
         p = MerchantProductController.create(data)
         return jsonify(p.serialize()), HTTPStatus.CREATED
+    except HTTPException:
+        # abort(404, "Merchant profile not found") etc. — keep the real status/message.
+        raise
     except ValueError as e:
-        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+        # Validation / duplicate-SKU style problems the merchant can fix themselves.
+        return jsonify({'message': str(e), 'error': str(e)}), HTTPStatus.BAD_REQUEST
+    except IntegrityError as e:
+        db.session.rollback()
+        message, status = describe_integrity_error(e, entity='product')
+        current_app.logger.warning(f"Product create rejected (constraint): {message}")
+        return jsonify({'message': message, 'error': message}), status
     except Exception as e:
-        current_app.logger.error(f"Error creating product: {e}")
-        return jsonify({'message': 'Failed to create product'}), HTTPStatus.INTERNAL_SERVER_ERROR
+        db.session.rollback()
+        current_app.logger.error(f"Error creating product: {e}", exc_info=True)
+        message = f"Failed to create product: {safe_error_message(e)}"
+        return jsonify({'message': message, 'error': message}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 @merchant_dashboard_bp.route('/products/<int:pid>/variants', methods=['POST'])
 @merchant_role_required

@@ -10,6 +10,7 @@ from config import get_config
 from common.logging_config import configure_app_logging
 from common.database import db
 from common.cache import cache
+from common.db_errors import describe_integrity_error, safe_error_message
 from auth.routes import auth_bp
 from auth.document_route import document_bp
 from auth.country_route import country_bp
@@ -83,6 +84,7 @@ from routes.notification_routes import notification_bp
 
 
 from flasgger import Swagger
+from werkzeug.exceptions import HTTPException
 from cryptography.fernet import Fernet
 import time
 import psutil
@@ -594,9 +596,10 @@ def create_app(config_name=None):
         except Exception as rollback_error:
             app.logger.error(f"Error during rollback in integrity handler: {str(rollback_error)}")
         app.logger.warning(f"IntegrityError (constraint violation): {str(error)}")
-        return jsonify({
-            'message': 'This operation is not allowed because the item is still in use. Remove or reassign related items (e.g. products, promotions, tax rules) first.'
-        }), 400
+        # Duplicate value, missing FK and "still in use" are very different problems —
+        # tell the caller which one it actually is (see common/db_errors.py).
+        message, status = describe_integrity_error(error)
+        return jsonify({'message': message, 'error': message}), status
 
     @app.errorhandler(Exception)
     def handle_error(error):
@@ -660,8 +663,10 @@ def create_app(config_name=None):
             except:
                 pass
         
-        # Return error response
+        # Return error response. 'message' is included because that is the key the
+        # frontend reads everywhere; 'error' is kept for existing consumers.
         return jsonify({
+            'message': safe_error_message(error),
             'error': error_message,
             'type': error_type
         }), getattr(error, 'code', 500)
@@ -822,11 +827,30 @@ def create_app(config_name=None):
     # Error handlers
     @app.errorhandler(404)
     def not_found(error):
-        return {"error": "Not found"}, 404
+        # Keep the description passed to abort(404, "...") — "Merchant profile not
+        # found" is far more useful to the frontend than a flat "Not found".
+        message = getattr(error, 'description', None) or "Not found"
+        return {"message": message, "error": message}, 404
 
     @app.errorhandler(500)
     def server_error(error):
-        return {"error": "Internal server error"}, 500
+        message = getattr(error, 'description', None) or "Internal server error"
+        return {"message": message, "error": message}, 500
+
+    @app.errorhandler(HTTPException)
+    def handle_http_exception(error):
+        """JSON (not HTML) for every abort(code, "reason") in the codebase.
+
+        Without this, `abort(400, "SKU already exists")` renders an HTML page the
+        frontend cannot parse, so the user only ever sees a generic failure.
+        More specific handlers (404/500 above) still take precedence.
+        """
+        message = error.description or error.name
+        return jsonify({
+            'message': message,
+            'error': message,
+            'type': type(error).__name__
+        }), error.code or 500
 
     # Initialize background scheduler for notification cleanup
     def start_notification_cleanup_scheduler():
