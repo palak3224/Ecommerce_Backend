@@ -7,6 +7,7 @@ thumbnail generator. Intro videos live under their own key prefix in the same
 bucket so lifecycle rules can target them independently.
 """
 
+import os
 import uuid
 from typing import Dict, Optional
 
@@ -15,7 +16,16 @@ from flask import current_app
 
 from services.reels_s3_service import get_reels_s3_service
 
-INTRO_VIDEO_PREFIX = 'merchant-intro-videos'
+# Key prefix inside the reels bucket. Configurable because the bucket's IAM
+# policy may be scoped to a specific prefix: a policy that only grants
+# s3:PutObject on "<bucket>/reels/*" will reject this prefix with AccessDenied.
+# Setting MERCHANT_INTRO_VIDEO_S3_PREFIX=reels/merchant-intro-videos nests these
+# objects inside the already-permitted prefix, which unblocks uploads without an
+# IAM change. Prefer fixing the policy — see the API doc — since nesting also
+# subjects intro videos to any lifecycle rules targeting reels/*.
+INTRO_VIDEO_PREFIX = os.getenv(
+    'MERCHANT_INTRO_VIDEO_S3_PREFIX', 'merchant-intro-videos'
+).strip('/')
 
 CONTENT_TYPE_BY_EXTENSION = {
     'mp4': 'video/mp4',

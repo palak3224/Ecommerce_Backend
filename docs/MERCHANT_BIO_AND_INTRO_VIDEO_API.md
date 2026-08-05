@@ -242,6 +242,26 @@ serves the objects, the backend never reads them back.
 Alternatively, widen an existing statement's resource from
 `…/reels/*` to `…/*`.
 
+#### If you cannot change the policy right now
+
+Set `MERCHANT_INTRO_VIDEO_S3_PREFIX` to nest intro videos inside a prefix the
+policy already permits — reels uploads work, so `reels/*` is granted:
+
+```bash
+MERCHANT_INTRO_VIDEO_S3_PREFIX=reels/merchant-intro-videos
+```
+
+Uploads then start working with no IAM change and no code change.
+
+This is a workaround, not the destination. Two costs: any S3 lifecycle rule
+targeting `reels/*` (expiry, storage-class transitions) will also apply to
+intro videos, and the two content types become harder to tell apart in bucket
+metrics and cost reports. Prefer granting the prefix properly.
+
+Changing this variable does not migrate existing objects — already-uploaded
+videos keep their old keys and URLs, and the stored `video_s3_key` still points
+at them, so delete and replace continue to work for them.
+
 ---
 
 ## Config
@@ -252,6 +272,7 @@ Alternatively, widen an existing statement's resource from
 | `INTRO_VIDEO_PURGE_ENABLED` | `true` | purge soft-deleted rows + S3 objects |
 | `INTRO_VIDEO_PURGE_RETENTION_DAYS` | `30` | retention before purge |
 | `INTRO_VIDEO_PURGE_INTERVAL_HOURS` | `24` | scheduler interval |
+| `MERCHANT_INTRO_VIDEO_S3_PREFIX` | `merchant-intro-videos` | S3 key prefix; set to `reels/merchant-intro-videos` to work inside a reels-scoped IAM policy |
 
 All three are disabled or inert under `TestingConfig`.
 
