@@ -110,6 +110,25 @@ def _detect_mime(file):
     return None
 
 
+def _find_ffprobe():
+    """
+    Locate ffprobe.
+
+    shutil.which alone is not enough: under gunicorn the service PATH is often
+    just the virtualenv bin directory, so a perfectly good /usr/bin/ffprobe is
+    invisible to it. reels_s3_service hits the same problem and falls back to
+    explicit paths; do the same here rather than silently giving up on duration
+    verification in production.
+    """
+    found = shutil.which('ffprobe')
+    if found:
+        return found
+    for path in ('/usr/bin/ffprobe', '/usr/local/bin/ffprobe', '/bin/ffprobe'):
+        if os.path.exists(path) and os.access(path, os.X_OK):
+            return path
+    return None
+
+
 def _probe_duration_and_resolution(file):
     """
     Read duration/resolution with ffprobe when the binary is available.
@@ -118,7 +137,7 @@ def _probe_duration_and_resolution(file):
     optional in this deployment (see reels_s3_service), so a missing binary is
     not an error — it just means duration stays an unverified client hint.
     """
-    ffprobe = shutil.which('ffprobe')
+    ffprobe = _find_ffprobe()
     if not ffprobe:
         current_app.logger.info(
             "[INTRO_VIDEO] ffprobe unavailable; duration will not be verified."

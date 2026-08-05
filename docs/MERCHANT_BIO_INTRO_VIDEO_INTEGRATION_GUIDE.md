@@ -623,6 +623,14 @@ Without migration 010 the `merchant_intro_videos` table does not exist and
 `GET /api/merchants/profile` returns 500 — the whole profile screen, not just
 the video section.
 
+**Uploads need an IAM policy change on each environment.** Intro videos live
+under a new S3 prefix, so a policy scoped to the reels prefix does not cover
+them and every upload returns 500 with an `AccessDenied` in the server log.
+Backend fix: see *Required IAM permissions* in
+[MERCHANT_BIO_AND_INTRO_VIDEO_API.md](MERCHANT_BIO_AND_INTRO_VIDEO_API.md).
+Nothing to change client-side — but if uploads 500 on a fresh environment,
+check this before debugging your code.
+
 ---
 
 ## 10. Quick reference

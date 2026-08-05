@@ -214,6 +214,34 @@ stays fetchable at its old URL until the CDN TTL expires** — the key is
 unguessable and the API stops advertising it immediately. If legal takedown
 becomes a requirement, add a CloudFront invalidation on delete/reject.
 
+### Required IAM permissions
+
+The intro video prefix is **new**, so an existing policy scoped to
+`reels/*` will not cover it. Uploads fail with:
+
+```
+AccessDenied … not authorized to perform: s3:PutObject on resource:
+"arn:aws:s3:::aoin-reels-prod/merchant-intro-videos/…"
+```
+
+Add this statement to the backend IAM user's policy (substitute your bucket):
+
+```json
+{
+  "Sid": "MerchantIntroVideos",
+  "Effect": "Allow",
+  "Action": ["s3:PutObject", "s3:DeleteObject"],
+  "Resource": "arn:aws:s3:::aoin-reels-prod/merchant-intro-videos/*"
+}
+```
+
+`PutObject` covers the video and its thumbnail; `DeleteObject` is needed for
+replace, delete and the purge job. `GetObject` is not required — CloudFront
+serves the objects, the backend never reads them back.
+
+Alternatively, widen an existing statement's resource from
+`…/reels/*` to `…/*`.
+
 ---
 
 ## Config
