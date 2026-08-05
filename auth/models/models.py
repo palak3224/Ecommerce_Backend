@@ -212,6 +212,15 @@ class MerchantProfile(BaseModel):
     business_name = db.Column(db.String(200), nullable=False)
     business_description = db.Column(db.Text, nullable=True)
     business_email = db.Column(db.String(120), nullable=False)
+
+    # Public bio (short, Instagram-style header text — distinct from the long
+    # business_description). Stored as Text so the length cap stays a product
+    # rule and 4-byte emoji never truncate mid-character.
+    bio = db.Column(db.Text, nullable=True)
+    bio_link = db.Column(db.String(512), nullable=True)  # single "link in bio", http(s) only
+    bio_link_label = db.Column(db.String(60), nullable=True)
+    bio_updated_at = db.Column(db.DateTime, nullable=True)
+
     business_phone = db.Column(db.String(30), nullable=False)  # Increased to 30 to handle international numbers with formatting
     business_address = db.Column(db.Text, nullable=False)
     
@@ -321,7 +330,39 @@ class MerchantProfile(BaseModel):
     def is_indian_merchant(self):
         """Check if merchant is from India."""
         return self.country_code == CountryCode.INDIA.value
-    
+
+    def is_publicly_visible(self):
+        """
+        Whether this merchant may be shown to shoppers at all.
+
+        Single source of truth for every public read (public profile, bio,
+        intro video). Excludes soft-closed, grace-period-elapsed and suspended
+        merchants. Does NOT consider verification — see
+        `is_public_media_visible` for content held to a stricter bar.
+        """
+        if self.account_deleted_at is not None:
+            return False
+        if (
+            self.account_deletion_effective_at is not None
+            and self.account_deletion_effective_at <= datetime.utcnow()
+        ):
+            return False
+        user = self.user or User.query.get(self.user_id)
+        if user is not None and not user.is_active:
+            return False
+        return True
+
+    def is_public_media_visible(self):
+        """
+        Whether merchant-authored public media (currently the intro video) may
+        be shown. Stricter than `is_publicly_visible`: unverified merchants do
+        not get to publish prominent unmoderated media.
+        """
+        if not self.is_publicly_visible():
+            return False
+        return bool(self.is_verified) and self.verification_status == VerificationStatus.APPROVED
+
+
     def validate_country_specific_fields(self):
         """Validate country-specific fields."""
         validations = self.get_field_validations()

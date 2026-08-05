@@ -45,6 +45,7 @@ from .user_category_preference import UserCategoryPreference
 from .user_blocked_merchant import UserBlockedMerchant
 from .user_hidden_category import UserHiddenCategory
 from .merchant_notification import MerchantNotification
+from .merchant_intro_video import MerchantIntroVideo
 from .holi_giveaway_registration import HoliGiveawayRegistration
 
 
@@ -79,6 +80,7 @@ __all__ = [
     'UserBlockedMerchant',
     'UserHiddenCategory',
     'MerchantNotification',
+    'MerchantIntroVideo',
     'HoliGiveawayRegistration',
     'ExploreBannerItem'
 ]

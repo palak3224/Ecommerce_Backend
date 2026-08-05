@@ -837,6 +837,22 @@ def create_app(config_name=None):
         message = getattr(error, 'description', None) or "Internal server error"
         return {"message": message, "error": message}, 500
 
+    @app.errorhandler(413)
+    def payload_too_large(error):
+        """Actionable message for oversize uploads.
+
+        Werkzeug rejects bodies over MAX_CONTENT_LENGTH before the view runs, so
+        the endpoint's own size validation never gets a chance to speak. The
+        default description ("exceeds the capacity limit") tells the merchant
+        nothing about what to do next.
+        """
+        limit_mb = app.config.get('MAX_CONTENT_LENGTH', 0) // (1024 * 1024)
+        message = (
+            f"Upload is too large. The maximum request size is {limit_mb}MB. "
+            "Please upload a smaller file."
+        )
+        return jsonify({"message": message, "error": message}), 413
+
     @app.errorhandler(HTTPException)
     def handle_http_exception(error):
         """JSON (not HTML) for every abort(code, "reason") in the codebase.
@@ -978,7 +994,41 @@ def create_app(config_name=None):
             "User account deletion scheduler started (runs every %s minutes)",
             interval_minutes,
         )
-    
+
+    def start_intro_video_purge_scheduler():
+        """Purge soft-deleted merchant intro videos and their S3 objects."""
+        if not app.config.get("INTRO_VIDEO_PURGE_ENABLED", True):
+            app.logger.info("Intro video purge scheduler is disabled")
+            return
+
+        interval_hours = int(app.config.get("INTRO_VIDEO_PURGE_INTERVAL_HOURS", 24))
+        sched = BackgroundScheduler()
+
+        def purge_job():
+            with app.app_context():
+                from services.intro_video_purge_service import (
+                    run_purge_deleted_intro_videos,
+                )
+
+                result = run_purge_deleted_intro_videos()
+                if result.get("rows_deleted"):
+                    app.logger.info(
+                        "Intro video purge removed %s row(s)", result["rows_deleted"]
+                    )
+
+        sched.add_job(
+            purge_job,
+            "interval",
+            hours=interval_hours,
+            id="merchant_intro_video_purge",
+            replace_existing=True,
+            max_instances=1,
+        )
+        sched.start()
+        app.logger.info(
+            "Intro video purge scheduler started (runs every %s hours)", interval_hours
+        )
+
     # Start scheduler after app is created
     try:
         start_notification_cleanup_scheduler()
@@ -996,6 +1046,11 @@ def create_app(config_name=None):
         start_user_account_deletion_scheduler()
     except Exception as e:
         app.logger.error(f"Failed to start user account deletion scheduler: {str(e)}")
+
+    try:
+        start_intro_video_purge_scheduler()
+    except Exception as e:
+        app.logger.error(f"Failed to start intro video purge scheduler: {str(e)}")
 
     return app
 

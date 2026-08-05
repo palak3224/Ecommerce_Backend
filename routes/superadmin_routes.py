@@ -6239,3 +6239,104 @@ def shop_analytics_export():
   except Exception as e:
     current_app.logger.error(f"Shop analytics export error: {e}")
     return jsonify({'status': 'error', 'message': 'Failed to export report'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+# --------------------------------------------------------------------------- #
+# Merchant intro video moderation
+#
+# Inert while MERCHANT_INTRO_VIDEO_MODERATION_ENABLED is false (uploads are
+# auto-approved), but shipped now so flipping the flag needs no code change.
+# --------------------------------------------------------------------------- #
+
+@superadmin_bp.route('/merchant-intro-videos', methods=['GET'])
+@super_admin_role_required
+def list_merchant_intro_videos():
+    """List merchant intro videos, newest first, filterable by moderation status."""
+    try:
+        from models.merchant_intro_video import MerchantIntroVideo
+        from auth.models.models import MerchantProfile
+
+        moderation_status = request.args.get('moderation_status')
+        page = request.args.get('page', 1, type=int)
+        per_page = min(request.args.get('per_page', 20, type=int), 100)
+
+        query = MerchantIntroVideo.query.filter(MerchantIntroVideo.deleted_at.is_(None))
+        if moderation_status:
+            query = query.filter(MerchantIntroVideo.moderation_status == moderation_status)
+
+        pagination = query.order_by(MerchantIntroVideo.created_at.desc()).paginate(
+            page=page, per_page=per_page, error_out=False
+        )
+
+        items = []
+        for video in pagination.items:
+            data = video.serialize(owner_view=True)
+            merchant = MerchantProfile.get_by_id(video.merchant_id)
+            data['merchant'] = {
+                'merchant_id': video.merchant_id,
+                'business_name': merchant.business_name if merchant else None,
+                'username': merchant.username if merchant else None,
+            }
+            items.append(data)
+
+        return jsonify({
+            'intro_videos': items,
+            'pagination': {
+                'page': pagination.page,
+                'per_page': pagination.per_page,
+                'total': pagination.total,
+                'pages': pagination.pages,
+            },
+        }), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"List merchant intro videos error: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to list intro videos'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+@superadmin_bp.route('/merchant-intro-videos/<int:video_id>/approve', methods=['POST'])
+@super_admin_role_required
+def approve_merchant_intro_video(video_id):
+    """Approve a merchant intro video, making it publicly visible."""
+    from controllers.merchant.merchant_intro_video_controller import (
+        MerchantIntroVideoController,
+        IntroVideoError,
+    )
+    try:
+        video = MerchantIntroVideoController.moderate(
+            video_id, approve=True, admin_user_id=get_jwt_identity(),
+            notes=(request.get_json(silent=True) or {}).get('notes'),
+        )
+    except IntroVideoError as e:
+        body = {'error': e.message}
+        if e.details:
+            body['details'] = e.details
+        return jsonify(body), e.status_code
+    return jsonify({
+        'message': 'Intro video approved',
+        'intro_video': video.serialize(owner_view=True),
+    }), HTTPStatus.OK
+
+
+@superadmin_bp.route('/merchant-intro-videos/<int:video_id>/reject', methods=['POST'])
+@super_admin_role_required
+def reject_merchant_intro_video(video_id):
+    """Reject a merchant intro video. A reason is required and shown to the merchant."""
+    from controllers.merchant.merchant_intro_video_controller import (
+        MerchantIntroVideoController,
+        IntroVideoError,
+    )
+    data = request.get_json(silent=True) or {}
+    try:
+        video = MerchantIntroVideoController.moderate(
+            video_id, approve=False, admin_user_id=get_jwt_identity(),
+            notes=data.get('reason') or data.get('notes'),
+        )
+    except IntroVideoError as e:
+        body = {'error': e.message}
+        if e.details:
+            body['details'] = e.details
+        return jsonify(body), e.status_code
+    return jsonify({
+        'message': 'Intro video rejected',
+        'intro_video': video.serialize(owner_view=True),
+    }), HTTPStatus.OK

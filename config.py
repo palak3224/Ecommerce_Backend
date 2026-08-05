@@ -132,6 +132,24 @@ class Config:
         os.getenv('USER_ACCOUNT_DELETION_JOB_INTERVAL_MINUTES', '10')
     )
 
+    # Merchant intro video.
+    # Moderation is off by default, matching how reels ship today. Turning it on
+    # routes new/replaced uploads to 'pending' so they stay hidden from shoppers
+    # until a superadmin approves them — no migration needed to switch.
+    MERCHANT_INTRO_VIDEO_MODERATION_ENABLED = os.getenv(
+        'MERCHANT_INTRO_VIDEO_MODERATION_ENABLED', 'false'
+    ).lower() in ('1', 'true', 'yes')
+    # Purge soft-deleted intro videos (rows + S3 objects) after the retention window.
+    INTRO_VIDEO_PURGE_ENABLED = os.getenv(
+        'INTRO_VIDEO_PURGE_ENABLED', 'true'
+    ).lower() in ('1', 'true', 'yes')
+    INTRO_VIDEO_PURGE_RETENTION_DAYS = int(
+        os.getenv('INTRO_VIDEO_PURGE_RETENTION_DAYS', '30')
+    )
+    INTRO_VIDEO_PURGE_INTERVAL_HOURS = int(
+        os.getenv('INTRO_VIDEO_PURGE_INTERVAL_HOURS', '24')
+    )
+
 class DevelopmentConfig(Config):
     """Configuration for development environment."""
     DEBUG = True
@@ -155,6 +173,7 @@ class TestingConfig(Config):
     NOTIFICATION_CLEANUP_ENABLED = False
     MERCHANT_ACCOUNT_DELETION_JOB_ENABLED = False
     USER_ACCOUNT_DELETION_JOB_ENABLED = False
+    INTRO_VIDEO_PURGE_ENABLED = False
     FEATURE_TRANSLATION = False
     CACHE_TYPE = 'null'
 

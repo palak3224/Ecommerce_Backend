@@ -763,6 +763,107 @@ def run_migration_009_user_account_deletion():
     print("  " + "=" * 46)
 
 
+def run_migration_010_merchant_bio_and_intro_video():
+    """
+    Migration 010: merchant public bio columns + merchant_intro_videos table.
+    Idempotent: adds columns/tables/indexes only if missing.
+
+    The bio columns are created with an explicit utf8mb4 charset. Merchants will
+    put emoji in a bio, and emoji are 4-byte UTF-8 — on a utf8mb3 table the
+    INSERT fails with "Incorrect string value" rather than degrading.
+    """
+    print("\nRunning migration 010 (merchant bio + intro video):")
+    print("-------------------------------------------------------------")
+    inspector = db.inspect(db.engine)
+
+    if "merchant_profiles" not in inspector.get_table_names():
+        print("  ℹ merchant_profiles table does not exist yet; skipping.")
+    else:
+        existing = {c["name"] for c in inspector.get_columns("merchant_profiles")}
+        cols = [
+            ("bio", "TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL"),
+            ("bio_link", "VARCHAR(512) NULL"),
+            ("bio_link_label",
+             "VARCHAR(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL"),
+            ("bio_updated_at", "DATETIME NULL"),
+        ]
+        with db.engine.connect() as conn:
+            for name, ddl in cols:
+                if name in existing:
+                    print(f"  ℹ merchant_profiles.{name} already exists")
+                    continue
+                try:
+                    conn.execute(
+                        text(f"ALTER TABLE merchant_profiles ADD COLUMN {name} {ddl}")
+                    )
+                    conn.commit()
+                    print(f"  ✓ Added merchant_profiles.{name}")
+                except Exception as e:
+                    print(f"  ⚠ Could not add {name}: {e}")
+
+    # Intro video table
+    inspector = db.inspect(db.engine)
+    if "merchant_intro_videos" not in inspector.get_table_names():
+        try:
+            MerchantIntroVideo.__table__.create(db.engine)
+            print("  ✓ Created merchant_intro_videos table")
+        except Exception as e:
+            print(f"  ⚠ Could not create merchant_intro_videos: {e}")
+    else:
+        print("  ℹ merchant_intro_videos table already exists")
+        # Pick up columns added to the model after the table was first created.
+        existing = {c["name"] for c in inspector.get_columns("merchant_intro_videos")}
+        later_cols = [
+            ("duration_verified", "TINYINT(1) NOT NULL DEFAULT 0"),
+            ("failure_reason", "VARCHAR(255) NULL"),
+            ("moderation_notes", "VARCHAR(500) NULL"),
+        ]
+        with db.engine.connect() as conn:
+            for name, ddl in later_cols:
+                if name in existing:
+                    continue
+                try:
+                    conn.execute(
+                        text(f"ALTER TABLE merchant_intro_videos ADD COLUMN {name} {ddl}")
+                    )
+                    conn.commit()
+                    print(f"  ✓ Added merchant_intro_videos.{name}")
+                except Exception as e:
+                    print(f"  ⚠ Could not add {name}: {e}")
+
+    # Composite index backing the "one active video per merchant" lookup.
+    try:
+        with db.engine.connect() as conn:
+            r = conn.execute(
+                text(
+                    """
+                    SELECT COUNT(*) AS c FROM information_schema.statistics
+                    WHERE table_schema = DATABASE()
+                      AND table_name = 'merchant_intro_videos'
+                      AND index_name = 'idx_merchant_intro_videos_merchant_active'
+                    """
+                )
+            )
+            row = r.fetchone()
+            if (row[0] if row else 0) == 0:
+                conn.execute(
+                    text(
+                        "CREATE INDEX idx_merchant_intro_videos_merchant_active "
+                        "ON merchant_intro_videos (merchant_id, deleted_at)"
+                    )
+                )
+                conn.commit()
+                print("  ✓ Created index idx_merchant_intro_videos_merchant_active")
+            else:
+                print("  ℹ Index idx_merchant_intro_videos_merchant_active already exists")
+    except Exception as e:
+        print(f"  ⚠ Index migration: {e}")
+
+    print("  " + "=" * 46)
+    print("  MIGRATION 010 COMPLETED (merchant bio + intro video)")
+    print("  " + "=" * 46)
+
+
 def init_reels():
     """Initialize reels tables."""
     print("\nInitializing Reels Tables:")
@@ -1560,6 +1661,7 @@ def init_database():
         run_migration_007_creator_role()
         run_migration_008_merchant_account_deletion()
         run_migration_009_user_account_deletion()
+        run_migration_010_merchant_bio_and_intro_video()
 
         # Initialize data
         init_country_configs()

@@ -9,6 +9,7 @@ from auth.models.models import MerchantProfile, User, RefreshToken
 from common.database import db
 from models.product import Product
 from models.reel import Reel
+from models.merchant_intro_video import MerchantIntroVideo
 from models.live_stream import LiveStream
 
 
@@ -174,6 +175,20 @@ def finalize_merchant_profile(profile: MerchantProfile):
         LiveStream.merchant_id == profile.id,
         LiveStream.deleted_at.is_(None),
     ).update({LiveStream.deleted_at: now}, synchronize_session=False)
+
+    # Soft-delete the intro video too. The S3 objects are left to the purge job
+    # rather than deleted here — this sweep runs in a scheduler and must not
+    # block on network calls to AWS.
+    MerchantIntroVideo.query.filter(
+        MerchantIntroVideo.merchant_id == profile.id,
+        MerchantIntroVideo.deleted_at.is_(None),
+    ).update(
+        {
+            MerchantIntroVideo.deleted_at: now,
+            MerchantIntroVideo.is_active: False,
+        },
+        synchronize_session=False,
+    )
 
     db.session.commit()
     current_app.logger.info(

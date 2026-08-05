@@ -3,6 +3,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from auth.utils import admin_role_required
 from auth.models.models import User, MerchantProfile
 from auth.models.merchant_document import MerchantDocument
+from models.merchant_intro_video import MerchantIntroVideo
 
 # Create admin blueprint
 admin_bp = Blueprint('admin', __name__)
@@ -408,6 +409,8 @@ def get_merchant_details(id):
                 "verified_at": doc.verified_at.isoformat() if doc.verified_at else None
             }
             
+        intro_video = MerchantIntroVideo.get_active_for_merchant(merchant_profile.id)
+
         # Format merchant data with country-specific fields
         merchant_data = {
             "id": merchant_profile.id,
@@ -433,6 +436,14 @@ def get_merchant_details(id):
                 "role": user.role.value
             },
             "documents": documents_data,
+            # Public profile content — surfaced here so the merchant-details
+            # screen can review it without a second call.
+            "username": merchant_profile.username,
+            "profile_img": merchant_profile.profile_img,
+            "bio": merchant_profile.bio,
+            "bio_link": merchant_profile.bio_link,
+            "bio_link_label": merchant_profile.bio_link_label,
+            "intro_video": intro_video.serialize(owner_view=True) if intro_video else None,
             # Common fields
             "bank_account_number": merchant_profile.bank_account_number,
             "bank_name": merchant_profile.bank_name,

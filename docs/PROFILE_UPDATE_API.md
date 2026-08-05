@@ -2,6 +2,16 @@
 
 This document describes the profile update APIs for both **User** and **Merchant** profiles, including field restrictions, validation rules, and usage examples.
 
+> **See also:** the merchant public **bio** and **intro video** (full CRUD).
+> `GET/PUT /api/merchants/profile` accept and return `bio`, `bio_link` and
+> `bio_link_label` in addition to everything listed below, and `GET` also
+> returns `intro_video` plus a `limits` object.
+>
+> - Integrating a web or mobile client →
+>   [MERCHANT_BIO_INTRO_VIDEO_INTEGRATION_GUIDE.md](MERCHANT_BIO_INTRO_VIDEO_INTEGRATION_GUIDE.md)
+> - Terse endpoint reference →
+>   [MERCHANT_BIO_AND_INTRO_VIDEO_API.md](MERCHANT_BIO_AND_INTRO_VIDEO_API.md)
+
 ---
 
 ## Table of Contents

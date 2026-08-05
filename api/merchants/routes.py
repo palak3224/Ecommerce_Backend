@@ -13,7 +13,18 @@ from auth.models import User, MerchantProfile
 from models.user_merchant_follow import UserMerchantFollow
 from auth.models.merchant_document import VerificationStatus, DocumentType, MerchantDocument
 from auth.models.country_config import CountryConfig, CountryCode
+from models.merchant_intro_video import MerchantIntroVideo
+from controllers.merchant.merchant_intro_video_controller import (
+    MerchantIntroVideoController,
+    IntroVideoError,
+    ALLOWED_VIDEO_EXTENSIONS,
+    MAX_VIDEO_SIZE,
+    MAX_VIDEO_DURATION_SECONDS,
+    MAX_TITLE_CHARS,
+    MAX_CAPTION_CHARS,
+)
 from common.database import db
+from common.text_sanitize import sanitize_plain_text, sanitize_url, validate_text_length
 from http import HTTPStatus
 
 # Configure logging
@@ -54,7 +65,14 @@ class UpdateProfileSchema(Schema):
     business_address = fields.Str()
     username = fields.Str(validate=validate.Regexp(r'^[a-zA-Z0-9_]{3,30}$', error="Username must be 3-30 characters, alphanumeric and underscores only"), allow_none=True)
     profile_img = fields.Str(allow_none=True)  # Profile image URL
-    
+
+    # Public bio. Length/format are enforced after sanitisation (see
+    # _apply_bio_updates) so the limit is measured against the stored value,
+    # not the raw input.
+    bio = fields.Str(allow_none=True)
+    bio_link = fields.Str(allow_none=True)
+    bio_link_label = fields.Str(allow_none=True)
+
     # Country and Region Information
     country_code = fields.Str(validate=validate.OneOf([code.value for code in CountryCode]))
     state_province = fields.Str()
@@ -107,6 +125,89 @@ class UpdateProfileSchema(Schema):
             raise ValidationError(errors)
 
         return data
+
+# Bio limits. 250 rather than Instagram's 150: merchants write business copy,
+# and the long-form text already has a home in business_description.
+BIO_MAX_CHARS = 250
+BIO_MAX_LINES = 5
+BIO_LINK_MAX_CHARS = 512
+BIO_LINK_LABEL_MAX_CHARS = 60
+
+
+def _apply_bio_updates(merchant_profile, data):
+    """
+    Sanitise and apply bio fields, popping them off `data` so the generic
+    field loop does not write the raw values.
+
+    Returns a dict of field -> [errors]; empty when everything applied.
+    An explicit null (or a value that sanitises to empty) clears the field;
+    an absent key leaves it untouched.
+    """
+    errors = {}
+    bio_changed = False
+
+    if 'bio' in data:
+        bio = sanitize_plain_text(data.pop('bio'), allow_newlines=True)
+        bio_errors = validate_text_length(bio, 'Bio', BIO_MAX_CHARS, max_lines=BIO_MAX_LINES)
+        if bio_errors:
+            errors['bio'] = bio_errors
+        else:
+            merchant_profile.bio = bio
+            bio_changed = True
+
+    if 'bio_link' in data:
+        link, link_error = sanitize_url(data.pop('bio_link'), max_length=BIO_LINK_MAX_CHARS)
+        if link_error:
+            errors['bio_link'] = [link_error]
+        else:
+            merchant_profile.bio_link = link
+            bio_changed = True
+
+    if 'bio_link_label' in data:
+        label = sanitize_plain_text(data.pop('bio_link_label'), allow_newlines=False)
+        label_errors = validate_text_length(label, 'Link label', BIO_LINK_LABEL_MAX_CHARS)
+        if label_errors:
+            errors['bio_link_label'] = label_errors
+        else:
+            merchant_profile.bio_link_label = label
+            bio_changed = True
+
+    # A label with no link is dead weight — drop it rather than storing an
+    # orphan the UI would have nothing to attach to.
+    if not merchant_profile.bio_link:
+        merchant_profile.bio_link_label = None
+
+    if bio_changed and not errors:
+        merchant_profile.bio_updated_at = datetime.utcnow()
+
+    return errors
+
+
+def serialize_bio(merchant_profile):
+    """Bio fields as returned by both the owner and public profile endpoints."""
+    return {
+        "bio": merchant_profile.bio,
+        "bio_link": merchant_profile.bio_link,
+        "bio_link_label": merchant_profile.bio_link_label,
+    }
+
+
+def serialize_intro_video(video, owner_view=False):
+    """None-safe wrapper — every endpoint returns null rather than omitting."""
+    return video.serialize(owner_view=owner_view) if video else None
+
+
+def intro_video_limits():
+    """Server limits, published so the UI validates against the same numbers."""
+    return {
+        "max_size_bytes": MAX_VIDEO_SIZE,
+        "max_size_mb": MAX_VIDEO_SIZE // (1024 * 1024),
+        "max_duration_seconds": MAX_VIDEO_DURATION_SECONDS,
+        "allowed_extensions": sorted(ALLOWED_VIDEO_EXTENSIONS),
+        "max_title_chars": MAX_TITLE_CHARS,
+        "max_caption_chars": MAX_CAPTION_CHARS,
+    }
+
 
 # Create merchants blueprint
 merchants_bp = Blueprint('merchants', __name__)
@@ -421,6 +522,10 @@ def get_profile():
                 "bank_iban": merchant_profile.bank_iban,
                 "username": merchant_profile.username,
                 "profile_img": merchant_profile.profile_img,
+                **serialize_bio(merchant_profile),
+                "intro_video": serialize_intro_video(
+                    MerchantIntroVideo.get_active_for_merchant(merchant_profile.id), owner_view=True
+                ),
                 "is_verified": merchant_profile.is_verified,
                 "verification_status": merchant_profile.verification_status.value,
                 "verification_submitted_at": merchant_profile.verification_submitted_at.isoformat() if merchant_profile.verification_submitted_at else None,
@@ -428,6 +533,12 @@ def get_profile():
                 "verification_notes": merchant_profile.verification_notes,
                 "required_documents": merchant_profile.required_documents,
                 "submitted_documents": merchant_profile.submitted_documents
+            },
+            "limits": {
+                "bio_max_chars": BIO_MAX_CHARS,
+                "bio_max_lines": BIO_MAX_LINES,
+                "bio_link_label_max_chars": BIO_LINK_LABEL_MAX_CHARS,
+                "intro_video": intro_video_limits(),
             }
         }), 200
     except Exception as e:
@@ -500,17 +611,15 @@ def get_public_profile(merchant_id):
     """
     try:
         merchant_profile = MerchantProfile.get_by_id(merchant_id)
-        
+
         if not merchant_profile:
             return jsonify({"error": "Merchant not found"}), HTTPStatus.NOT_FOUND
 
-        if merchant_profile.account_deleted_at is not None:
+        # Single source of truth for "may shoppers see this merchant at all":
+        # covers soft close, elapsed deletion grace period and suspension.
+        if not merchant_profile.is_publicly_visible():
             return jsonify({"error": "Merchant not found"}), HTTPStatus.NOT_FOUND
 
-        u = User.query.get(merchant_profile.user_id)
-        if u and not u.is_active:
-            return jsonify({"error": "Merchant not found"}), HTTPStatus.NOT_FOUND
-        
         # Check if user is authenticated and following the merchant
         is_following = False
         try:
@@ -531,6 +640,13 @@ def get_public_profile(merchant_id):
             "business_email": merchant_profile.business_email,
             "business_phone": merchant_profile.business_phone,
             "business_address": merchant_profile.business_address,
+            "username": merchant_profile.username,
+            "profile_img": merchant_profile.profile_img,
+            **serialize_bio(merchant_profile),
+            # Held to a stricter bar than the bio — verified merchants only.
+            "intro_video": serialize_intro_video(
+                MerchantIntroVideoController.get_public(merchant_profile)
+            ),
             "location": {
                 "country_code": merchant_profile.country_code,
                 "state_province": merchant_profile.state_province,
@@ -755,7 +871,14 @@ def update_profile():
             merchant_profile.username_updated_at = datetime.utcnow()
             data.pop('username')  # Remove from data to avoid duplicate processing
             logger.debug(f"Updated username to {new_username}")
-        
+
+        # Bio fields are sanitised and validated separately (and popped off
+        # `data`), because the limits apply to the cleaned value.
+        bio_errors = _apply_bio_updates(merchant_profile, data)
+        if bio_errors:
+            db.session.rollback()
+            return jsonify({"error": "Validation error", "details": bio_errors}), 400
+
         # Allowed fields to update
         allowed_fields = [
             'business_name', 'business_description', 'business_address', 'profile_img',
@@ -817,7 +940,8 @@ def update_profile():
                 "business_name": merchant_profile.business_name,
                 "business_email": merchant_profile.business_email,
                 "country_code": merchant_profile.country_code,
-                "verification_status": merchant_profile.verification_status.value
+                "verification_status": merchant_profile.verification_status.value,
+                **serialize_bio(merchant_profile)
             }
         }), 200
         
@@ -828,6 +952,289 @@ def update_profile():
         logger.error(f"Unexpected error in update_profile: {str(e)}", exc_info=True)
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
+
+# --------------------------------------------------------------------------- #
+# Intro video
+# --------------------------------------------------------------------------- #
+
+def _intro_video_error_response(error):
+    """Uniform error body for IntroVideoError, matching this file's shape."""
+    body = {"error": error.message}
+    if error.details:
+        body["details"] = error.details
+    return jsonify(body), error.status_code
+
+
+def _merchant_profile_or_error():
+    """Resolve the caller's merchant profile from the JWT. Never from input."""
+    merchant_profile = MerchantProfile.get_by_user_id(get_jwt_identity())
+    if not merchant_profile:
+        return None, (jsonify({"error": "Merchant profile not found"}), 404)
+    return merchant_profile, None
+
+
+@merchants_bp.route('/profile/intro-video', methods=['GET'])
+@jwt_required()
+@merchant_role_required
+def get_intro_video():
+    """
+    Get the merchant's own intro video.
+    ---
+    tags:
+      - Merchant
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: Intro video, or null when the merchant has not uploaded one
+      404:
+        description: Merchant profile not found
+    """
+    merchant_profile, error = _merchant_profile_or_error()
+    if error:
+        return error
+    # Null rather than 404: "no video yet" is a normal state, not an error the
+    # client should have to special-case.
+    video = MerchantIntroVideoController.get_for_owner(merchant_profile)
+    return jsonify({
+        "intro_video": serialize_intro_video(video, owner_view=True),
+        "limits": intro_video_limits(),
+    }), 200
+
+
+@merchants_bp.route('/profile/intro-video', methods=['POST'])
+@jwt_required()
+@merchant_role_required
+def create_intro_video():
+    """
+    Upload the merchant's intro video.
+    ---
+    tags:
+      - Merchant
+    security:
+      - Bearer: []
+    consumes:
+      - multipart/form-data
+    parameters:
+      - in: formData
+        name: video
+        type: file
+        required: true
+        description: MP4 or MOV, max 50MB, max 60 seconds
+      - in: formData
+        name: title
+        type: string
+        required: false
+      - in: formData
+        name: caption
+        type: string
+        required: false
+      - in: formData
+        name: duration_seconds
+        type: integer
+        required: false
+        description: Client-measured duration; used only when ffprobe is unavailable
+    responses:
+      201:
+        description: Intro video uploaded
+      400:
+        description: Validation error
+      409:
+        description: An intro video already exists
+      429:
+        description: Daily upload limit reached
+      500:
+        description: Upload failed
+    """
+    merchant_profile, error = _merchant_profile_or_error()
+    if error:
+        return error
+    try:
+        video = MerchantIntroVideoController.create(
+            merchant_profile,
+            request.files.get('video'),
+            title=request.form.get('title'),
+            caption=request.form.get('caption'),
+            duration_hint=request.form.get('duration_seconds'),
+        )
+    except IntroVideoError as e:
+        return _intro_video_error_response(e)
+
+    return jsonify({
+        "message": "Intro video uploaded successfully",
+        "intro_video": serialize_intro_video(video, owner_view=True),
+    }), 201
+
+
+@merchants_bp.route('/profile/intro-video', methods=['PUT'])
+@jwt_required()
+@merchant_role_required
+def update_intro_video():
+    """
+    Update intro video metadata (title, caption, visibility). Does not replace
+    the file — use PUT /profile/intro-video/file for that.
+    ---
+    tags:
+      - Merchant
+    security:
+      - Bearer: []
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            title:
+              type: string
+              maxLength: 120
+            caption:
+              type: string
+              maxLength: 500
+            is_active:
+              type: boolean
+    responses:
+      200:
+        description: Intro video updated
+      400:
+        description: Validation error
+      404:
+        description: No intro video found
+    """
+    merchant_profile, error = _merchant_profile_or_error()
+    if error:
+        return error
+    data = request.get_json(silent=True) or {}
+    try:
+        video = MerchantIntroVideoController.update_metadata(
+            merchant_profile,
+            title=data.get('title') if 'title' in data else None,
+            caption=data.get('caption') if 'caption' in data else None,
+            is_active=data.get('is_active') if 'is_active' in data else None,
+        )
+    except IntroVideoError as e:
+        return _intro_video_error_response(e)
+
+    return jsonify({
+        "message": "Intro video updated successfully",
+        "intro_video": serialize_intro_video(video, owner_view=True),
+    }), 200
+
+
+@merchants_bp.route('/profile/intro-video/file', methods=['PUT', 'POST'])
+@jwt_required()
+@merchant_role_required
+def replace_intro_video_file():
+    """
+    Replace the intro video file, keeping title/caption unless overridden.
+    ---
+    tags:
+      - Merchant
+    security:
+      - Bearer: []
+    consumes:
+      - multipart/form-data
+    parameters:
+      - in: formData
+        name: video
+        type: file
+        required: true
+      - in: formData
+        name: title
+        type: string
+        required: false
+      - in: formData
+        name: caption
+        type: string
+        required: false
+      - in: formData
+        name: duration_seconds
+        type: integer
+        required: false
+    responses:
+      200:
+        description: Intro video replaced
+      400:
+        description: Validation error
+      404:
+        description: No intro video to replace
+      429:
+        description: Daily upload limit reached
+      500:
+        description: Upload failed
+    """
+    merchant_profile, error = _merchant_profile_or_error()
+    if error:
+        return error
+    try:
+        video = MerchantIntroVideoController.replace_file(
+            merchant_profile,
+            request.files.get('video'),
+            title=request.form.get('title'),
+            caption=request.form.get('caption'),
+            duration_hint=request.form.get('duration_seconds'),
+        )
+    except IntroVideoError as e:
+        return _intro_video_error_response(e)
+
+    return jsonify({
+        "message": "Intro video replaced successfully",
+        "intro_video": serialize_intro_video(video, owner_view=True),
+    }), 200
+
+
+@merchants_bp.route('/profile/intro-video', methods=['DELETE'])
+@jwt_required()
+@merchant_role_required
+def delete_intro_video():
+    """
+    Delete the merchant's intro video.
+    ---
+    tags:
+      - Merchant
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: Intro video deleted
+      404:
+        description: No intro video found
+    """
+    merchant_profile, error = _merchant_profile_or_error()
+    if error:
+        return error
+    try:
+        MerchantIntroVideoController.delete(merchant_profile)
+    except IntroVideoError as e:
+        return _intro_video_error_response(e)
+    return jsonify({"message": "Intro video deleted successfully"}), 200
+
+
+@merchants_bp.route('/<int:merchant_id>/intro-video', methods=['GET', 'OPTIONS'])
+@cross_origin()
+def get_public_intro_video(merchant_id):
+    """
+    Get a merchant's public intro video.
+    ---
+    tags:
+      - Merchant
+    parameters:
+      - in: path
+        name: merchant_id
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Intro video, or null when there is nothing to show
+    """
+    merchant_profile = MerchantProfile.get_by_id(merchant_id)
+    # Null, never 404: a hidden video must be indistinguishable from no video,
+    # otherwise the status code leaks moderation state to shoppers.
+    if not merchant_profile:
+        return jsonify({"intro_video": None}), 200
+    video = MerchantIntroVideoController.get_public(merchant_profile)
+    return jsonify({"intro_video": serialize_intro_video(video)}), 200
+
 
 @merchants_bp.route('/profile/image', methods=['POST'])
 @jwt_required()
