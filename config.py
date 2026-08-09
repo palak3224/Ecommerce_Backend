@@ -67,6 +67,14 @@ class Config:
     # Base URL for AOIN product page links (used when generating product_url for AOIN reels)
     PRODUCT_PAGE_BASE_URL = os.getenv('PRODUCT_PAGE_BASE_URL', os.getenv('FRONTEND_URL', 'https://aoinstore.com')).rstrip('/')
 
+    # Currency. INR is the base/book currency: merchant prices, GST slabs, platform-fee
+    # tiers and merchant settlement are all denominated in it.
+    DEFAULT_CURRENCY = os.getenv('DEFAULT_CURRENCY', 'INR')
+    HOME_COUNTRY_CODE = os.getenv('HOME_COUNTRY_CODE', 'IN')
+    # Gates charging in any currency other than DEFAULT_CURRENCY. Keep false until the
+    # currency layer ships AND Razorpay international is activated.
+    FEATURE_MULTI_CURRENCY = os.getenv('FEATURE_MULTI_CURRENCY', 'false').lower() in ('1', 'true', 'yes')
+
     EXCHANGE_RATE_API_KEY = os.getenv('EXCHANGE_RATE_API_KEY', 'f60545f362ec1fdd1e5e7338')
     CARD_ENCRYPTION_KEY = os.getenv('CARD_ENCRYPTION_KEY')
     
@@ -175,6 +183,7 @@ class TestingConfig(Config):
     USER_ACCOUNT_DELETION_JOB_ENABLED = False
     INTRO_VIDEO_PURGE_ENABLED = False
     FEATURE_TRANSLATION = False
+    FEATURE_MULTI_CURRENCY = False
     CACHE_TYPE = 'null'
 
 

@@ -25,7 +25,9 @@ class Order(BaseModel):
     tax_amount = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal('0.00'), server_default='0.00')
     shipping_amount = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal('0.00'), server_default='0.00')
     total_amount = db.Column(db.Numeric(12, 2), nullable=False)
-    currency = db.Column(db.String(3), nullable=False, default="USD")
+    # INR is the base/book currency. This defaulted to "USD" while every stored amount
+    # was rupees, so historical rows carry a meaningless label (see the backfill script).
+    currency = db.Column(db.String(3), nullable=False, default="INR")
 
     payment_method = db.Column(db.Enum(PaymentMethodEnum), nullable=True)
     payment_status = db.Column(db.Enum(PaymentStatusEnum), nullable=False, default=PaymentStatusEnum.PENDING, index=True)

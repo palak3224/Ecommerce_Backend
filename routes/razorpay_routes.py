@@ -1,19 +1,93 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from common.response import success_response, error_response
+from common.database import db
 import razorpay
 import os
 import hmac
 import hashlib
 import json
 from datetime import datetime
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 razorpay_bp = Blueprint('razorpay', __name__)
+
+DEFAULT_CHARGE_CURRENCY = 'INR'
+
+# Minor units per currency. Most are 2 (100 paise/cents), a few differ.
+ZERO_DECIMAL_CURRENCIES = {'JPY', 'KRW', 'VND', 'CLP'}
+THREE_DECIMAL_CURRENCIES = {'BHD', 'JOD', 'KWD', 'OMR', 'TND'}
+
+
+def minor_unit_factor(currency):
+    """How many minor units make one major unit of `currency`."""
+    currency = (currency or DEFAULT_CHARGE_CURRENCY).upper()
+    if currency in ZERO_DECIMAL_CURRENCIES:
+        return 1
+    if currency in THREE_DECIMAL_CURRENCIES:
+        return 1000
+    return 100
+
+
+def _resolve_amount_minor(data, currency):
+    """Resolve the request amount to an integer number of minor units.
+
+    The caller must say which unit it is sending — we never guess. The previous
+    implementation inspected the magnitude ("if the value is an integer below 1000
+    it is probably rupees"), which silently multiplied any genuine sub-1000-paise
+    amount by 100: a Rs 9.99 subscription sent as 999 paise was charged as Rs 999.
+
+    Accepted keys, in precedence order:
+      amount_minor  - integer minor units (paise/cents)          [preferred]
+      amount_major  - decimal major units (rupees/dollars)       [preferred]
+      amount        - LEGACY, minor units (business/Subscription.tsx sends paise)
+      amount_rupees - LEGACY, major units (PaymentPage.tsx sends rupees)
+
+    Raises ValueError with a user-facing message on bad input.
+    """
+    factor = minor_unit_factor(currency)
+
+    def as_minor_from_major(value, key):
+        try:
+            # Decimal, not float: float('1234.565') * 100 lands on 123456.49999...
+            major = Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError):
+            raise ValueError(f'Invalid {key}: expected a number.')
+        return int((major * factor).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+
+    def as_minor_direct(value, key):
+        try:
+            minor = Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError):
+            raise ValueError(f'Invalid {key}: expected an integer number of minor units.')
+        if minor != minor.to_integral_value():
+            raise ValueError(f'Invalid {key}: minor units must be a whole number.')
+        return int(minor)
+
+    if data.get('amount_minor') is not None:
+        return as_minor_direct(data['amount_minor'], 'amount_minor')
+    if data.get('amount_major') is not None:
+        return as_minor_from_major(data['amount_major'], 'amount_major')
+
+    if data.get('amount') is not None:
+        current_app.logger.info(
+            "razorpay create-order: deprecated 'amount' key (assuming minor units); "
+            "send 'amount_minor' instead"
+        )
+        return as_minor_direct(data['amount'], 'amount')
+    if data.get('amount_rupees') is not None:
+        current_app.logger.info(
+            "razorpay create-order: deprecated 'amount_rupees' key; send 'amount_major' instead"
+        )
+        return as_minor_from_major(data['amount_rupees'], 'amount_rupees')
+
+    raise ValueError('Amount is required.')
+
 
 # Initialize Razorpay client
 def get_razorpay_client():
     return razorpay.Client(
-        auth=(current_app.config.get('RAZORPAY_KEY_ID'), 
+        auth=(current_app.config.get('RAZORPAY_KEY_ID'),
               current_app.config.get('RAZORPAY_KEY_SECRET'))
     )
 
@@ -23,54 +97,35 @@ def create_razorpay_order():
     """Create a Razorpay order"""
     try:
         data = request.get_json() or {}
-        # Accept either amount in paise or rupees for flexibility
-        amount_rupees = data.get('amount_rupees')
-        raw_amount = data.get('amount')
-        currency = (data.get('currency') or 'INR').upper()
+        currency = (data.get('currency') or DEFAULT_CHARGE_CURRENCY).upper()
 
-        # Normalize amount to paise (integer) as Razorpay expects
-        amount_paise = None
-        # Determine currency minor units (decimals)
-        # 0-decimal: JPY, KRW; 3-decimal: TND, BHD (Razorpay primarily uses 2 but guard anyway)
-        zero_decimal = { 'JPY', 'KRW' }
-        three_decimal = { 'BHD', 'JOD', 'KWD', 'OMR', 'TND' }
-        factor = 1
-        if currency in zero_decimal:
-            factor = 1
-        elif currency in three_decimal:
-            factor = 1000
-        else:
-            factor = 100
+        # Multi-currency charging is gated. Until the currency layer ships (and Razorpay
+        # international is activated), the only currency we may charge in is INR.
+        # Without this, a client that sends currency='USD' with an INR amount creates an
+        # order for ~85x the intended value.
+        if not current_app.config.get('FEATURE_MULTI_CURRENCY', False):
+            if currency != DEFAULT_CHARGE_CURRENCY:
+                current_app.logger.warning(
+                    "Rejected create-order in %s (multi-currency disabled), user=%s",
+                    currency, get_jwt_identity()
+                )
+                return error_response(
+                    f'Payments in {currency} are not currently supported. '
+                    f'Only {DEFAULT_CHARGE_CURRENCY} is accepted.',
+                    400
+                )
 
-        if amount_rupees is not None:
-            try:
-                amount_paise = int(round(float(amount_rupees) * factor))
-            except Exception:
-                return error_response('Invalid amount_rupees', 400)
-        elif raw_amount is not None:
-            # If client already provided paise as int-like, use it; if float, convert safely
-            try:
-                # Some clients may send a float rupee amount by mistake; if < 1000 assume rupees
-                val = float(raw_amount)
-                if val.is_integer():
-                    # Could be paise already if big; if improbably small (< 1000), treat as rupees
-                    if val < 1000:
-                        amount_paise = int(round(val * factor))
-                    else:
-                        amount_paise = int(val)
-                else:
-                    amount_paise = int(round(val * factor))
-            except Exception:
-                return error_response('Invalid amount', 400)
-        else:
-            return error_response('Amount is required', 400)
+        try:
+            amount_minor = _resolve_amount_minor(data, currency)
+        except ValueError as e:
+            return error_response(str(e), 400)
 
-        if amount_paise <= 0:
+        if amount_minor <= 0:
             return error_response('Amount must be greater than zero', 400)
 
         # Create Razorpay order
         order_data = {
-            'amount': amount_paise,
+            'amount': amount_minor,
             'currency': currency,
             # If client supplied a receipt, use it to correlate to internal order; else auto-generate
             'receipt': data.get('receipt') or f'order_{datetime.now().strftime("%Y%m%d_%H%M%S")}',
@@ -147,21 +202,23 @@ def verify_razorpay_payment():
             except Exception:
                 payment = None
 
-            # Update internal order record if a receipt is present on the Razorpay order
-            # Try to fetch order to get receipt reference
+            # Correlate back to the internal order via the Razorpay receipt.
+            #
+            # NOTE: today the checkout creates the Razorpay order BEFORE the internal
+            # Order row exists, so `receipt` is a client-minted "ORDREF-<timestamp>"
+            # that matches no row and this write-back is a no-op. It is left in place
+            # (and now logs) because it becomes correct once checkout is quote-first.
             internal_order_id = None
             try:
-                client = get_razorpay_client()
-                r_order = client.order.fetch(razorpay_order_id)
+                r_order = get_razorpay_client().order.fetch(razorpay_order_id)
                 internal_order_id = (r_order or {}).get('receipt')
-            except Exception:
-                internal_order_id = None
+            except Exception as e:
+                current_app.logger.warning(
+                    "Razorpay order fetch failed for %s: %s", razorpay_order_id, e
+                )
 
-            try:
-                from controllers.order_controller import OrderController
-                from models.enums import PaymentStatusEnum
-                if internal_order_id:
-                    # Update payment success and store gateway refs
+            if internal_order_id:
+                try:
                     from models.order import Order
                     order = Order.query.get(internal_order_id)
                     if order:
@@ -169,11 +226,22 @@ def verify_razorpay_payment():
                         order.razorpay_payment_id = razorpay_payment_id
                         order.payment_gateway_transaction_id = razorpay_payment_id
                         order.payment_gateway_name = 'Razorpay'
-                        db = current_app.extensions['sqlalchemy'].db
                         db.session.commit()
-                # else we just return success for verification
-            except Exception:
-                pass
+                        current_app.logger.info(
+                            "Razorpay refs stored on order %s", internal_order_id
+                        )
+                    else:
+                        current_app.logger.warning(
+                            "Razorpay receipt '%s' matched no internal order; gateway "
+                            "references were not stored for payment %s",
+                            internal_order_id, razorpay_payment_id
+                        )
+                except Exception as e:
+                    db.session.rollback()
+                    current_app.logger.error(
+                        "Failed storing Razorpay refs on order %s: %s",
+                        internal_order_id, e, exc_info=True
+                    )
 
             # Payment verification successful
             return success_response(

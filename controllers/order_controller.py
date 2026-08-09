@@ -160,7 +160,10 @@ class OrderController:
                 tax_amount=order_tax_amount,
                 shipping_amount=order_shipping_amount,
                 total_amount=final_order_total_amount, # Final payable
-                currency=order_data.get('currency', current_app.config.get("DEFAULT_CURRENCY", "USD")),
+                # All amounts above are computed from INR product prices, so the order is
+                # INR regardless of what the client claims. Honouring a client-supplied
+                # currency here would mislabel an INR total as USD.
+                currency=current_app.config.get("DEFAULT_CURRENCY", "INR"),
                 payment_method=payment_method_enum,
                 payment_status=PaymentStatusEnum.PENDING,
                 order_status=OrderStatusEnum.PENDING_PAYMENT,
