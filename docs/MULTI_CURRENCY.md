@@ -1,9 +1,23 @@
 # Multi-currency (INR base, USD presentment) — working document
 
-**Status:** Phase 0 complete. **Phase 4 backend complete** (server-authoritative checkout
-quote), behind `FEATURE_QUOTE_ONLY_CHECKOUT`, default off. Phases 1–3 and 5–8 not started.
-**Pending before deploy:** run `init_db.py` — Phase 4 adds three tables. See §11.
-**Pending before the gate flips:** the frontend must send `quote_id`. See §8, Phase 4.
+**Status:** Phases **0, 2, 3 and 4 complete**, plus the buyer-side frontend currency
+layer. Phase 1 (backfill), 5 (tax), 6 (reports), 7 (charge in USD) and 8 (shop stack)
+not started.
+
+**Everything new is behind flags, all default off:**
+`FEATURE_QUOTE_ONLY_CHECKOUT`, `FEATURE_MULTI_CURRENCY`, `FEATURE_FX_SNAPSHOT`.
+With all three off the app behaves exactly as it did before any of this work.
+
+**Decided:** USD is **display-only**. Customers browsing in USD are still charged in
+INR until Razorpay international is activated (Phase 7), and the checkout says so.
+
+**Pending before deploy:** run `init_db.py` — adds `checkout_quotes`,
+`checkout_quote_items`, `payment_refunds`, `fx_rates`, and two nullable columns on
+`products`. See §11.
+
+**To switch multi-currency on:** set `FEATURE_FX_SNAPSHOT=true`, wait for one rate
+snapshot, then `FEATURE_MULTI_CURRENCY=true`. Order matters — with the flag on and
+no rates, every presentment falls back to INR (correctly, but pointlessly).
 **Scope:** both repos — `Ecommerce_Backend/` and `Ecommerce/`.
 **Audience:** whoever picks this up next, with no prior context.
 
@@ -312,7 +326,72 @@ changes.
 Also switch `invoice_service.py` to read `base_currency` — this fixes mislabelled GST
 invoices as a side effect.
 
-### Phase 2 — FX infrastructure (dark)
+### Phase 2 — FX infrastructure — **DONE**
+
+`models/fx_rate.py` (append-only, unique on `(base, quote, as_of_date, source)`),
+`services/fx_service.py`, daily job in `app.py` behind `FEATURE_FX_SNAPSHOT`
+(default off, forced off in `TestingConfig`). 22 tests in `test_fx_service.py`.
+
+Config: `FX_MARKUP_PERCENT` (2.5), `FX_MAX_RATE_AGE_DAYS` (3),
+`FX_ROUNDING_STYLE` (charm_99), `FX_QUOTE_CURRENCIES` (USD).
+
+- **Nothing here invents a rate.** No `default=` on `convert()`, no fallback
+  anywhere. A missing rate raises `NoFxRateError`; a rate older than
+  `FX_MAX_RATE_AGE_DAYS` raises `StaleFxRateError`. Base→base returns 1 without
+  consulting a row — the one case where 1.0 is a fact, not a fallback.
+- **`record_rate` is idempotent** per pair/day/source, so a job that runs twice
+  cannot create two competing answers for one day. Corrections are new rows on new
+  dates; never `UPDATE` a row an order may reference (I4).
+- Marketing rounding always rounds **up**. Rounding down would sell below the INR
+  list price once the markup is stripped.
+- The job sets `next_run_time=datetime.now()`, or a cold boot leaves the table
+  empty for a full interval.
+
+### Phase 3 — Presentment read path — **DONE**
+
+`services/currency_context.py`, `Product.serialize(currency=None)`,
+`GET /api/currency/context`, per-product override columns
+(`presentment_price`, `presentment_currency` — nullable, no default, per Landmine
+#1). 15 tests in `test_presentment_read_path.py`.
+
+- **The guarantee everything rests on:** no `?currency=` means byte-identical JSON.
+  Not one key added, not one value changed. Tested explicitly.
+- Where `fx_service` raises, the serializer catches and returns the INR amount
+  **labelled INR**. A listing must render; it must never emit a rupee number
+  wearing a dollar sign.
+- Outside a request context, currency is always base — invoices are tax documents.
+- `/api/currency/context` reads country from CloudFront/Cloudflare headers. An
+  undetected visitor is offered the charge currency, the safer mistake.
+
+### Frontend currency layer — **DONE (buyer side)**
+
+| Piece | Where |
+|---|---|
+| Module-level store | `Ecommerce/src/utils/currencyStore.ts` |
+| Formatter + price accessors | `src/utils/money.ts` |
+| Fetch interceptor | `src/utils/apiClient.ts`, installed in `main.tsx` |
+| React binding | `src/context/CurrencyContext.tsx`, `useMoney()` |
+| Navbar switcher | `src/components/common/CurrencySwitcher.tsx` |
+
+- The store is **module-level, not React state** — provider effects fire
+  inner-to-outer, so a provider-installed value arrives after `CartProvider`'s
+  first fetch.
+- The interceptor **allowlists our own API origin only**. It never touches body or
+  headers, preserves `Request` objects, skips a caller-set `currency`, excludes
+  `/api/auth/*`, `/api/razorpay/*` and `/api/checkout/*`, and guards against HMR
+  double-wrap. Any internal failure falls through to the original request.
+- `formatMoney` on INR is byte-identical to the `formatCurrency` copies it replaces,
+  so a half-migrated app is indistinguishable from the current one.
+- Switching **reloads the page** — 100+ screens cache prices in local state.
+- Currency **locks during checkout**.
+- `OrderSummary`'s client-side FX is deleted; where display and charge currency
+  differ it discloses the charge currency.
+
+**Remaining frontend:** merchant, superadmin, creator and shop1–4 surfaces still
+render INR only. Per the agreed scope those show each order in its **recorded**
+currency with no conversion, which is Phase 6 work.
+
+### Phase 2 (original plan, superseded by the above)
 
 `models/fx_rate.py` (**append-only**, unique on `(base, quote, as_of_date, source)` —
 historical orders reference these rows by id), `models/currency_config.py`,
