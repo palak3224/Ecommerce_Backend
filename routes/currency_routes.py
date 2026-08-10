@@ -150,4 +150,51 @@ def get_exchange_rates():
         'base_currency': base_currency,
         'conversion_rates': rates,
         'last_updated': data.get('meta', {}).get('last_updated_at', '')
-    }) 
+    })
+
+
+@currency_bp.route('/api/currency/context', methods=['GET'])
+def get_currency_context():
+    """What currency should this visitor see, and what may they choose?
+
+    Unauthenticated on purpose — a first-time visitor needs this before the
+    storefront renders its first price, and it discloses nothing private.
+
+    Country detection reads the CDN/proxy headers rather than doing a GeoIP lookup
+    of its own: CloudFront and Cloudflare both stamp the resolved country on the
+    request, and they are far more accurate than anything derived from a raw IP.
+    """
+    from services.currency_context import (
+        base_currency, multi_currency_enabled, supported_currencies,
+    )
+
+    country = (
+        request.headers.get('CloudFront-Viewer-Country')
+        or request.headers.get('CF-IPCountry')
+        or request.headers.get('X-Country-Code')
+        or ''
+    ).strip().upper()
+
+    home = (current_app.config.get('HOME_COUNTRY_CODE') or 'IN').upper()
+    base = base_currency()
+    enabled = multi_currency_enabled()
+
+    # India (or unknown) sees the book currency. "Unknown" resolving to INR is
+    # deliberate: an undetected visitor sees the currency they will actually be
+    # charged in, which is the safer of the two mistakes.
+    if not enabled or not country or country == home:
+        suggested = base
+    else:
+        quotes = [c for c in supported_currencies() if c != base]
+        suggested = quotes[0] if quotes else base
+
+    return jsonify({
+        'suggested_currency': suggested,
+        'base_currency': base,
+        'detected_country': country or None,
+        'multi_currency_enabled': enabled,
+        'supported_currencies': supported_currencies() if enabled else [base],
+        # Presentment is display-only until Razorpay international is live: the
+        # customer is charged in charge_currency whatever they are browsing in.
+        'charge_currency': base,
+    })
