@@ -225,6 +225,147 @@ def test_active_promotion_is_applied_server_side(app):
         assert quote.total_amount == Decimal("900.00")
 
 
+def _mk_promo(code, dtype, value, product_id=None, category_id=None, brand_id=None):
+    from models.promotion import Promotion
+    p = Promotion(
+        code=code, discount_type=dtype, discount_value=Decimal(value),
+        active_flag=True, product_id=product_id, category_id=category_id,
+        brand_id=brand_id,
+        start_date=date.today() - timedelta(days=1),
+        end_date=date.today() + timedelta(days=1),
+    )
+    db.session.add(p)
+    db.session.commit()
+    return p
+
+
+def test_sitewide_fixed_promo_applies_once_across_the_basket(app):
+    """Not once per unit. A per-unit reading of a fixed promo hands out
+    quantity x the intended discount — this is the shape that quietly loses money."""
+    from models.enums import DiscountType
+    from services.checkout_quote_service import build_quote
+
+    with app.app_context():
+        buyer, product = _seed(price="500.00", stock=50)
+        _mk_promo("FLAT100", DiscountType.FIXED, "100.00")
+
+        quote = build_quote(buyer.id, {
+            "items": [{"product_id": product.product_id, "quantity": 4}],
+            "promo_code": "FLAT100",
+        })
+
+        # 4 x 500 = 2000 basket, 100 off once => 1900, NOT 4 x 100 off => 1600.
+        assert quote.discount_amount == Decimal("100.00")
+        assert quote.total_amount == Decimal("1900.00")
+
+
+def test_sitewide_fixed_promo_spreads_across_lines_pro_rata(app):
+    from models.enums import DiscountType
+    from services.checkout_quote_service import build_quote
+
+    with app.app_context():
+        owner = _mk_user("owner@ex.com")
+        merchant = _mk_merchant(owner)
+        cat = _mk_category()
+        brand = _mk_brand()
+        cheap = _mk_product(merchant, cat, brand, price="100.00", sku="W-C", stock=50)
+        dear = _mk_product(merchant, cat, brand, price="300.00", sku="W-D", stock=50)
+        _mk_gst_rule(cat)
+        buyer = _mk_user("buyer@ex.com")
+        db.session.commit()
+        _mk_promo("FLAT80", DiscountType.FIXED, "80.00")
+
+        quote = build_quote(buyer.id, {
+            "items": [{"product_id": cheap.product_id, "quantity": 1},
+                      {"product_id": dear.product_id, "quantity": 1}],
+            "promo_code": "FLAT80",
+        })
+
+        # 100 + 300 = 400 basket. 80 off, split 1:3 => 20 and 60.
+        assert quote.discount_amount == Decimal("80.00")
+        assert quote.total_amount == Decimal("320.00")
+
+
+def test_sitewide_fixed_promo_is_capped_at_the_basket(app):
+    from models.enums import DiscountType
+    from services.checkout_quote_service import build_quote
+
+    with app.app_context():
+        buyer, product = _seed(price="100.00", stock=50)
+        _mk_promo("FLAT9999", DiscountType.FIXED, "9999.00")
+
+        with pytest.raises(Exception):
+            # Discount capped at the basket, so the total is zero and refused
+            # rather than becoming a negative charge.
+            build_quote(buyer.id, {
+                "items": [{"product_id": product.product_id, "quantity": 1}],
+                "promo_code": "FLAT9999",
+            })
+
+
+def test_targeted_fixed_promo_applies_per_line_capped(app):
+    """Targeted fixed is min(line_total, value) per matching line."""
+    from models.enums import DiscountType
+    from services.checkout_quote_service import build_quote
+
+    with app.app_context():
+        buyer, product = _seed(price="500.00", stock=50)
+        _mk_promo("ITEM50", DiscountType.FIXED, "50.00", product_id=product.product_id)
+
+        quote = build_quote(buyer.id, {
+            "items": [{"product_id": product.product_id, "quantity": 3}],
+            "promo_code": "ITEM50",
+        })
+
+        # One line of 1500, capped fixed 50 on that line — not 50 per unit
+        # (which would be 150). The 2 paise shortfall is 50.00/3 rounded DOWN per
+        # unit: the discount may never round up past the promotion's own value.
+        assert quote.discount_amount == Decimal("49.98")
+        assert quote.total_amount == Decimal("1450.02")
+
+
+def test_targeted_promo_skips_non_matching_products(app):
+    from models.enums import DiscountType
+    from services.checkout_quote_service import build_quote
+
+    with app.app_context():
+        owner = _mk_user("owner@ex.com")
+        merchant = _mk_merchant(owner)
+        cat = _mk_category()
+        brand = _mk_brand()
+        hit = _mk_product(merchant, cat, brand, price="200.00", sku="W-H", stock=50)
+        miss = _mk_product(merchant, cat, brand, price="200.00", sku="W-M", stock=50)
+        _mk_gst_rule(cat)
+        buyer = _mk_user("buyer@ex.com")
+        db.session.commit()
+        _mk_promo("ONLYHIT", DiscountType.PERCENTAGE, "50.00", product_id=hit.product_id)
+
+        quote = build_quote(buyer.id, {
+            "items": [{"product_id": hit.product_id, "quantity": 1},
+                      {"product_id": miss.product_id, "quantity": 1}],
+            "promo_code": "ONLYHIT",
+        })
+
+        assert quote.discount_amount == Decimal("100.00")   # 50% of the hit only
+        assert quote.total_amount == Decimal("300.00")
+
+
+def test_percentage_over_100_is_clamped(app):
+    from models.enums import DiscountType
+    from services.checkout_quote_service import build_quote
+
+    with app.app_context():
+        buyer, product = _seed(price="500.00", stock=50)
+        _mk_promo("BOGUS", DiscountType.PERCENTAGE, "150.00")
+
+        with pytest.raises(Exception):
+            # Clamped to 100%, so the basket is zero and refused — never negative.
+            build_quote(buyer.id, {
+                "items": [{"product_id": product.product_id, "quantity": 1}],
+                "promo_code": "BOGUS",
+            })
+
+
 def test_fixed_discount_cannot_drive_a_line_negative(app):
     from models.enums import DiscountType
     from models.promotion import Promotion

@@ -15,7 +15,7 @@ INR only. Invariant I6: GST slab selection is fed the INR listed price, never a
 converted one.
 """
 from datetime import datetime, date
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 import json
 
 from flask import current_app
@@ -84,27 +84,63 @@ def _promotion_applies_to(promo, product):
     return True
 
 
-def _discount_per_unit(promo, product, listed_inclusive_per_unit):
-    """Server-computed per-unit discount, inclusive of GST.
+def _resolve_line_discounts(promo, entries):
+    """Server-computed discount per *line*, mirroring POST /api/promo-code/apply.
 
     Replaces the client-supplied `item_discount_inclusive` that create_order used to
     accept verbatim — a field the browser could set to any value it liked.
+
+    These semantics are not a free choice: they must match the promo endpoint,
+    because that endpoint is what quoted the discount to the customer before they
+    reached checkout. A different number here either overcharges against the total
+    they were shown, or hands out money.
+
+      sitewide + fixed      -> the value ONCE across the basket, spread pro rata
+      sitewide + percentage -> the percentage on every line
+      targeted + fixed      -> min(line_total, value) on each matching line
+      targeted + percentage -> the percentage on each matching line
+
+    `entries` carries `product`, `quantity` and `line_total` per line. Returns a
+    list of Decimal line discounts, index-aligned with `entries`.
     """
-    if promo is None or not _promotion_applies_to(promo, product):
-        return Decimal("0.00")
+    zero = [Decimal("0.00") for _ in entries]
+    if promo is None or not entries:
+        return zero
 
-    if promo.discount_type == DiscountType.PERCENTAGE:
-        pct = Decimal(promo.discount_value)
+    is_sitewide = (
+        promo.product_id is None
+        and promo.category_id is None
+        and promo.brand_id is None
+    )
+    value = Decimal(promo.discount_value)
+    is_pct = promo.discount_type == DiscountType.PERCENTAGE
+    if is_pct:
         # A percentage over 100 would invert the price; clamp rather than trust.
-        pct = min(max(pct, Decimal("0")), Decimal("100"))
-        discount = listed_inclusive_per_unit * pct / Decimal("100")
+        value = min(max(value, Decimal("0")), Decimal("100"))
     else:
-        discount = Decimal(promo.discount_value)
+        value = max(value, Decimal("0"))
 
-    discount = _q(discount)
-    # Never below zero-cost: a fixed discount larger than the item is capped, not
-    # allowed to make the line negative and drag the basket total down.
-    return min(max(discount, Decimal("0.00")), _q(listed_inclusive_per_unit))
+    basket_total = sum(e["line_total"] for e in entries)
+
+    if is_sitewide and not is_pct:
+        # One fixed amount for the whole basket, never more than the basket itself,
+        # distributed in proportion to each line.
+        if basket_total <= Decimal("0.00"):
+            return zero
+        to_apply = min(basket_total, value)
+        return [_q(to_apply * (e["line_total"] / basket_total)) for e in entries]
+
+    out = []
+    for e in entries:
+        if not (is_sitewide or _promotion_applies_to(promo, e["product"])):
+            out.append(Decimal("0.00"))
+        elif is_pct:
+            out.append(_q(e["line_total"] * value / Decimal("100")))
+        else:
+            # Capped at the line, so a fixed discount can never make a line negative
+            # and drag the basket total down.
+            out.append(_q(min(e["line_total"], value)))
+    return out
 
 
 def _resolve_shipping(subtotal_inclusive):
@@ -174,20 +210,54 @@ def price_basket(user_id, payload, now=None):
     basket = _basket_from_request(user_id, payload)
     promo = _resolve_promotion(payload.get("promo_code"), now=now)
 
-    lines = []
-    total_base = Decimal("0.00")
-    total_gst = Decimal("0.00")
-    total_discount = Decimal("0.00")
-
+    # First pass: resolve products and list prices. Discounts cannot be computed
+    # per item in isolation — a sitewide fixed promo is one amount spread across the
+    # whole basket — so the basket has to be fully known before any of it is applied.
+    entries = []
     for product_id, quantity, attributes in basket:
         product = Product.query.get(product_id)
         if not product:
             raise QuoteError(f"Product {product_id} not found.")
 
         listed_inclusive_per_unit, _ = product.get_current_listed_inclusive_price()
-        listed_inclusive_per_unit = Decimal(listed_inclusive_per_unit)
+        listed_inclusive_per_unit = _q(listed_inclusive_per_unit)
 
-        discount_per_unit = _discount_per_unit(promo, product, listed_inclusive_per_unit)
+        entries.append({
+            "product": product,
+            "quantity": quantity,
+            "attributes": attributes,
+            "listed_per_unit": listed_inclusive_per_unit,
+            "line_total": _q(listed_inclusive_per_unit * quantity),
+        })
+
+    line_discounts = _resolve_line_discounts(promo, entries)
+
+    lines = []
+    total_base = Decimal("0.00")
+    total_gst = Decimal("0.00")
+    total_discount = Decimal("0.00")
+
+    # Second pass: price each line off its share of the discount.
+    for entry, line_discount in zip(entries, line_discounts):
+        product = entry["product"]
+        quantity = entry["quantity"]
+        attributes = entry["attributes"]
+        listed_inclusive_per_unit = entry["listed_per_unit"]
+
+        # Store per unit, mirroring OrderItem. Rounding the per-unit figure and then
+        # multiplying back keeps Sigma(lines) exact (I5).
+        #
+        # ROUND_DOWN, not HALF_UP: a 50.00 promo over 3 units is 16.6666... per unit,
+        # and rounding half-up gives 16.67 x 3 = 50.01 — a paise more discount than
+        # the promotion actually grants. Rounding down means the customer can lose at
+        # most (quantity - 1) paise and can never gain any, so a discount never
+        # exceeds its own value.
+        discount_per_unit = (
+            (line_discount / quantity).quantize(TWO_PLACES, rounding=ROUND_DOWN)
+            if quantity else Decimal("0.00")
+        )
+        discount_per_unit = min(discount_per_unit, listed_inclusive_per_unit)
+
         pays_per_unit = listed_inclusive_per_unit - discount_per_unit
         if pays_per_unit < Decimal("0.00"):
             pays_per_unit = Decimal("0.00")
