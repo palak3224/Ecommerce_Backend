@@ -775,3 +775,45 @@ def batch_delete_reels():
     """
     return ReelsController.batch_delete_reels()
 
+
+
+# --- Homepage reel showcase -------------------------------------------------
+#
+# The prices below are curated placeholders that match the showcase videos, not
+# real catalogue rows. They live here rather than in the frontend because a
+# hardcoded amount in a React file cannot be converted: the browser would render
+# an INR number under whatever symbol is active, which is how the reel strip came
+# to show "$1,199.00" for an item worth about fourteen dollars.
+#
+# Served through the same money() helper as every real price, so the strip follows
+# the currency switcher and can never disagree with the rest of the page.
+SHOWCASE_REELS_INR = [
+    {"name": "Men's Premium Casual Wear Collection", "price": 1199, "original_price": 2199},
+    {"name": "Classic Stud Earrings", "price": 449, "original_price": 699},
+    {"name": "Luxury Analog Watches", "price": 2499, "original_price": 3999},
+    {"name": "Elegant Jewellery Set", "price": 899, "original_price": 1299},
+    {"name": "Women's Office Formal Dresses", "price": 699, "original_price": 999},
+    {"name": "Delicate Pendant Necklace", "price": 349, "original_price": 599},
+]
+
+
+@reels_bp.route('/api/reels/showcase', methods=['GET'])
+def get_reel_showcase():
+    """Curated homepage reel overlays, priced in the requested currency."""
+    from services.currency_context import money, resolve_request_currency
+
+    currency = resolve_request_currency()
+    items = []
+    for item in SHOWCASE_REELS_INR:
+        price = money(item["price"], currency)
+        original = money(item["original_price"], currency)
+        items.append({
+            "name": item["name"],
+            # Floats for direct display use; the currency is stated alongside so the
+            # client never has to guess what these numbers are denominated in.
+            "price": float(price["amount"]),
+            "original_price": float(original["amount"]),
+            "currency": price["currency"],
+        })
+
+    return jsonify({"status": "success", "data": {"items": items}})

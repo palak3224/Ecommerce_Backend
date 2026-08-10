@@ -167,3 +167,61 @@ def scalar(price_block):
     if not price_block:
         return None
     return float(price_block["amount"])
+
+
+def apply_presentment_prices(product_data, *, price=None, original_price=None,
+                             selling_price=None, special_price=None, currency=None):
+    """Re-price a product dict that was assembled outside `Product.serialize`.
+
+    Several controllers call `serialize()` and then overwrite `price`,
+    `originalPrice`, `selling_price` and `special_price` with raw INR columns for
+    "frontend compatibility". That silently throws away everything the serializer
+    computed, so those endpoints served rupee numbers that the frontend then
+    labelled with whatever currency was active — a 1699 rupee item shown as $1,699.
+
+    Any code path that recomputes a price outside the serializer has to come back
+    through here. Pass INR amounts; this writes the presentment scalars, keeps the
+    INR values under `*_inr`, and states which currency the scalars are in.
+    """
+    resolved = resolve_request_currency(currency)
+    if resolved == base_currency():
+        # Base currency: leave the caller's INR numbers exactly as they are, and add
+        # no presentment keys, so the response stays byte-identical to before.
+        return product_data
+
+    blocks = {
+        "price": money(price, resolved),
+        "originalPrice": money(original_price, resolved),
+        "selling_price": money(selling_price, resolved),
+        "special_price": money(special_price, resolved),
+    }
+
+    inr_key = {
+        "price": "price_inr",
+        "originalPrice": "original_price_inr",
+        "selling_price": "selling_price_inr",
+        "special_price": "special_price_inr",
+    }
+
+    for key, block in blocks.items():
+        if block is None:
+            continue
+        product_data[key] = float(block["amount"])
+        product_data[inr_key[key]] = float(block["amount_base"])
+
+    display = blocks["price"] or blocks["selling_price"]
+    if display:
+        product_data["currency"] = display["currency"]
+        product_data["price_source"] = display["source"]
+
+    # A percentage derived from INR figures stays valid after conversion, but one
+    # derived from a converted price against an unconverted original does not — that
+    # is what produced "98% OFF" on screen. Recompute from the presentment pair.
+    p = product_data.get("price")
+    o = product_data.get("originalPrice")
+    if p is not None and o and o > p:
+        product_data["discount_pct"] = round((o - p) / o * 100, 2)
+    elif p is not None and o is not None:
+        product_data["discount_pct"] = 0.0
+
+    return product_data

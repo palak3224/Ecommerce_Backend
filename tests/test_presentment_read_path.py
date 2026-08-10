@@ -271,3 +271,86 @@ def test_currency_context_with_flag_off_offers_only_inr(app):
     assert body["suggested_currency"] == "INR"
     assert body["supported_currencies"] == ["INR"]
     assert body["multi_currency_enabled"] is False
+
+
+# --------------------------------------------------------------------------- #
+# regressions: controllers that recompute prices outside the serializer
+# --------------------------------------------------------------------------- #
+
+def test_apply_presentment_reprices_overwritten_scalars(app):
+    """Controllers call serialize() then overwrite price/originalPrice with raw INR
+    columns 'for frontend compatibility'. That shipped rupee numbers which the UI
+    then labelled USD — a 1699 item displayed as $1,699.00."""
+    from decimal import Decimal
+    from services.currency_context import apply_presentment_prices
+
+    with app.app_context():
+        app.config["FEATURE_MULTI_CURRENCY"] = True
+        app.config["FX_MARKUP_PERCENT"] = "0"
+        app.config["FX_ROUNDING_STYLE"] = "none"
+        _rate("0.01")
+
+        data = {"price": 1699.0, "originalPrice": 2000.0}
+        apply_presentment_prices(
+            data, price=Decimal("1699.00"), original_price=Decimal("2000.00"),
+            currency="USD",
+        )
+
+        assert data["price"] == 16.99
+        assert data["originalPrice"] == 20.00
+        assert data["price_inr"] == 1699.00
+        assert data["currency"] == "USD"
+
+
+def test_discount_pct_is_recomputed_from_the_converted_pair(app):
+    """A converted price against an unconverted original produced '98% OFF'."""
+    from decimal import Decimal
+    from services.currency_context import apply_presentment_prices
+
+    with app.app_context():
+        app.config["FEATURE_MULTI_CURRENCY"] = True
+        app.config["FX_MARKUP_PERCENT"] = "0"
+        app.config["FX_ROUNDING_STYLE"] = "none"
+        _rate("0.01")
+
+        data = {}
+        apply_presentment_prices(
+            data, price=Decimal("900.00"), original_price=Decimal("1000.00"),
+            currency="USD",
+        )
+        # 10% off in INR must still read as 10% off in USD, not 98%.
+        assert data["discount_pct"] == 10.0
+
+
+def test_apply_presentment_is_a_noop_in_base_currency(app):
+    """No ?currency= must leave the controller's INR numbers untouched."""
+    from decimal import Decimal
+    from services.currency_context import apply_presentment_prices
+
+    with app.app_context():
+        app.config["FEATURE_MULTI_CURRENCY"] = True
+        _rate()
+
+        data = {"price": 1699.0, "originalPrice": 2000.0}
+        apply_presentment_prices(
+            data, price=Decimal("1699.00"), original_price=Decimal("2000.00"),
+        )
+        assert data == {"price": 1699.0, "originalPrice": 2000.0}
+
+
+def test_reel_showcase_prices_follow_the_requested_currency(app):
+    """The homepage reel strip is server-priced so it cannot print INR under a $."""
+    client = app.test_client()
+    with app.app_context():
+        app.config["FEATURE_MULTI_CURRENCY"] = True
+        app.config["FX_MARKUP_PERCENT"] = "0"
+        app.config["FX_ROUNDING_STYLE"] = "none"
+        _rate("0.01")
+
+    inr = client.get("/api/reels/showcase").get_json()["data"]["items"]
+    assert inr[0]["currency"] == "INR"
+    assert inr[0]["price"] == 1199.0
+
+    usd = client.get("/api/reels/showcase?currency=USD").get_json()["data"]["items"]
+    assert usd[0]["currency"] == "USD"
+    assert usd[0]["price"] == 11.99, "reel price was not converted"

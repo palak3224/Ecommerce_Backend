@@ -1,6 +1,7 @@
 from flask import current_app
 from models.product_placement import ProductPlacement, PlacementTypeEnum
 from models.product import Product
+from services.currency_context import apply_presentment_prices
 from models.product_media import ProductMedia, MediaType
 from common.database import db
 from datetime import datetime, timezone
@@ -134,6 +135,13 @@ class FeatureProductController:
                 product_data['selling_price'] = selling_price
                 product_data['special_price'] = special_price
                 product_data['discount_pct'] = discount_pct
+
+                # The assignments above are raw INR columns and have just discarded
+                # what serialize() computed. Re-price them for the requested currency.
+                apply_presentment_prices(
+                    product_data, price=current_price, original_price=original_price,
+                    selling_price=selling_price, special_price=special_price,
+                )
                 
                 serialized_products.append(product_data)
 
@@ -232,6 +240,12 @@ class FeatureProductController:
             product_data['special_price'] = special_price
             product_data['discount_pct'] = discount_pct
 
+            # These are raw INR columns; re-price them for the requested currency.
+            apply_presentment_prices(
+                product_data, price=current_price, original_price=original_price,
+                selling_price=selling_price, special_price=special_price,
+            )
+
             return product_data
 
         except ValueError as e:
@@ -303,6 +317,12 @@ class FeatureProductController:
                 product_data['originalPrice'] = float(original_price) if original_price is not None else None
                 product_data['selling_price'] = sp
                 product_data['special_price'] = spp
+
+                # Same as above: these are INR, re-price them for the request.
+                apply_presentment_prices(
+                    product_data, price=current_price, original_price=original_price,
+                    selling_price=sp, special_price=spp,
+                )
 
                 serialized_products.append(product_data)
 
