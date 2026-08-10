@@ -390,17 +390,46 @@ Design decisions worth knowing before changing any of it:
 - **Shipping is server-resolved** (`DEFAULT_SHIPPING_AMOUNT`, `FREE_SHIPPING_THRESHOLD`),
   defaulting to 0.00, which is what the marketplace charges today.
 
+**Frontend migration — DONE.**
+
+| Piece | Where |
+|---|---|
+| Typed quote client | `Ecommerce/src/utils/checkoutQuote.ts` |
+| Quote before payment; `create-order` gets only `quote_id` | `PaymentPage.tsx` `handleOrder` |
+| Order created by the server; page no longer POSTs `/api/orders` | `handleRazorpaySuccess` → `finalizeOrder` |
+| Plan priced server-side | `Subscription.tsx` sends `subscription_plan_id` |
+
+Notes for whoever touches this next:
+
+- `createRazorpayOrder` takes **no amount, currency or receipt** any more. The receipt
+  is the quote id.
+- `finalizeOrder(orderId)` holds the post-payment work both paths need (merchant
+  settlement rows, logistics, cart clear, confirmation). None of it may fail the
+  order — the money has already moved.
+- If a payment was made against a quote but `verify-payment` returns no order id, the
+  page **refuses** to fall through to the legacy branch. A second order for one
+  payment is worse than asking the customer to contact support.
+- Before opening the gateway, the page compares the quote total to the displayed total
+  and aborts on a mismatch rather than charging a different number than is on screen.
+
 **Still to do before the gate can flip:**
 
-1. `PaymentPage.tsx` must call `POST /api/checkout/quote` and send `quote_id` to
-   `create-order` instead of `amount_major`. Until then the legacy path carries checkout.
-2. `Subscription.tsx` should send `subscription_plan_id` rather than `amount_minor` —
-   the server already prices plans from `subscription_plans.price`.
-3. Then set `FEATURE_QUOTE_ONLY_CHECKOUT=true`, which makes a client-stated amount a 400.
-4. **Promo codes applied client-side today will stop being honoured on the quote path**
-   unless they exist as rows in `promotions`. Audit live promo usage before flipping.
-5. The card-payment branch in `create_order` still simulates success
+1. Set `FEATURE_QUOTE_ONLY_CHECKOUT=true`, which makes a client-stated amount a 400.
+   Do this only once the new frontend build is actually deployed — the flag rejects
+   the legacy path that a stale cached SPA still uses.
+2. Delete the legacy branch in `handleRazorpaySuccess` and `processOrderAfterPayment`
+   once nothing reaches them.
+3. The card-payment branch in `create_order` still simulates success
    (`payment_succeeded_simulation = True`). Untouched here, still a hole on that path.
+
+**Promo semantics are load-bearing.** `services/checkout_quote_service.py`
+`_resolve_line_discounts` must keep matching `POST /api/promo-code/apply` exactly —
+that endpoint is what quotes the discount to the customer before checkout, so any
+divergence either overcharges against the displayed total or gives money away. The
+rules: sitewide fixed is one amount spread pro rata across the basket; targeted fixed
+is `min(line_total, value)` per matching line; percentages apply per line; lookup is
+case-insensitive. Per-unit storage rounds **down**, so a discount can never round up
+past its own value.
 
 ### Phase 5 — Tax treatment and fees (dark)
 
