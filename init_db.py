@@ -26,6 +26,7 @@ from models.cart import Cart, CartItem
 from models.order import Order, OrderItem, OrderStatusHistory
 from models.checkout_quote import CheckoutQuote, CheckoutQuoteItem
 from models.payment_refund import PaymentRefund
+from models.fx_rate import FxRate
 from models.shipment import Shipment, ShipmentItem
 from models.support_ticket_model import SupportTicket, SupportTicketMessage
 from models.youtube_token import YouTubeToken

@@ -27,6 +27,7 @@ from .cart import Cart, CartItem
 from .order import Order, OrderItem, OrderStatusHistory
 from .checkout_quote import CheckoutQuote, CheckoutQuoteItem
 from .payment_refund import PaymentRefund
+from .fx_rate import FxRate
 from .shipment import Shipment, ShipmentItem
 from .shop.shop_order import ShopOrder, ShopOrderItem, ShopOrderStatusHistory
 from .shop.shop_shipment import ShopShipment, ShopShipmentItem
@@ -87,5 +88,6 @@ __all__ = [
     'ExploreBannerItem',
     'CheckoutQuote',
     'CheckoutQuoteItem',
-    'PaymentRefund'
+    'PaymentRefund',
+    'FxRate'
 ]

@@ -81,6 +81,19 @@ class Config:
     # cached SPA build still checks out via the legacy amount path.
     FEATURE_QUOTE_ONLY_CHECKOUT = os.getenv('FEATURE_QUOTE_ONLY_CHECKOUT', 'false').lower() in ('1', 'true', 'yes')
 
+    # --- FX (Phase 2) ---
+    # Daily rate snapshot. Off by default; turning it on only fills a table, it
+    # changes nothing a customer sees until Phase 3's ?currency= gate is used.
+    FEATURE_FX_SNAPSHOT = os.getenv('FEATURE_FX_SNAPSHOT', 'false').lower() in ('1', 'true', 'yes')
+    FX_SNAPSHOT_INTERVAL_HOURS = int(os.getenv('FX_SNAPSHOT_INTERVAL_HOURS', '12'))
+    FX_QUOTE_CURRENCIES = os.getenv('FX_QUOTE_CURRENCIES', 'USD')
+    # Refuse to price off a rate older than this rather than quietly using it.
+    FX_MAX_RATE_AGE_DAYS = int(os.getenv('FX_MAX_RATE_AGE_DAYS', '3'))
+    # Spread over the mid-market rate, covering the gap to what the gateway settles at.
+    FX_MARKUP_PERCENT = os.getenv('FX_MARKUP_PERCENT', '2.5')
+    # charm_99 | integer | none
+    FX_ROUNDING_STYLE = os.getenv('FX_ROUNDING_STYLE', 'charm_99')
+
     # Shipping is priced server-side by services/checkout_quote_service. Zero matches
     # what the marketplace charges today; these are the seam for a real rate card.
     DEFAULT_SHIPPING_AMOUNT = os.getenv('DEFAULT_SHIPPING_AMOUNT', '0.00')
@@ -202,6 +215,8 @@ class TestingConfig(Config):
     FEATURE_MULTI_CURRENCY = False
     # Tests exercise both sides of this gate explicitly; default off matches prod.
     FEATURE_QUOTE_ONLY_CHECKOUT = False
+    # No background job may run in tests, and no test may reach the FX provider.
+    FEATURE_FX_SNAPSHOT = False
     CACHE_TYPE = 'null'
 
 

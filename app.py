@@ -1031,7 +1031,50 @@ def create_app(config_name=None):
             "Intro video purge scheduler started (runs every %s hours)", interval_hours
         )
 
+    def start_fx_snapshot_scheduler():
+        """Append the day's FX rates so presentment prices have something to read."""
+        if not app.config.get("FEATURE_FX_SNAPSHOT", False):
+            app.logger.info("FX rate snapshot is disabled")
+            return
+
+        interval_hours = int(app.config.get("FX_SNAPSHOT_INTERVAL_HOURS", 12))
+        sched = BackgroundScheduler()
+
+        def snapshot_job():
+            with app.app_context():
+                from services.fx_service import snapshot_rates_from_provider
+
+                try:
+                    snapshot_rates_from_provider()
+                except Exception as e:
+                    # Never let a failed fetch kill the scheduler thread. A missing
+                    # snapshot leaves yesterday's rate in place, and fx_service
+                    # refuses once that goes stale rather than guessing.
+                    app.logger.error("FX snapshot job failed: %s", e, exc_info=True)
+
+        sched.add_job(
+            snapshot_job,
+            "interval",
+            hours=interval_hours,
+            id="fx_rate_snapshot",
+            replace_existing=True,
+            max_instances=1,
+            # Without this the interval trigger waits a full period before its first
+            # run, so a cold boot leaves fx_rates empty for hours and every
+            # presentment price raises NoFxRateError.
+            next_run_time=datetime.now(),
+        )
+        sched.start()
+        app.logger.info(
+            "FX rate snapshot scheduler started (runs every %s hours)", interval_hours
+        )
+
     # Start scheduler after app is created
+    try:
+        start_fx_snapshot_scheduler()
+    except Exception as e:
+        app.logger.error(f"Failed to start FX snapshot scheduler: {str(e)}")
+
     try:
         start_notification_cleanup_scheduler()
     except Exception as e:
