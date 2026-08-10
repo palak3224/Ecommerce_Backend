@@ -350,6 +350,22 @@ def test_targeted_promo_skips_non_matching_products(app):
         assert quote.total_amount == Decimal("300.00")
 
 
+def test_promo_code_lookup_is_case_insensitive(app):
+    """Matches POST /api/promo-code/apply, which uppercases before looking up."""
+    from models.enums import DiscountType
+    from services.checkout_quote_service import build_quote
+
+    with app.app_context():
+        buyer, product = _seed(price="1000.00")
+        _mk_promo("SAVE10", DiscountType.PERCENTAGE, "10.00")
+
+        quote = build_quote(buyer.id, {
+            "items": [{"product_id": product.product_id, "quantity": 1}],
+            "promo_code": "  save10  ",
+        })
+        assert quote.discount_amount == Decimal("100.00")
+
+
 def test_percentage_over_100_is_clamped(app):
     from models.enums import DiscountType
     from services.checkout_quote_service import build_quote

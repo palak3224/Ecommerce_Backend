@@ -59,8 +59,11 @@ def _resolve_promotion(code, now=None):
     if not code:
         return None
     today = (now or datetime.utcnow()).date()
+    # .upper() to match POST /api/promo-code/apply, which uppercases before looking
+    # up. Without it a customer who typed a lowercase code would be shown a discount
+    # by that endpoint and then not get it in the quote.
     promo = Promotion.query.filter(
-        Promotion.code == str(code).strip(),
+        Promotion.code == str(code).strip().upper(),
         Promotion.active_flag.is_(True),
         Promotion.deleted_at.is_(None),
     ).first()
