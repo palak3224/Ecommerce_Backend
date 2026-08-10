@@ -37,7 +37,9 @@ class OrderController:
                 - billing_address_id (int)
                 - shipping_amount (str/Decimal, optional): Shipping cost.
                 - order_level_discount_amount (str/Decimal, optional): Overall discount on the order.
-                - currency (str, optional): Defaults to "USD" or your system default.
+                  NOTE: a client-supplied 'currency' is ignored. Every amount here is
+                  computed from INR product prices, so the order is stamped with
+                  config DEFAULT_CURRENCY ('INR').
                 - customer_notes (str, optional)
                 - internal_notes (str, optional)
         """

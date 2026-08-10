@@ -1,7 +1,7 @@
 # Multi-currency (INR base, USD presentment) — working document
 
-**Status:** Phase 0 complete and committed. Phases 1–8 not started.
-**Pending before deploy:** `pytest` has not been run against Phase 0 — see §6.
+**Status:** Phase 0 complete, committed and test-verified. Phases 1–8 not started.
+**Pending before deploy:** nothing blocking — the suite passes, see §6.
 **Scope:** both repos — `Ecommerce_Backend/` and `Ecommerce/`.
 **Audience:** whoever picks this up next, with no prior context.
 
@@ -84,7 +84,7 @@ Facts gathered by exploration, so you don't have to re-derive them:
 - GST slab is selected by comparing the product price against an **INR threshold**
   (`GSTRule.price_condition_value`). Feed it USD and every product lands in the wrong band.
 - Platform-fee tiers are hardcoded INR magnitudes: 500 / 2000 / 10000.
-- Frontend: **235 `₹` literals across 106 files**, 18 separate local money formatters,
+- Frontend: **235 `₹` literals across 66 files**, 18 separate local money formatters,
   **606 `fetch` call sites across 150 files**, no shared API client.
 
 ### Key coordinates
@@ -205,24 +205,21 @@ lands on `123456.4999…` and truncates to the wrong integer.
 
 ### Verification actually performed
 
-- 18 assertions run against the **real** `_resolve_amount_minor` / `minor_unit_factor`
-  with stubbed Flask deps — all pass, including both overcharge regressions.
+- **`pytest` run against a real app context — 99 passed, 0 failed.** The two new files
+  contribute 19 of those and all pass, including both overcharge regressions.
 - All modified Python files pass `py_compile`.
-- `npm run build` passes (45s).
-- `tsc` shows **no new errors** from these changes.
+- `npm run build` passes.
+- `tsc` shows **no new errors** from these changes (the 512-error backlog in §7 is
+  pre-existing: 305 `TS6133` + 126 `TS2322` + 81 assorted).
 
-### Verification NOT performed — do this first
-
-- **`pytest` was never run.** The dev machine had no venv and lacked `flask_cors`.
-  Run `pytest` in your venv before deploying. The two new test files are unverified
-  against a real app context.
+Reproduce:
 
 ```bash
 cd Ecommerce_Backend
-python -m venv venv && venv/Scripts/activate     # source venv/bin/activate elsewhere
-pip install -r requirments.txt                   # note the spelling
+python -m venv venv && source venv/bin/activate   # venv/Scripts/activate on Windows
+pip install -r requirments.txt                    # note the spelling
 pytest tests/test_money_invariants.py tests/test_razorpay_order_creation.py -v
-pytest                                           # then the whole suite
+pytest                                            # then the whole suite
 ```
 
 If you are ever on a machine where the deps cannot be installed, money-path *pure*
@@ -244,10 +241,20 @@ pure logic only — it cannot test anything touching the DB or a request context
 - **A live FreeCurrencyAPI key is hardcoded** at `routes/currency_routes.py:70`, on an
   unauthenticated public route, and it overrides `EXCHANGE_RATE_API_KEY` from config.
   It is in public git history. **Rotate it — this does not need to wait for Phase 2.**
-- `controllers/superadmin/merchant_transaction_controller.py` references
-  `item.final_price_for_item`, a *serializer key* not a column → raises `AttributeError`.
-- `controllers/merchant/report_controller.py` multiplies `line_item_total_inclusive_gst`
-  by quantity, but that column is already quantity-inclusive → top-product revenue inflated.
+- **The silent 1.0 FX fallback already exists in the frontend.**
+  `Ecommerce/src/components/OrderSummary.tsx:175` does
+  `const rate = exchangeRates[currency] || 1;`. If `/api/exchange-rates` fails or omits the
+  currency, the raw INR number is displayed under a `$` symbol. Today this only *misquotes* —
+  the charge is INR-gated by Phase 0 — but it is exactly the failure mode §8's
+  `test_fx_service.py` is written to prevent, and it is reachable now. This file is slated
+  for deletion in the frontend track; until then, treat it as a live display bug.
+- `controllers/superadmin/merchant_transaction_controller.py:63` references
+  `item.final_price_for_item`, a *serializer key* (`models/order.py:178`) not a column →
+  raises `AttributeError`.
+- `controllers/merchant/report_controller.py:530` multiplies `line_item_total_inclusive_gst`
+  by quantity, but that column is already quantity-inclusive (set at
+  `order_controller.py:128`) → top-product revenue inflated. The other five `func.sum` sites
+  in that file are correct; only `:530` has the extra factor.
 - `models/gst_rule.py` declares `_tablename_` (single underscores), so the real table is
   `gst_rule`, not `gst_rules`. Any hand-written DDL must use the real name. Same typo on
   `_repr_`.
