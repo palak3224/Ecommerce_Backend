@@ -251,16 +251,34 @@ pure logic only — it cannot test anything touching the DB or a request context
   `Shop.tsx` (commit `9dfac04`, 2026-01-02) aborted the check early. Fixing that comment
   revealed the backlog. **`npm run typecheck` therefore cannot be a blocking CI gate yet.**
   Open decision: disable `noUnusedLocals` to clear ~318, or keep the script informational.
-- **A live FreeCurrencyAPI key is hardcoded** at `routes/currency_routes.py:70`, on an
-  unauthenticated public route, and it overrides `EXCHANGE_RATE_API_KEY` from config.
-  It is in public git history. **Rotate it — this does not need to wait for Phase 2.**
-- **The silent 1.0 FX fallback already exists in the frontend.**
-  `Ecommerce/src/components/OrderSummary.tsx:175` does
-  `const rate = exchangeRates[currency] || 1;`. If `/api/exchange-rates` fails or omits the
-  currency, the raw INR number is displayed under a `$` symbol. Today this only *misquotes* —
-  the charge is INR-gated by Phase 0 — but it is exactly the failure mode §8's
-  `test_fx_service.py` is written to prevent, and it is reachable now. This file is slated
-  for deletion in the frontend track; until then, treat it as a live display bug.
+- **Two live API keys were hardcoded in tracked source, in a PUBLIC repository**
+  (`github.com/palak3224/Ecommerce_Backend` is `visibility: PUBLIC`): a FreeCurrencyAPI
+  key at `routes/currency_routes.py:70`, and an ExchangeRate-API key as the `os.getenv`
+  *default* at `config.py:89`.
+
+  Compounding it, `.env` spelled the variable **`EXCHANGE_RATE_API_KE`** — no trailing
+  `Y` — so `os.getenv('EXCHANGE_RATE_API_KEY')` found nothing and the literal in the
+  source was the key actually in use. Same shape as the `config.DEFAULT_CURRENCY` bug in
+  §4: a name that was never defined, so the fallback quietly became production.
+
+  **Both literals are now removed** from source; the route reads `FREECURRENCY_API_KEY`
+  from env and returns 503 if it is unset, rather than falling back to anything. The
+  route also no longer echoes the provider's error body back to callers.
+
+  **Still required: rotate both keys at the providers.** They remain in git history and
+  no code change reclaims them. `.env` itself was never committed (verified: zero commits
+  touch it, no `.env` at any path in history), so the AWS / Twilio / Stripe / Cloudinary /
+  mail secrets are not exposed.
+
+  Open: `/api/exchange-rates` is still unauthenticated, so anyone can drain the quota on
+  the new key. Add `@jwt_required()` or delete the route — Phase 2 replaces it regardless.
+- ~~**The silent 1.0 FX fallback in the frontend.**~~ **FIXED.**
+  `Ecommerce/src/components/OrderSummary.tsx` did `const rate = exchangeRates[currency] || 1;`,
+  so a failed or incomplete `/api/exchange-rates` response printed the raw INR number under
+  a `$` — 1299 shown as `$1299.00` rather than about `$15`. It now falls back to displaying
+  the true INR amount and warns, instead of fabricating a rate. Keep this shape in mind for
+  Phase 2: it is the same bug `test_fx_service.py::missing rate never returns 1.0` exists to
+  prevent, and it had already shipped once.
 - `controllers/superadmin/merchant_transaction_controller.py:63` references
   `item.final_price_for_item`, a *serializer key* (`models/order.py:178`) not a column →
   raises `AttributeError`.

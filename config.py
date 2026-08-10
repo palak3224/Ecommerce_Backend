@@ -86,7 +86,12 @@ class Config:
     DEFAULT_SHIPPING_AMOUNT = os.getenv('DEFAULT_SHIPPING_AMOUNT', '0.00')
     FREE_SHIPPING_THRESHOLD = os.getenv('FREE_SHIPPING_THRESHOLD')
 
-    EXCHANGE_RATE_API_KEY = os.getenv('EXCHANGE_RATE_API_KEY', 'f60545f362ec1fdd1e5e7338')
+    # FX provider credential. No default on purpose: a hardcoded fallback is how the
+    # previous key ended up in a public repo AND stayed in use — .env spelled the old
+    # name 'EXCHANGE_RATE_API_KE' (no trailing Y), so os.getenv found nothing and the
+    # literal in the source became the live key. Missing now means a loud 503, not a
+    # quiet fallback.
+    FREECURRENCY_API_KEY = os.getenv('FREECURRENCY_API_KEY')
     CARD_ENCRYPTION_KEY = os.getenv('CARD_ENCRYPTION_KEY')
     
     # ShipRocket Configuration
