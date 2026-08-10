@@ -10,6 +10,18 @@ import json
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
+from models.checkout_quote import CheckoutQuote
+from models.payment_refund import PaymentRefund, RefundStatus
+from models.subscription import SubscriptionPlan
+# checkout_quote_service imports minor_unit_factor from this module, but only inside a
+# function body, so this direction is safe to do at module scope.
+from services.checkout_quote_service import (
+    QuoteError,
+    consume_quote,
+    load_spendable_quote,
+    minor_units,
+)
+
 razorpay_bp = Blueprint('razorpay', __name__)
 
 DEFAULT_CHARGE_CURRENCY = 'INR'
@@ -115,28 +127,79 @@ def create_razorpay_order():
                     400
                 )
 
-        try:
-            amount_minor = _resolve_amount_minor(data, currency)
-        except ValueError as e:
-            return error_response(str(e), 400)
+        user_id = get_jwt_identity()
+        quote = None
+
+        # Amount resolution, in descending order of trustworthiness.
+        if data.get('quote_id'):
+            # Server-authoritative: the amount comes off a quote this server priced.
+            try:
+                quote = load_spendable_quote(data['quote_id'], user_id)
+            except QuoteError as e:
+                return error_response(str(e), 400)
+            amount_minor = int(quote.total_amount_minor)
+            # The quote decides the currency too — not the request body.
+            currency = quote.currency
+
+        elif data.get('subscription_plan_id'):
+            # Also server-priced: the plan's price is a column, not a request field.
+            plan = SubscriptionPlan.query.get(data['subscription_plan_id'])
+            if not plan:
+                return error_response('Subscription plan not found.', 404)
+            amount_minor = minor_units(Decimal(plan.price), currency)
+
+        else:
+            # Legacy: the caller states the amount. This is the hole Phase 4 closes —
+            # keep it only while the frontend still sends totals, and log every use so
+            # the remaining callers are visible before the gate is switched on.
+            if current_app.config.get('FEATURE_QUOTE_ONLY_CHECKOUT', False):
+                current_app.logger.warning(
+                    "Rejected client-priced create-order from user=%s (quote-only mode)", user_id
+                )
+                return error_response(
+                    'This checkout requires a server-issued quote. '
+                    'Call POST /api/checkout/quote and send its quote_id.',
+                    400
+                )
+            current_app.logger.info(
+                "create-order: client-stated amount accepted from user=%s; "
+                "migrate this caller to quote_id", user_id
+            )
+            try:
+                amount_minor = _resolve_amount_minor(data, currency)
+            except ValueError as e:
+                return error_response(str(e), 400)
 
         if amount_minor <= 0:
             return error_response('Amount must be greater than zero', 400)
 
-        # Create Razorpay order
+        # Receipt correlation. For a quote the receipt IS the quote id, which is a row
+        # that already exists — this is what makes verify-payment able to find its way
+        # back. The old client-minted "ORDREF-<timestamp>" matched nothing, so the
+        # write-back it fed was dead code.
+        receipt = quote.quote_id if quote else (
+            data.get('receipt') or f'order_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+        )
+
         order_data = {
             'amount': amount_minor,
             'currency': currency,
-            # If client supplied a receipt, use it to correlate to internal order; else auto-generate
-            'receipt': data.get('receipt') or f'order_{datetime.now().strftime("%Y%m%d_%H%M%S")}',
+            'receipt': receipt,
             'notes': {
-                'created_by': get_jwt_identity(),
-                'created_at': datetime.now().isoformat()
+                'created_by': user_id,
+                'created_at': datetime.now().isoformat(),
+                'quote_id': quote.quote_id if quote else None,
             }
         }
-        
+
         razorpay_client = get_razorpay_client()
         order = razorpay_client.order.create(data=order_data)
+
+        if quote is not None:
+            # Bind the gateway order to the quote so verify-payment can assert against
+            # the right one even if the client sends a different quote_id later.
+            quote.razorpay_order_id = order.get('id')
+            db.session.commit()
         
         # Normalize response to a consistent shape with both keys
         payload = {
@@ -157,7 +220,8 @@ def create_razorpay_order():
 def verify_razorpay_payment():
     """Verify Razorpay payment signature"""
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
+        user_id = get_jwt_identity()
         # Normalize and strip incoming values to avoid hidden whitespace issues
         razorpay_payment_id = (data.get('razorpay_payment_id') or '').strip()
         razorpay_order_id = (data.get('razorpay_order_id') or '').strip()
@@ -195,27 +259,118 @@ def verify_razorpay_payment():
         
         # Verify signature
         if hmac.compare_digest(generated_signature, razorpay_signature):
-            # Optionally fetch payment details and ensure it belongs to the same order
+            # Fetch the capture. A valid signature proves the message came from
+            # Razorpay; it says nothing about how much was captured, so the amount
+            # still has to be read from the gateway and checked.
             try:
                 client = get_razorpay_client()
                 payment = client.payment.fetch(razorpay_payment_id)
-            except Exception:
+            except Exception as e:
                 payment = None
+                current_app.logger.warning(
+                    "Razorpay payment fetch failed for %s: %s", razorpay_payment_id, e
+                )
 
-            # Correlate back to the internal order via the Razorpay receipt.
-            #
-            # NOTE: today the checkout creates the Razorpay order BEFORE the internal
-            # Order row exists, so `receipt` is a client-minted "ORDREF-<timestamp>"
-            # that matches no row and this write-back is a no-op. It is left in place
-            # (and now logs) because it becomes correct once checkout is quote-first.
-            internal_order_id = None
+            # Correlate back through the receipt, which for a quote-first checkout is
+            # the quote id — a row that existed before the gateway order did.
+            receipt = None
             try:
                 r_order = get_razorpay_client().order.fetch(razorpay_order_id)
-                internal_order_id = (r_order or {}).get('receipt')
+                receipt = (r_order or {}).get('receipt')
             except Exception as e:
                 current_app.logger.warning(
                     "Razorpay order fetch failed for %s: %s", razorpay_order_id, e
                 )
+
+            # --- Quote-first path: assert, consume, then materialise the order. ---
+            quote = None
+            if receipt:
+                quote = CheckoutQuote.query.get(str(receipt))
+
+            if quote is not None:
+                if quote.user_id != user_id:
+                    current_app.logger.error(
+                        "Quote %s belongs to user %s but was verified by user %s",
+                        quote.quote_id, quote.user_id, user_id
+                    )
+                    return error_response('Payment verification failed.', 403)
+
+                # I2: what the gateway captured must equal what we quoted, to the
+                # minor unit, in the same currency. Integers, so there is nothing to
+                # round and nothing to nearly-match.
+                if payment is None:
+                    return error_response(
+                        'Could not confirm the captured amount with the payment gateway. '
+                        'Your payment has not been lost — please contact support.', 502
+                    )
+
+                captured_minor = int(payment.get('amount') or 0)
+                captured_currency = (payment.get('currency') or '').upper()
+                expected_minor = int(quote.total_amount_minor)
+                expected_currency = (quote.currency or DEFAULT_CHARGE_CURRENCY).upper()
+
+                if captured_minor != expected_minor or captured_currency != expected_currency:
+                    current_app.logger.error(
+                        "Capture/quote mismatch on quote %s: captured %s %s, quoted %s %s",
+                        quote.quote_id, captured_minor, captured_currency,
+                        expected_minor, expected_currency
+                    )
+                    return error_response(
+                        'Payment amount does not match the quoted total. '
+                        'No order was created; please contact support.', 400
+                    )
+
+                # Single-use, enforced by a conditional UPDATE rather than a check.
+                # Two concurrent verifies of one quote: exactly one wins here.
+                if not consume_quote(quote.quote_id):
+                    db.session.rollback()
+                    existing = CheckoutQuote.query.get(quote.quote_id)
+                    if existing and existing.order_id:
+                        # Idempotent replay — the customer refreshed, the order exists.
+                        return success_response(
+                            'Payment already verified',
+                            {'payment_id': razorpay_payment_id,
+                             'order_id': existing.order_id,
+                             'verified': True}
+                        )
+                    return error_response('This quote has already been paid.', 409)
+
+                try:
+                    from controllers.order_controller import OrderController
+                    order = OrderController.create_order_from_quote(
+                        user_id=quote.user_id,
+                        quote=quote,
+                        gateway_refs={
+                            'razorpay_order_id': razorpay_order_id,
+                            'razorpay_payment_id': razorpay_payment_id,
+                        },
+                        extra=data.get('order') or {},
+                    )
+                    # Point the consumed quote at the order it became (I10).
+                    quote.order_id = order.order_id
+                    db.session.commit()
+                except Exception as e:
+                    db.session.rollback()
+                    current_app.logger.error(
+                        "Payment %s captured but order creation failed for quote %s: %s",
+                        razorpay_payment_id, quote.quote_id, e, exc_info=True
+                    )
+                    # Money moved and no order exists. Loud, and never a silent 200.
+                    return error_response(
+                        'Your payment succeeded but we could not finalise the order. '
+                        'Support has been notified — please do not pay again.', 500
+                    )
+
+                return success_response(
+                    'Payment verified successfully',
+                    {'payment_id': razorpay_payment_id,
+                     'order_id': order.order_id,
+                     'quote_id': quote.quote_id,
+                     'verified': True}
+                )
+
+            # --- Legacy path: no quote behind this payment. ---
+            internal_order_id = receipt
 
             if internal_order_id:
                 try:
@@ -293,36 +448,91 @@ def get_payment_details(payment_id):
 def create_refund():
     """Create a Razorpay refund"""
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         payment_id = data.get('payment_id')
-        amount = data.get('amount')  # Amount in paise
+        amount = data.get('amount')  # Amount in minor units (paise)
         notes = data.get('notes', {})
-        
+
         if not payment_id:
             return error_response('Payment ID is required', 400)
-        
-        # Create refund
-        refund_data = {
-            'payment_id': payment_id,
-            'notes': notes
-        }
-        
-        if amount:
-            refund_data['amount'] = amount
-        
+
+        # Read the capture first. Everything below is checked against what was
+        # actually taken, never against what the caller says was taken.
         razorpay_client = get_razorpay_client()
-        refund = razorpay_client.payment.refund(payment_id, refund_data)
-        
+        try:
+            payment = razorpay_client.payment.fetch(payment_id)
+        except Exception as e:
+            current_app.logger.warning("Refund: payment fetch failed for %s: %s", payment_id, e)
+            return error_response('Could not read the original payment from the gateway.', 502)
+
+        captured_minor = int((payment or {}).get('amount') or 0)
+        captured_currency = ((payment or {}).get('currency') or DEFAULT_CHARGE_CURRENCY).upper()
+
+        if amount is None:
+            refund_minor = captured_minor
+        else:
+            try:
+                refund_minor = int(amount)
+            except (TypeError, ValueError):
+                return error_response('Refund amount must be an integer number of minor units.', 400)
+
+        if refund_minor <= 0:
+            return error_response('Refund amount must be greater than zero.', 400)
+
+        # I11: the sum of refunds may never exceed the capture. Without the ledger
+        # below this was unenforceable — nothing recorded that a refund had happened,
+        # so the same payment could be refunded in full repeatedly.
+        already = PaymentRefund.total_refunded_minor(payment_id)
+        if already + refund_minor > captured_minor:
+            return error_response(
+                f'Refund exceeds the captured amount. Captured {captured_minor}, '
+                f'already refunded {already}, requested {refund_minor} (minor units).',
+                400
+            )
+
+        ledger = PaymentRefund(
+            gateway_payment_id=payment_id,
+            gateway_name='Razorpay',
+            amount_minor=refund_minor,
+            # I11 again: a refund is denominated in the capture's currency, full stop.
+            currency=captured_currency,
+            status=RefundStatus.PENDING,
+            notes=json.dumps(notes) if notes else None,
+            created_by_user_id=get_jwt_identity(),
+        )
+        quote = CheckoutQuote.query.filter_by(razorpay_order_id=(payment or {}).get('order_id')).first()
+        if quote and quote.order_id:
+            ledger.order_id = quote.order_id
+        db.session.add(ledger)
+        db.session.commit()
+
+        refund_data = {'payment_id': payment_id, 'notes': notes, 'amount': refund_minor}
+
+        try:
+            refund = razorpay_client.payment.refund(payment_id, refund_data)
+        except Exception as e:
+            ledger.status = RefundStatus.FAILED
+            db.session.commit()
+            current_app.logger.error("Refund failed at gateway for %s: %s", payment_id, e, exc_info=True)
+            return error_response(f'Failed to create refund: {str(e)}', 500)
+
+        ledger.gateway_refund_id = refund.get('id')
+        ledger.status = RefundStatus.PROCESSED
+        db.session.commit()
+
         return success_response({
             'id': refund['id'],
             'amount': refund['amount'],
             'currency': refund['currency'],
             'status': refund['status'],
             'created_at': refund['created_at'],
-            'notes': refund.get('notes', {})
+            'notes': refund.get('notes', {}),
+            'refund_id': ledger.refund_id,
         }, 'Refund created successfully')
-        
+
     except Exception as e:
+        db.session.rollback()
+        current_app.logger.error("Refund error: %s", e, exc_info=True)
         return error_response(f'Failed to create refund: {str(e)}', 500)
 
 

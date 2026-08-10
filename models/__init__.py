@@ -25,6 +25,8 @@ from .user_address import UserAddress
 from .wishlist_item import WishlistItem
 from .cart import Cart, CartItem
 from .order import Order, OrderItem, OrderStatusHistory
+from .checkout_quote import CheckoutQuote, CheckoutQuoteItem
+from .payment_refund import PaymentRefund
 from .shipment import Shipment, ShipmentItem
 from .shop.shop_order import ShopOrder, ShopOrderItem, ShopOrderStatusHistory
 from .shop.shop_shipment import ShopShipment, ShopShipmentItem
@@ -82,5 +84,8 @@ __all__ = [
     'MerchantNotification',
     'MerchantIntroVideo',
     'HoliGiveawayRegistration',
-    'ExploreBannerItem'
+    'ExploreBannerItem',
+    'CheckoutQuote',
+    'CheckoutQuoteItem',
+    'PaymentRefund'
 ]

@@ -75,6 +75,17 @@ class Config:
     # currency layer ships AND Razorpay international is activated.
     FEATURE_MULTI_CURRENCY = os.getenv('FEATURE_MULTI_CURRENCY', 'false').lower() in ('1', 'true', 'yes')
 
+    # Server-authoritative checkout. When true, /api/razorpay/create-order refuses a
+    # client-stated amount and will only price a quote_id or a subscription_plan_id.
+    # Keep false until the frontend sends quote_id, then flip: with it off, a stale
+    # cached SPA build still checks out via the legacy amount path.
+    FEATURE_QUOTE_ONLY_CHECKOUT = os.getenv('FEATURE_QUOTE_ONLY_CHECKOUT', 'false').lower() in ('1', 'true', 'yes')
+
+    # Shipping is priced server-side by services/checkout_quote_service. Zero matches
+    # what the marketplace charges today; these are the seam for a real rate card.
+    DEFAULT_SHIPPING_AMOUNT = os.getenv('DEFAULT_SHIPPING_AMOUNT', '0.00')
+    FREE_SHIPPING_THRESHOLD = os.getenv('FREE_SHIPPING_THRESHOLD')
+
     EXCHANGE_RATE_API_KEY = os.getenv('EXCHANGE_RATE_API_KEY', 'f60545f362ec1fdd1e5e7338')
     CARD_ENCRYPTION_KEY = os.getenv('CARD_ENCRYPTION_KEY')
     
@@ -184,6 +195,8 @@ class TestingConfig(Config):
     INTRO_VIDEO_PURGE_ENABLED = False
     FEATURE_TRANSLATION = False
     FEATURE_MULTI_CURRENCY = False
+    # Tests exercise both sides of this gate explicitly; default off matches prod.
+    FEATURE_QUOTE_ONLY_CHECKOUT = False
     CACHE_TYPE = 'null'
 
 

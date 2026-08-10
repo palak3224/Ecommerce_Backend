@@ -18,10 +18,14 @@ import json
 
 class OrderController:
     @staticmethod
-    def create_order(user_id, order_data):
+    def create_order(user_id, order_data, payment_verified=False):
         """
         Creates a new order, calculates GST in real-time based on the final discounted inclusive price,
         and stores the detailed breakdown.
+
+        payment_verified is server-set only. Route handlers must never pass a value
+        derived from the request body — it exists so create_order_from_quote can say
+        "the gateway signature and the captured amount have both been checked".
 
         Args:
             user_id (int): The ID of the user placing the order.
@@ -194,8 +198,14 @@ class OrderController:
             db.session.add(new_order)
             db.session.flush() 
 
-            # If Razorpay payment was already verified and references are provided, mark payment as successful
-            if order_data.get('razorpay_payment_id'):
+            # A payment id in the request body is a claim, not a fact. This block used
+            # to mark the order paid on the strength of that claim alone, so posting any
+            # string as razorpay_payment_id produced a PAID order with no money moved.
+            #
+            # Only `payment_verified` flips the status, and only the server sets it —
+            # after verify-payment has checked the gateway signature AND that the
+            # captured amount matches the quote. See create_order_from_quote.
+            if payment_verified and order_data.get('razorpay_payment_id'):
                 new_order.payment_status = PaymentStatusEnum.SUCCESSFUL
                 new_order.order_status = OrderStatusEnum.PROCESSING
                 new_order.payment_gateway_transaction_id = order_data.get('razorpay_payment_id')
@@ -250,6 +260,108 @@ class OrderController:
             current_app.logger.error(f"Order creation generic error for user {user_id}: {e}", exc_info=True)
             raise
         
+    @staticmethod
+    def create_order_from_quote(user_id, quote, gateway_refs=None, extra=None):
+        """Materialise a paid quote into an order.
+
+        This is a *copy*, not a recomputation. Every amount is read off the quote's
+        stored line items, so "quote total == order total" holds by construction —
+        there is no second pricing implementation that could drift from the first.
+
+        The caller is responsible for having verified the payment and for consuming
+        the quote; this method only writes rows.
+        """
+        gateway_refs = gateway_refs or {}
+        extra = extra or {}
+
+        try:
+            db.session.begin_nested()
+
+            new_order_items = []
+            for qi in quote.items:
+                stock = ProductStock.query.filter_by(product_id=qi.product_id).first()
+                if not stock:
+                    raise ValueError(f"Stock record not found for product ID {qi.product_id}.")
+                if stock.stock_qty < qi.quantity:
+                    raise ValueError(
+                        f"Insufficient stock for {qi.product_name_at_purchase}. "
+                        f"Available: {stock.stock_qty}, requested: {qi.quantity}"
+                    )
+                stock.stock_qty -= qi.quantity
+
+                new_order_items.append(OrderItem(
+                    product_id=qi.product_id,
+                    merchant_id=qi.merchant_id,
+                    product_name_at_purchase=qi.product_name_at_purchase,
+                    sku_at_purchase=qi.sku_at_purchase,
+                    quantity=qi.quantity,
+                    final_base_price_for_gst_calc=qi.final_base_price_for_gst_calc,
+                    gst_rate_applied_at_purchase=qi.gst_rate_applied_at_purchase,
+                    gst_amount_per_unit=qi.gst_amount_per_unit,
+                    unit_price_inclusive_gst=qi.unit_price_inclusive_gst,
+                    line_item_total_inclusive_gst=qi.line_item_total_inclusive_gst,
+                    original_listed_inclusive_price_per_unit=qi.original_listed_inclusive_price_per_unit,
+                    discount_amount_per_unit_applied=qi.discount_amount_per_unit_applied,
+                    selected_attributes=qi.selected_attributes,
+                ))
+
+            new_order = Order(
+                user_id=user_id,
+                subtotal_amount=quote.subtotal_amount,
+                discount_amount=quote.discount_amount,
+                tax_amount=quote.tax_amount,
+                shipping_amount=quote.shipping_amount,
+                total_amount=quote.total_amount,
+                currency=quote.currency,
+                payment_method=PaymentMethodEnum(extra.get('payment_method', 'credit_card'))
+                if extra.get('payment_method') else PaymentMethodEnum.CREDIT_CARD,
+                payment_status=PaymentStatusEnum.SUCCESSFUL,
+                order_status=OrderStatusEnum.PROCESSING,
+                shipping_address_id=quote.shipping_address_id,
+                billing_address_id=quote.billing_address_id,
+                shipping_method_name=quote.shipping_method_name,
+                customer_notes=extra.get('customer_notes'),
+                internal_notes=extra.get('internal_notes'),
+            )
+            new_order.razorpay_order_id = gateway_refs.get('razorpay_order_id')
+            new_order.razorpay_payment_id = gateway_refs.get('razorpay_payment_id')
+            new_order.payment_gateway_transaction_id = gateway_refs.get('razorpay_payment_id')
+            new_order.payment_gateway_name = 'Razorpay'
+            new_order.items.extend(new_order_items)
+
+            new_order.status_history.append(OrderStatusHistory(
+                status=OrderStatusEnum.PROCESSING,
+                changed_by_user_id=user_id,
+                notes=(
+                    f"Order created from quote {quote.quote_id} and paid via Razorpay. "
+                    f"Transaction ID: {gateway_refs.get('razorpay_payment_id')}."
+                ),
+            ))
+
+            db.session.add(new_order)
+            db.session.flush()
+
+            # I5, asserted on the way out rather than assumed: the order the customer
+            # ends up with must total exactly what they were quoted and charged.
+            order_lines_total = sum(i.line_item_total_inclusive_gst for i in new_order_items)
+            expected = (order_lines_total + Decimal(quote.shipping_amount)).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP
+            )
+            if expected != Decimal(quote.total_amount):
+                raise ValueError(
+                    f"Order total {expected} does not match quote total {quote.total_amount}."
+                )
+
+            db.session.commit()
+            return new_order
+
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(
+                "Failed to materialise order from quote %s: %s", quote.quote_id, e, exc_info=True
+            )
+            raise
+
     @staticmethod
     def get_order(order_id):
         order = Order.query.options(

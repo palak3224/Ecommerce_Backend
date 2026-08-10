@@ -1,7 +1,9 @@
 # Multi-currency (INR base, USD presentment) — working document
 
-**Status:** Phase 0 complete, committed and test-verified. Phases 1–8 not started.
-**Pending before deploy:** nothing blocking — the suite passes, see §6.
+**Status:** Phase 0 complete. **Phase 4 backend complete** (server-authoritative checkout
+quote), behind `FEATURE_QUOTE_ONLY_CHECKOUT`, default off. Phases 1–3 and 5–8 not started.
+**Pending before deploy:** run `init_db.py` — Phase 4 adds three tables. See §11.
+**Pending before the gate flips:** the frontend must send `quote_id`. See §8, Phase 4.
 **Scope:** both repos — `Ecommerce_Backend/` and `Ecommerce/`.
 **Audience:** whoever picks this up next, with no prior context.
 
@@ -142,9 +144,10 @@ different price implementations: recently-viewed (controller vs an inline copy i
 
 ---
 
-## 5. The four live defects this work must fix
+## 5. The live defects this work must fix
 
-Found during exploration. #1 and #2 were reachable in production.
+Found during exploration, except #5 which surfaced during Phase 4. #1, #2 and #5 were all
+reachable in production.
 
 1. **~85× overcharge.** `PaymentPage.tsx` sent a raw INR `finalTotal` while the currency
    came from the **phone dialling-code dropdown**. Selecting "+1" created a Razorpay order
@@ -157,10 +160,20 @@ Found during exploration. #1 and #2 were reachable in production.
    no row (`order_id` is a `String(50)`, so this fails silently rather than erroring).
    Even if it matched, the handler used `current_app.extensions['sqlalchemy'].db`, which
    raises `AttributeError` on Flask-SQLAlchemy 3.x, swallowed by `except Exception: pass`.
-   — **Partly fixed in Phase 0** (the `.db` bug and the silent swallow). The receipt
-   correlation only becomes correct in Phase 4.
+   — **FIXED.** Phase 0 fixed the `.db` bug and the silent swallow; Phase 4 fixed the
+   correlation itself — the receipt is now the quote id, a row that exists before the
+   gateway order does.
 4. **The amount is entirely client-determined.** The browser computes `finalTotal` and the
-   server trusts it. — **Requires Phase 4.** Not fixable as a patch.
+   server trusts it. — **FIXED in Phase 4** on the quote path. `POST /api/checkout/quote`
+   prices the basket server-side and `create-order` charges `quote.total_amount_minor`.
+   The legacy client-amount path still exists until `FEATURE_QUOTE_ONLY_CHECKOUT` is
+   turned on, so the hole is *closable*, not yet *closed*, in production.
+5. **A client-supplied `razorpay_payment_id` marked an order PAID.** Found during Phase 4
+   verification, not in the original sweep: `order_controller.py` flipped
+   `payment_status` to SUCCESSFUL on the mere presence of that key in the request body,
+   so posting any string produced a paid order with no money moved. — **FIXED in Phase 4.**
+   Status now changes only when the server sets `payment_verified`, which happens after
+   the gateway signature *and* the captured amount have both been checked.
 
 ---
 
@@ -326,16 +339,50 @@ Plumbing: give `serialize()` an optional `currency=None` kwarg defaulting to a h
 reads request state and falls back to INR outside a request context (jobs, PDF rendering).
 **Do not thread the kwarg through every caller** — there are far too many.
 
-### Phase 4 — Server-authoritative checkout quote (INR-only) ← the long pole
+### Phase 4 — Server-authoritative checkout quote (INR-only) — **BACKEND DONE**
 
-`checkout_quotes` table; `POST /api/checkout/quote` recomputes the basket server-side;
-`create-order` accepts **only** `{quote_id}`; `verify-payment` asserts captured amount and
-currency match the quote; quote consumed atomically under a row lock; `payment_refunds`
-table (refunds currently persist nothing at all). Remove the client-asserted payment
-success in `order_controller.py` **in the same deploy** or the hole simply relocates.
+Shipped, INR-only, behind `FEATURE_QUOTE_ONLY_CHECKOUT` (default **false**).
 
-Ships INR-only — a pure refactor in production. **Highest risk reduction per unit of work;
-worth doing even if multi-currency were cancelled.**
+| Piece | Where |
+|---|---|
+| `checkout_quotes` + `checkout_quote_items` | `models/checkout_quote.py` |
+| `payment_refunds` | `models/payment_refund.py` |
+| All basket arithmetic, one implementation | `services/checkout_quote_service.py` |
+| `POST /api/checkout/quote`, `GET /api/checkout/quote/<id>` | `routes/checkout_routes.py` |
+| `create-order` prices from `quote_id` / `subscription_plan_id` | `routes/razorpay_routes.py` |
+| `verify-payment` asserts capture vs quote, then materialises | `routes/razorpay_routes.py` |
+| Quote → order as a **copy**, not a recompute | `OrderController.create_order_from_quote` |
+| Client-asserted payment success removed | `order_controller.py`, `payment_verified` arg |
+
+Design decisions worth knowing before changing any of it:
+
+- **The client names intent, the server names money.** A quote request may say
+  "product 7, quantity 2, promo code SUMMER10". Amounts in the request body are ignored
+  and logged. `promo_code` is resolved against `promotions` server-side — the old
+  client-supplied `item_discount_inclusive` is gone from this path.
+- **Materialising an order copies the quote's stored line items.** There is no second
+  pricing implementation to drift from the first, so "quote total == order total" holds
+  by construction rather than by two code paths agreeing.
+- **`total_amount_minor` is the integer the gateway is asked for and the integer the
+  capture is compared against.** No rounding question can enter the assert.
+- **Single use is a conditional UPDATE, not read-then-write.** `consume_quote` puts the
+  precondition in the WHERE clause, so concurrent captures cannot both win on any
+  backend or isolation level. A row lock would not have worked on SQLite in tests.
+- **Receipt correlation is fixed**: the Razorpay receipt is the quote id.
+- **Shipping is server-resolved** (`DEFAULT_SHIPPING_AMOUNT`, `FREE_SHIPPING_THRESHOLD`),
+  defaulting to 0.00, which is what the marketplace charges today.
+
+**Still to do before the gate can flip:**
+
+1. `PaymentPage.tsx` must call `POST /api/checkout/quote` and send `quote_id` to
+   `create-order` instead of `amount_major`. Until then the legacy path carries checkout.
+2. `Subscription.tsx` should send `subscription_plan_id` rather than `amount_minor` —
+   the server already prices plans from `subscription_plans.price`.
+3. Then set `FEATURE_QUOTE_ONLY_CHECKOUT=true`, which makes a client-stated amount a 400.
+4. **Promo codes applied client-side today will stop being honoured on the quote path**
+   unless they exist as rows in `promotions`. Audit live promo usage before flipping.
+5. The card-payment branch in `create_order` still simulates success
+   (`payment_succeeded_simulation = True`). Untouched here, still a hole on that path.
 
 ### Phase 5 — Tax treatment and fees (dark)
 
@@ -402,10 +449,10 @@ all need a DB.
 |---|---|---|
 | 1 | `test_currency_backfill.py` | USD-labelled legacy rows stamped INR; **no amount changes**; idempotent; **already-stamped rows untouched** (the re-conversion guard); `shop_orders` covered |
 | 2 | `test_fx_service.py` | stale rate raises rather than falling back; **missing rate never returns 1.0**; markup + rounding to an exact `Decimal`; rows are append-only |
-| 4 | `test_checkout_quote.py` | quote total == server-recomputed order total exactly; client amount ignored; quote expires; single-use; **verify rejects amount and currency mismatch**; gateway refs actually committed (re-query from a fresh session); rounding closure over fuzzed baskets |
+| 4 | `test_checkout_quote.py` | **WRITTEN — 25 tests, passing.** quote total == order total exactly; client amount ignored; quote expires; single-use; gateway refs committed (re-queried from a fresh session); rounding closure over fuzzed baskets; another user's quote not loadable; client-supplied payment id does not mark an order paid. *Gap: the capture-vs-quote mismatch rejection is implemented in `verify-payment` but not covered — it needs a mocked Razorpay client.* |
 | 5 | `test_gst_multicurrency.py` | slab selection identical under USD; `find_applicable_rule` receives the INR price; export zero-rated; **refused without LUT**; domestic unchanged |
 | 6 | `test_reports_currency.py` | revenue grouped by base currency; top-products not double-counted; superadmin summary does not raise; fee tier uses INR base |
-| 4/7 | `test_refund_currency.py` | refund currency matches capture; cannot exceed captured; persisted |
+| 4/7 | `test_refund_currency.py` | **WRITTEN — 5 tests, passing.** persisted; partials sum; failed attempts do not consume headroom; over-refund detectable; per-payment isolation. *Gap: the route-level guard is covered through the same summing function, not through a mocked gateway.* |
 
 The single most valuable test in this list is `test_fx_service.py::missing rate never
 returns 1.0`. A silent 1.0 fallback is how an $85 item becomes an ₹85 sale.
@@ -471,6 +518,14 @@ and train everyone to ignore alerts — including I2, which is real.
 Code rollback (reverse step 7) is safe — old code ignores extra columns. Schema rollback is
 not required and should not be attempted.
 
+**Phase 4 specifically** needs only steps 2, 3 and 7 — it adds three tables
+(`checkout_quotes`, `checkout_quote_items`, `payment_refunds`) and no columns on existing
+tables, so there is nothing to backfill and nothing to un-default. Landmine #3 applies:
+the tables are registered in both `models/__init__.py` and `init_db.py`, and
+`db.create_all()` skips anything that is not. With `FEATURE_QUOTE_ONLY_CHECKOUT` off,
+deploying the code without running `init_db.py` still degrades safely — the quote endpoint
+500s, checkout continues on the legacy path — but run it anyway.
+
 ---
 
 ## 12. Open decisions and external dependencies
@@ -499,6 +554,11 @@ not required and should not be attempted.
 
 ## 13. Suggested next step
 
-Commit Phase 0, then go straight at **Phase 4** (checkout quote). It is the biggest risk
-reduction per unit of work, ships INR-only so it is invisible in production, and Phases 1–3
-do not block it.
+Phase 0 and the Phase 4 backend are done. Next, in order:
+
+1. **Migrate the frontend checkout to `quote_id`**, then flip
+   `FEATURE_QUOTE_ONLY_CHECKOUT`. Phase 4 reduces no real risk until the gate is on —
+   the legacy client-amount path is still what production uses.
+2. **Rotate the FreeCurrencyAPI key** (§7). Unrelated to any phase and still live.
+3. **Phase 1** (stamp the truth) — additive, and it makes `invoice_service.py` stop
+   mislabelling GST invoices as a side effect.
