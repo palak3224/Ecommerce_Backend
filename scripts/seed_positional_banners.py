@@ -14,6 +14,13 @@ Usage:
     python scripts/seed_positional_banners.py
 """
 
+import os
+import sys
+
+# Ensure the project root (which contains app.py) is importable regardless of
+# the directory this script is invoked from.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from app import create_app
 from common.database import db
 from models.carousel import Carousel
