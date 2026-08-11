@@ -78,14 +78,20 @@ class CarouselController:
                 raise Exception(f"Failed to upload carousel image: {str(e)}")
         
         try:
+            # target_id is required by the model but position-only banners
+            # (sidebar/bottom slots) have no brand/product target -> default to 0.
+            target_id = data.get('target_id')
+            if target_id in (None, ''):
+                target_id = 0
+
             carousel = Carousel(
                 type=data['type'],
                 orientation=data.get('orientation', 'horizontal'),
                 image_url=image_url,
-                target_id=data['target_id'],
+                target_id=target_id,
                 display_order=data.get('display_order', 0),
                 is_active=data.get('is_active', True),
-                shareable_link=data.get('shareable_link')
+                shareable_link=data.get('shareable_link') or None
             )
             db.session.add(carousel)
             db.session.commit()
