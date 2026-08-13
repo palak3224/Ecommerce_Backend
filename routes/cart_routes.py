@@ -482,7 +482,11 @@ def get_cart_items():
                 'special_price': float(item.product_special_price) if item.product_special_price else None,
                 'image_url': item.product_image_url,
                 'stock': item.product_stock_qty,
-                'is_deleted': item.product.is_deleted if hasattr(item.product, 'is_deleted') else False
+                # Product has `deleted_at`, never an `is_deleted` attribute, so the
+                # previous hasattr() check was always False and this flag never
+                # fired. The frontend filters carts on it.
+                'is_deleted': _product_is_removed(item.product),
+                'unavailable_reason': _unavailable_reason(item.product)
             }
         } for item in cart_items]
 

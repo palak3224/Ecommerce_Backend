@@ -297,3 +297,54 @@ def test_a_merchant_delete_is_not_marked_as_admin_removal(app):
         out = Product.query.get(p.product_id).serialize()
         assert out["removed_by_admin"] is False
         assert out["deleted_by_role"] is None
+
+
+def test_cart_line_reports_a_removed_product_as_unavailable(app):
+    """The cart must mark the line, not let the customer find out at checkout.
+
+    Both serializers used to report is_deleted unconditionally False — the model
+    hardcoded it, and the route checked `hasattr(product, 'is_deleted')` on a model
+    that only has `deleted_at`, so the flag never fired at all.
+    """
+    from controllers.cart_controller import CartController
+    from controllers.superadmin.product_deletion_controller import delete_products
+    from models.cart import CartItem
+
+    with app.app_context():
+        p = _mk_product()
+        admin = _mk_user("admin@ex.com")
+        buyer = _mk_user("buyer@ex.com")
+        db.session.commit()
+        pid = p.product_id
+
+        CartController.add_to_cart(buyer.id, pid, 1)
+        line = CartItem.query.filter_by(product_id=pid).first()
+        assert line.serialize()["product"]["is_deleted"] is False
+        assert line.serialize()["product"]["unavailable_reason"] is None
+
+        delete_products([pid], admin.id, "Counterfeit")
+        db.session.expire_all()
+
+        out = CartItem.query.filter_by(product_id=pid).first().serialize()
+        assert out["product"]["is_deleted"] is True
+        assert "removed by AOIN" in out["product"]["unavailable_reason"]
+
+
+def test_merchant_removal_gets_a_different_cart_message(app):
+    """An admin takedown and a merchant retiring stock read differently."""
+    from controllers.cart_controller import CartController
+    from models.cart import CartItem
+
+    with app.app_context():
+        p = _mk_product()
+        buyer = _mk_user("buyer@ex.com")
+        db.session.commit()
+        pid = p.product_id
+
+        CartController.add_to_cart(buyer.id, pid, 1)
+        p.deleted_at = db.func.current_timestamp()      # merchant's own delete
+        db.session.commit()
+        db.session.expire_all()
+
+        reason = CartItem.query.filter_by(product_id=pid).first().serialize()["product"]["unavailable_reason"]
+        assert "no longer sold by the merchant" in reason

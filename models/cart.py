@@ -31,6 +31,24 @@ class Cart(BaseModel):
             'is_deleted': self.is_deleted
         }
 
+def _product_is_removed(product):
+    """True when the product behind a cart line is no longer purchasable."""
+    if product is None:
+        return True
+    return getattr(product, "deleted_at", None) is not None
+
+
+def _unavailable_reason(product):
+    """A short phrase for the cart UI, or None while the line is fine."""
+    if product is None:
+        return "This product is no longer available."
+    if getattr(product, "deleted_at", None) is not None:
+        if getattr(product, "deleted_by_role", None) == "admin":
+            return "This product was removed by AOIN and can no longer be purchased."
+        return "This product is no longer sold by the merchant."
+    return None
+
+
 class CartItem(BaseModel):
     __tablename__ = 'cart_items'
 
@@ -166,7 +184,11 @@ class CartItem(BaseModel):
                 'special_price': float(self.product_special_price) if self.product_special_price else None,
                 'image_url': self.product_image_url,
                 'stock': self.product_stock_qty,
-                'is_deleted': False,
+                # Derived from the product, not hardcoded. This said False
+                # unconditionally, so a removed product stayed in the basket looking
+                # perfectly buyable and only failed at checkout.
+                'is_deleted': _product_is_removed(self.product),
+                'unavailable_reason': _unavailable_reason(self.product),
                 'shipping': {
                     'weight_kg': str(self.shipping_weight_kg) if self.shipping_weight_kg else None,
                     'dimensions': {
