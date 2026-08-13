@@ -47,27 +47,43 @@ def _release_sku(product):
     product.sku = freed[:50]
 
 
-def _notify_merchant(product, reason):
-    """Tell the merchant their listing was taken down, and why."""
+def _notify_merchants(notes):
+    """Tell merchants their listings were taken down. Best effort, never fatal.
+
+    Runs in its own transaction *after* the takedown has committed. An earlier
+    version added these rows to the same session and wrapped the add() in
+    try/except, which protected nothing: `session.add()` does not touch the
+    database, so the failure surfaced at commit() outside the guard and rolled the
+    whole takedown back. A notification the merchant does not receive is a nuisance;
+    a takedown that silently fails is a product still on sale after an admin
+    removed it.
+
+    The realistic failure here is schema drift — `notification_type` is a MySQL
+    ENUM, and adding a value to the Python enum does not alter the column, so an
+    unmigrated database rejects the insert. See run_migrations.py.
+    """
+    if not notes:
+        return
     try:
-        db.session.add(MerchantNotification(
-            merchant_id=product.merchant_id,
-            notification_type=NotificationType.PRODUCT_DELETED_BY_ADMIN,
-            title="Product removed by admin",
-            message=(
-                f"'{product.product_name}' was removed by the AOIN team. "
-                f"Reason: {reason}. "
-                f"Please correct the issue and create a new listing."
-            ),
-            related_entity_type="product",
-            related_entity_id=product.product_id,
-        ))
+        for merchant_id, product_id, product_name, reason in notes:
+            db.session.add(MerchantNotification(
+                merchant_id=merchant_id,
+                notification_type=NotificationType.PRODUCT_DELETED_BY_ADMIN,
+                title="Product removed by admin",
+                message=(
+                    f"'{product_name}' was removed by the AOIN team. "
+                    f"Reason: {reason}. "
+                    f"Please correct the issue and create a new listing."
+                ),
+                related_entity_type="product",
+                related_entity_id=product_id,
+            ))
+        db.session.commit()
     except Exception as e:
-        # A failed notification must not abort the takedown — the removal is the
-        # thing that matters, and it is recorded on the product either way.
+        db.session.rollback()
         current_app.logger.error(
-            "Could not notify merchant %s about product %s takedown: %s",
-            product.merchant_id, product.product_id, e, exc_info=True,
+            "Product takedown succeeded but merchant notifications failed: %s",
+            e, exc_info=True,
         )
 
 
@@ -107,6 +123,7 @@ def delete_products(product_ids, admin_user_id, reason):
     found = {p.product_id: p for p in products}
 
     deleted, skipped = [], []
+    pending_notes = []
     now = datetime.now(timezone.utc)
 
     for pid in ids:
@@ -126,7 +143,11 @@ def delete_products(product_ids, admin_user_id, reason):
         # but clearing the flag means even a query that forgot cannot surface it.
         product.active_flag = False
         _release_sku(product)
-        _notify_merchant(product, reason)
+        # Collected, not written yet — notifications are sent only after the
+        # takedown itself has committed.
+        pending_notes.append(
+            (product.merchant_id, product.product_id, product.product_name, reason)
+        )
 
         deleted.append({
             "product_id": product.product_id,
@@ -145,6 +166,9 @@ def delete_products(product_ids, admin_user_id, reason):
         "Admin %s removed %s product(s), skipped %s. Reason: %s",
         admin_user_id, len(deleted), len(skipped), reason,
     )
+
+    # After the commit above, so it cannot take the takedown down with it.
+    _notify_merchants(pending_notes)
 
     return {
         "deleted": deleted,

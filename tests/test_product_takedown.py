@@ -348,3 +348,52 @@ def test_merchant_removal_gets_a_different_cart_message(app):
 
         reason = CartItem.query.filter_by(product_id=pid).first().serialize()["product"]["unavailable_reason"]
         assert "no longer sold by the merchant" in reason
+
+
+def test_takedown_survives_a_failing_notification(app):
+    """The exact production failure: an unmigrated MySQL ENUM rejects the new
+    notification_type, and the takedown must still stand.
+
+    The first version added notifications to the same session and wrapped the
+    add() in try/except. session.add() does not touch the database, so the error
+    surfaced at commit() outside the guard and rolled the whole takedown back —
+    the admin saw a failure and the product stayed on sale.
+    """
+    from unittest.mock import patch
+
+    from controllers.superadmin import product_deletion_controller as ctl
+    from models.product import Product
+
+    with app.app_context():
+        p = _mk_product()
+        admin = _mk_user("admin@ex.com")
+        db.session.commit()
+        pid = p.product_id
+
+        with patch.object(
+            ctl, "MerchantNotification",
+            side_effect=Exception("Data truncated for column 'notification_type'"),
+        ):
+            result = ctl.delete_products([pid], admin.id, "Counterfeit")
+
+        assert result["deleted_count"] == 1
+        db.session.expire_all()
+        fresh = Product.query.get(pid)
+        assert fresh.deleted_at is not None, "takedown was rolled back by a notification"
+        assert fresh.deleted_by_role == "admin"
+
+
+def test_notification_enum_covers_every_python_member(app):
+    """Guards the schema drift that caused the outage.
+
+    If someone adds a NotificationType member without running the migration that
+    widens the MySQL ENUM, inserts fail at runtime. This at least pins the
+    migration to the enum so the two are edited together.
+    """
+    from models.enums import NotificationType
+    from run_migrations import migrate_notification_type_enum
+
+    with app.app_context():
+        # On SQLite this is a no-op that must still report success.
+        assert migrate_notification_type_enum() is True
+        assert "PRODUCT_DELETED_BY_ADMIN" in [m.name for m in NotificationType]

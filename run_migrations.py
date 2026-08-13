@@ -59,6 +59,53 @@ def migrate_date_of_birth_gender_columns():
     
     return all_added
 
+
+def migrate_notification_type_enum():
+    """Extend merchant_notifications.notification_type to accept every enum value.
+
+    init_db.py's auto-migration only ever ADDs columns — it never MODIFYs one — so
+    adding a member to the Python NotificationType enum leaves the MySQL ENUM
+    unchanged and the insert fails with "Data truncated for column
+    'notification_type'". This is Landmine #2 in docs/MULTI_CURRENCY.md, and it
+    applies to any Enum column, not just money.
+
+    Idempotent: it rewrites the column definition to the full current set every
+    time, so running it twice is a no-op and adding a future value needs no new
+    migration function.
+    """
+    print("\nMigrating merchant_notifications.notification_type:")
+    print("---------------------------------------------------")
+
+    from models.enums import NotificationType
+
+    inspector = inspect(db.engine)
+    if 'merchant_notifications' not in inspector.get_table_names():
+        print("- merchant_notifications table does not exist yet; skipping.")
+        return True
+
+    if db.engine.dialect.name != 'mysql':
+        print(f"- dialect is {db.engine.dialect.name}, not mysql; nothing to alter.")
+        return True
+
+    # SQLAlchemy stores Enum columns by NAME, so the ENUM must list the member
+    # names ('REEL_LIKED'), not their values ('reel_liked').
+    names = [m.name for m in NotificationType]
+    values_sql = ", ".join(f"'{n}'" for n in names)
+
+    try:
+        with db.engine.connect() as conn:
+            conn.execute(text(
+                f"ALTER TABLE merchant_notifications "
+                f"MODIFY COLUMN notification_type ENUM({values_sql}) NOT NULL"
+            ))
+            conn.commit()
+        print(f"\u2713 notification_type now accepts: {', '.join(names)}")
+        return True
+    except Exception as e:
+        print(f"\u2717 Failed to alter notification_type: {e}")
+        return False
+
+
 def run_migrations():
     """Run all database migrations."""
     app = create_app()
@@ -73,6 +120,7 @@ def run_migrations():
         try:
             # Run migrations
             success = migrate_date_of_birth_gender_columns()
+            success = migrate_notification_type_enum() and success
             
             if success:
                 print("\n" + "=" * 50)
