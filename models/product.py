@@ -58,6 +58,18 @@ class Product(BaseModel):
     updated_at    = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
     deleted_at    = db.Column(db.DateTime)
 
+    # Who removed it, and why. `deleted_at` alone cannot answer "was this taken down
+    # by an admin or retired by the merchant", and the merchant has to be told which
+    # it was — a listing that vanished without explanation is a support ticket.
+    #
+    # nullable=True with NO default=, per docs/MULTI_CURRENCY.md Landmines #1:
+    # init_db.py's auto-migration fabricates DEFAULT '' for a NOT NULL String added
+    # to an existing table, which would stamp every historical product as deleted by
+    # an empty role.
+    deleted_by_user_id = db.Column(db.Integer, nullable=True)
+    deleted_by_role    = db.Column(db.String(20), nullable=True)   # 'merchant' | 'admin'
+    deletion_reason    = db.Column(db.String(500), nullable=True)
+
     # REMOVED: base_price_calculated
     # REMOVED: gst_rate_percentage_applied
 
@@ -206,6 +218,11 @@ class Product(BaseModel):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None,
+            "deleted_by_role": self.deleted_by_role,
+            "deletion_reason": self.deletion_reason,
+            # So the merchant dashboard can say "removed by admin" rather than just
+            # showing a product that quietly stopped selling.
+            "removed_by_admin": self.deleted_at is not None and self.deleted_by_role == "admin",
 
             # Frontend pricing display
             "price": _scalar(

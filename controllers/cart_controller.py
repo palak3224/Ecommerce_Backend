@@ -61,8 +61,11 @@ class CartController:
         try:
             cart = CartController.get_cart(user_id)
             product = Product.query.get(product_id)
-            
-            if not product:
+
+            # A soft-deleted product must not be purchasable. Before this check,
+            # `deleted_at` only hid a product from *some* listings — it could still
+            # be added to a cart and ordered.
+            if not product or product.deleted_at is not None:
                 raise ValueError("Product not found")
             
             # Get product stock first

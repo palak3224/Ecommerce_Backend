@@ -73,8 +73,9 @@ class OrderController:
             
             for cart_item_data in order_data.get('items', []):
                 product = Product.query.get(cart_item_data['product_id'])
-                if not product: 
-                    raise ValueError(f"Product with ID {cart_item_data['product_id']} not found.")
+                if not product or product.deleted_at is not None:
+                    # Removed products cannot be ordered, however the line got here.
+                    raise ValueError(f"Product with ID {cart_item_data['product_id']} is no longer available.")
                 
                 quantity = int(cart_item_data['quantity'])
                 if quantity <= 0:

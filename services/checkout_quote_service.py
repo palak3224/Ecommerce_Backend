@@ -219,8 +219,13 @@ def price_basket(user_id, payload, now=None):
     entries = []
     for product_id, quantity, attributes in basket:
         product = Product.query.get(product_id)
-        if not product:
-            raise QuoteError(f"Product {product_id} not found.")
+        if not product or product.deleted_at is not None:
+            # Named rather than silently dropped: a basket that quietly loses a line
+            # would be quoted for less than the customer thinks they are buying.
+            raise QuoteError(
+                f"{product.product_name if product else f'Product {product_id}'} "
+                f"is no longer available. Please remove it from your basket."
+            )
 
         listed_inclusive_per_unit, _ = product.get_current_listed_inclusive_price()
         listed_inclusive_per_unit = _q(listed_inclusive_per_unit)

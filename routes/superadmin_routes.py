@@ -6340,3 +6340,81 @@ def reject_merchant_intro_video(video_id):
         'message': 'Intro video rejected',
         'intro_video': video.serialize(owner_view=True),
     }), HTTPStatus.OK
+
+
+# --- Product takedown -------------------------------------------------------
+
+@superadmin_bp.route('/products/<int:product_id>', methods=['DELETE'])
+@super_admin_role_required
+def superadmin_delete_product(product_id):
+    """Remove a single merchant product from the marketplace.
+
+    Soft delete: order history references products and must keep rendering.
+    ---
+    tags:
+      - Product Monitoring
+    """
+    from controllers.superadmin.product_deletion_controller import (
+        ProductDeletionError, delete_products,
+    )
+
+    data = request.get_json(silent=True) or {}
+    try:
+        result = delete_products(
+            [product_id],
+            admin_user_id=get_jwt_identity(),
+            reason=data.get('reason'),
+        )
+    except ProductDeletionError as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 400
+
+    if result['deleted_count'] == 0:
+        why = result['skipped'][0]['reason'] if result['skipped'] else 'not found'
+        return jsonify({'status': 'error', 'message': f'Product {why}.'}), 404
+
+    return jsonify({
+        'status': 'success',
+        'message': 'Product removed and the merchant has been notified.',
+        'data': result,
+    }), 200
+
+
+@superadmin_bp.route('/products/bulk-delete', methods=['POST'])
+@super_admin_role_required
+def superadmin_bulk_delete_products():
+    """Remove several products at once.
+
+    Reports per-product outcomes rather than a single verdict: selecting 40 where
+    2 were already gone should read as 38 removed and 2 skipped.
+    ---
+    tags:
+      - Product Monitoring
+    """
+    from controllers.superadmin.product_deletion_controller import (
+        ProductDeletionError, delete_products,
+    )
+
+    data = request.get_json(silent=True) or {}
+    ids = data.get('product_ids')
+    if not isinstance(ids, list):
+        return jsonify({'status': 'error',
+                        'message': 'product_ids must be a list.'}), 400
+
+    try:
+        result = delete_products(
+            ids,
+            admin_user_id=get_jwt_identity(),
+            reason=data.get('reason'),
+        )
+    except ProductDeletionError as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 400
+
+    return jsonify({
+        'status': 'success',
+        'message': (
+            f"{result['deleted_count']} product(s) removed"
+            + (f", {result['skipped_count']} skipped" if result['skipped_count'] else "")
+            + "."
+        ),
+        'data': result,
+    }), 200
