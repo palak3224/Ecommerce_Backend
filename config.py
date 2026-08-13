@@ -75,6 +75,16 @@ class Config:
     # currency layer ships AND Razorpay international is activated.
     FEATURE_MULTI_CURRENCY = os.getenv('FEATURE_MULTI_CURRENCY', 'false').lower() in ('1', 'true', 'yes')
 
+    # Product approval gate. When true (the default), a merchant's new product goes
+    # live immediately and an admin polices the catalogue afterwards by rejecting.
+    # Set to false to restore the old behaviour, where nothing is visible until an
+    # admin approves it.
+    #
+    # A flag rather than deleted code: the gate is a policy decision that may well
+    # be wanted back — at scale, or for a new merchant's first listings — and
+    # turning it on should not need a deploy.
+    FEATURE_PRODUCT_AUTO_APPROVE = os.getenv('FEATURE_PRODUCT_AUTO_APPROVE', 'true').lower() in ('1', 'true', 'yes')
+
     # Server-authoritative checkout. When true, /api/razorpay/create-order refuses a
     # client-stated amount and will only price a quote_id or a subscription_plan_id.
     # Keep false until the frontend sends quote_id, then flip: with it off, a stale

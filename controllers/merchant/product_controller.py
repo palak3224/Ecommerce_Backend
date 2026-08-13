@@ -18,6 +18,20 @@ REQUIRED_CREATE_FIELDS = {
     'selling_price': 'Selling price',
 }
 
+def _auto_approve_enabled():
+    """Whether a new or edited product goes live without an admin looking at it.
+
+    Read per call rather than captured at import, so flipping the config and
+    restarting is enough — no code change, no redeploy of a different build.
+    """
+    from flask import current_app
+    try:
+        return bool(current_app.config.get('FEATURE_PRODUCT_AUTO_APPROVE', True))
+    except RuntimeError:
+        # No app context (a script, a shell). Be conservative: keep the gate.
+        return False
+
+
 class MerchantProductController:
     @staticmethod
     def list_all():
@@ -102,7 +116,12 @@ class MerchantProductController:
             special_price=special_price, # GST-inclusive
             special_start=data.get('special_start'),
             special_end=data.get('special_end'),
-            approval_status='pending'
+            # Auto-approve puts the listing live immediately and leaves policing to
+            # the admin's reject flow. approved_by stays NULL because no human
+            # approved it — that distinction matters when auditing how a product
+            # reached the catalogue.
+            approval_status='approved' if _auto_approve_enabled() else 'pending',
+            approved_at=datetime.now(timezone.utc) if _auto_approve_enabled() else None,
         )
         # NO call to p.update_base_price_and_gst_details() here
         db.session.add(p)
@@ -128,8 +147,11 @@ class MerchantProductController:
             merchant_id=merchant.id
         ).first_or_404()
 
-        # If product is approved, changing certain fields will require re-approval
-        if p.approval_status == 'approved':
+        # If product is approved, changing certain fields will require re-approval.
+        # Skipped under auto-approve: sending a live listing back to 'pending' would
+        # remove it from the site the moment a merchant corrected a typo, which is
+        # the opposite of what turning the gate off is for.
+        if p.approval_status == 'approved' and not _auto_approve_enabled():
             fields_requiring_reapproval = {
                 'product_name', 'product_description', 'cost_price', 
                 'selling_price', 'special_price', 'special_start', 'special_end'
