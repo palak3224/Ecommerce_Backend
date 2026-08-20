@@ -385,3 +385,73 @@ def admin_update_song(song_id):
 
     db.session.commit()
     return success_response("Song updated", song.serialize(include_audio=True))
+
+
+@music_bp.route("/api/superadmin/music/songs/upload", methods=["POST"])
+@jwt_required()
+def admin_upload_song():
+    """Add a track by uploading the audio file itself.
+
+    The main path for a catalogue with no API. Downloading from Pixabay leaves a
+    file on a laptop, not a URL, so asking an admin for a link would mean hosting
+    it somewhere else first — this takes what they actually have.
+
+    Multipart: `file` plus the same metadata fields the JSON endpoint accepts.
+    Length and waveform are measured from the audio, never taken from the form.
+    """
+    from auth.models.models import User, UserRole
+    from services.music.ingest_service import IngestError, upsert_song
+    from services.music.song_upload_service import SongUploadError, upload_song_file
+
+    user = User.query.get(get_jwt_identity())
+    if not user or user.role != UserRole.SUPER_ADMIN:
+        return error_response("Admin access required.", 403)
+
+    if "file" not in request.files:
+        return error_response("No audio file was uploaded.", 400)
+
+    title = (request.form.get("title") or "").strip()
+    if not title:
+        return error_response("Title is required.", 400)
+
+    try:
+        stored = upload_song_file(request.files["file"])
+    except SongUploadError as e:
+        return error_response(str(e), 400)
+    except Exception as e:
+        current_app.logger.error("Song upload failed: %s", e, exc_info=True)
+        return error_response("Could not process the audio file.", 500)
+
+    track = {
+        "provider_track_id": stored["s3_key"],
+        "title": title,
+        "artist": (request.form.get("artist") or "").strip() or None,
+        "artwork_url": (request.form.get("artwork_url") or "").strip() or None,
+        "audio_url": stored["audio_url"],
+        "preview_url": stored["audio_url"],
+        "duration_ms": stored["duration_ms"],
+        "tags": (request.form.get("tags") or "").strip() or None,
+        "language": (request.form.get("language") or "").strip() or None,
+        "licence_name": (request.form.get("licence_name") or "").strip() or None,
+        "licence_url": (request.form.get("licence_url") or "").strip() or None,
+        "attribution_text": (request.form.get("attribution_text") or "").strip() or None,
+        "attribution_required": bool((request.form.get("attribution_text") or "").strip()),
+    }
+
+    try:
+        # analyse=False: the file has already been measured on the way in, and
+        # re-downloading it from CloudFront to do it again would be wasteful.
+        song, created = upsert_song("manual", track, analyse=False)
+    except IngestError as e:
+        return error_response(str(e), 400)
+
+    if stored["waveform_peaks"]:
+        import json as _json
+        song.waveform_peaks = _json.dumps(stored["waveform_peaks"])
+        db.session.commit()
+
+    return success_response(
+        "Song uploaded",
+        song.serialize(include_audio=True, include_peaks=True),
+        201 if created else 200,
+    )
