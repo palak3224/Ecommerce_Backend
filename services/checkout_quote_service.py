@@ -458,7 +458,9 @@ def load_spendable_quote(quote_id, user_id, now=None):
         raise QuoteError("quote_id is required.")
 
     quote = CheckoutQuote.query.get(str(quote_id))
-    if not quote or quote.user_id != user_id:
+    # Compare as strings: JWT identities are minted as str(user.id) but user_id is an
+    # Integer column, so a raw != would reject every real request (5 != "5").
+    if not quote or str(quote.user_id) != str(user_id):
         # Same message either way: whether a quote id exists is not the caller's
         # business if it is not theirs.
         raise QuoteError("Quote not found.")

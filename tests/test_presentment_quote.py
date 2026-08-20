@@ -184,3 +184,25 @@ def test_unsupported_currency_is_ignored(app):
         })
         assert quote.is_presentment is False
         assert quote.charge_currency == "INR"
+
+
+def test_quote_loads_with_string_identity(app):
+    """JWT identities arrive as strings while user_id is an int column. Loading a
+    quote with the string id (as every real request does) must succeed, and a
+    different user must still be refused."""
+    from services.checkout_quote_service import build_quote, load_spendable_quote, QuoteError
+
+    with app.app_context():
+        buyer, product = _seed()
+        quote = build_quote(str(buyer.id), {
+            "items": [{"product_id": product.product_id, "quantity": 1}],
+        })
+        # Force a reload so quote.user_id comes back as an int from the DB, exactly
+        # like the separate create-order request would see it.
+        db.session.expire_all()
+
+        loaded = load_spendable_quote(quote.quote_id, str(buyer.id))
+        assert loaded.quote_id == quote.quote_id
+
+        with pytest.raises(QuoteError):
+            load_spendable_quote(quote.quote_id, str(buyer.id + 999))

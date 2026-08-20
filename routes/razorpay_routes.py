@@ -290,7 +290,8 @@ def verify_razorpay_payment():
                 quote = CheckoutQuote.query.get(str(receipt))
 
             if quote is not None:
-                if quote.user_id != user_id:
+                # str() both sides: the JWT identity is a string, quote.user_id an int.
+                if str(quote.user_id) != str(user_id):
                     current_app.logger.error(
                         "Quote %s belongs to user %s but was verified by user %s",
                         quote.quote_id, quote.user_id, user_id
