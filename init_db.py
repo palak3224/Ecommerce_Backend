@@ -27,6 +27,8 @@ from models.order import Order, OrderItem, OrderStatusHistory
 from models.checkout_quote import CheckoutQuote, CheckoutQuoteItem
 from models.payment_refund import PaymentRefund
 from models.fx_rate import FxRate
+from models.song import Song
+from models.reel_audio import ReelAudio
 from models.shipment import Shipment, ShipmentItem
 from models.support_ticket_model import SupportTicket, SupportTicketMessage
 from models.youtube_token import YouTubeToken

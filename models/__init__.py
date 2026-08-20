@@ -28,6 +28,8 @@ from .order import Order, OrderItem, OrderStatusHistory
 from .checkout_quote import CheckoutQuote, CheckoutQuoteItem
 from .payment_refund import PaymentRefund
 from .fx_rate import FxRate
+from .song import Song
+from .reel_audio import ReelAudio
 from .shipment import Shipment, ShipmentItem
 from .shop.shop_order import ShopOrder, ShopOrderItem, ShopOrderStatusHistory
 from .shop.shop_shipment import ShopShipment, ShopShipmentItem
@@ -89,5 +91,7 @@ __all__ = [
     'CheckoutQuote',
     'CheckoutQuoteItem',
     'PaymentRefund',
-    'FxRate'
+    'FxRate',
+    'Song',
+    'ReelAudio'
 ]
