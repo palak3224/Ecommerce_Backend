@@ -47,6 +47,32 @@ class SongUploadError(Exception):
     """The file could not be taken. Message is admin-facing."""
 
 
+def _s3_error_message(error, key):
+    """Turn an S3 failure into something that names the actual problem.
+
+    "Could not store the audio file" sends an admin off re-exporting an mp3 that
+    was never the issue. A denied PutObject is a policy scoped to the wrong
+    prefix, and saying so is the difference between a five minute fix and an
+    afternoon.
+    """
+    code = ""
+    if isinstance(error, ClientError):
+        code = error.response.get("Error", {}).get("Code", "")
+
+    if code in ("AccessDenied", "AllAccessDisabled", "InvalidAccessKeyId",
+                "SignatureDoesNotMatch"):
+        prefix = key.split("/")[0] if "/" in key else key
+        return (
+            f"Storage rejected the upload: the server's AWS credentials are not "
+            f"allowed to write to the '{prefix}/' folder of the media bucket. "
+            f"Either grant s3:PutObject on that prefix, or point "
+            f"AWS_S3_MUSIC_PREFIX at a folder the policy already permits."
+        )
+    if code == "NoSuchBucket":
+        return "Storage rejected the upload: the media bucket does not exist."
+    return "Could not store the file. Please check the server logs."
+
+
 def _config():
     bucket = os.getenv("AWS_S3_REELS_BUCKET", "aoin-reels-prod")
     region = os.getenv("AWS_REGION", "ap-south-1")
@@ -136,7 +162,7 @@ def upload_song_file(file_storage):
             )
         except (BotoCoreError, ClientError) as e:
             current_app.logger.error("Song upload to S3 failed: %s", e, exc_info=True)
-            raise SongUploadError("Could not store the audio file.")
+            raise SongUploadError(_s3_error_message(e, key))
 
         return {
             "audio_url": f"{cdn}/{key}",
@@ -195,7 +221,7 @@ def upload_artwork_file(file_storage):
             )
         except (BotoCoreError, ClientError) as e:
             current_app.logger.error("Artwork upload failed: %s", e, exc_info=True)
-            raise SongUploadError("Could not store the artwork image.")
+            raise SongUploadError(_s3_error_message(e, key))
 
         return f"{cdn}/{key}"
     finally:

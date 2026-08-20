@@ -364,3 +364,36 @@ def test_ffmpeg_is_found_when_path_does_not_contain_it(app):
                 assert probe_duration_ms(audio) == pytest.approx(4000, abs=200)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_s3_permission_error_names_the_prefix(app):
+    """A denied PutObject is a policy problem, and the message must say so.
+
+    "Could not store the audio file" sends an admin off re-exporting an mp3 that
+    was never the problem — the same trap the ffmpeg message fell into.
+    """
+    from botocore.exceptions import ClientError
+    from services.music.song_upload_service import _s3_error_message
+
+    with app.app_context():
+        denied = ClientError(
+            {"Error": {"Code": "AccessDenied", "Message": "not authorized"}},
+            "PutObject",
+        )
+        msg = _s3_error_message(denied, "music/abc123.mp3")
+
+        assert "music/" in msg, "the message should name the prefix that was refused"
+        assert "AWS_S3_MUSIC_PREFIX" in msg, "it should point at the quickest fix"
+        assert "s3:PutObject" in msg
+
+
+def test_other_s3_errors_do_not_claim_a_permission_problem(app):
+    from botocore.exceptions import ClientError
+    from services.music.song_upload_service import _s3_error_message
+
+    with app.app_context():
+        msg = _s3_error_message(
+            ClientError({"Error": {"Code": "RequestTimeout"}}, "PutObject"),
+            "music/x.mp3",
+        )
+        assert "not allowed" not in msg
