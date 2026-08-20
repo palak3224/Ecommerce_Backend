@@ -26,7 +26,10 @@ class AudioMuxError(Exception):
 
 
 def _ffmpeg_path():
-    return shutil.which("ffmpeg") or "ffmpeg"
+    # Resolved the same way as the waveform service: PATH under systemd contains
+    # only the venv, so shutil.which alone misses /usr/bin/ffmpeg.
+    from services.music.waveform_service import find_binary
+    return find_binary("ffmpeg") or "ffmpeg"
 
 
 def build_mux_command(video_path, audio_path, out_path, *, start_ms=0,
@@ -106,4 +109,5 @@ def mux_to_tempfile(video_path, audio_path, **kwargs):
 
 
 def has_ffmpeg():
-    return shutil.which("ffmpeg") is not None
+    from services.music.waveform_service import find_binary
+    return find_binary("ffmpeg") is not None

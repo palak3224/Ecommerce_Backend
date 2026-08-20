@@ -9,6 +9,7 @@ The output is deliberately tiny: 120 buckets of 3 decimal places is about 600
 bytes, which is cheaper to ship than one extra thumbnail.
 """
 import json
+import os
 import re
 import shutil
 import struct
@@ -28,8 +29,30 @@ DEFAULT_BUCKETS = 120
 ENVELOPE_HZ = 8000
 
 
+# Where the binaries actually live when PATH cannot be trusted.
+#
+# The systemd unit sets Environment="PATH=/home/ubuntu/Aoin/venv/bin" — the venv
+# and nothing else — so shutil.which() finds neither ffmpeg nor ffprobe even
+# though both are installed at /usr/bin. app.py already works around this for
+# thumbnails; these services did not, and reported perfectly good audio as
+# unplayable.
+_COMMON_BIN_DIRS = ("/usr/bin", "/usr/local/bin", "/bin", "/opt/homebrew/bin")
+
+
+def find_binary(name):
+    """Locate `name` on PATH, then in the usual places. None if genuinely absent."""
+    found = shutil.which(name)
+    if found:
+        return found
+    for directory in _COMMON_BIN_DIRS:
+        candidate = os.path.join(directory, name)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
 def _ffmpeg_path():
-    return shutil.which("ffmpeg") or "ffmpeg"
+    return find_binary("ffmpeg") or "ffmpeg"
 
 
 def generate_peaks(audio_path, buckets=DEFAULT_BUCKETS, timeout=120):
@@ -104,7 +127,7 @@ def probe_duration_ms(audio_path, timeout=30):
 
 
 def _duration_via_ffprobe(audio_path, timeout=30):
-    ffprobe = shutil.which("ffprobe")
+    ffprobe = find_binary("ffprobe")
     if not ffprobe:
         _log("info", "ffprobe not found; falling back to ffmpeg for duration")
         return 0
@@ -154,7 +177,7 @@ def _duration_via_ffmpeg(audio_path, timeout=30):
 
 def audio_tooling_available():
     """Whether anything can measure audio at all. Used to explain failures."""
-    return shutil.which("ffmpeg") is not None or shutil.which("ffprobe") is not None
+    return find_binary("ffmpeg") is not None or find_binary("ffprobe") is not None
 
 
 def _log(level, msg, *args):

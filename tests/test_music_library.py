@@ -325,5 +325,42 @@ def test_missing_tooling_is_reported_as_such(app):
     from services.music import waveform_service
 
     with app.app_context():
-        with patch.object(waveform_service.shutil, "which", lambda n: None):
+        # Both routes blocked: PATH lookup and the known-directory fallback. Only
+        # blinding shutil.which is no longer enough, because find_binary goes on
+        # to check /usr/bin and friends — which is the whole point of it.
+        with patch.object(waveform_service, "find_binary", lambda n: None):
             assert waveform_service.audio_tooling_available() is False
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")
+def test_ffmpeg_is_found_when_path_does_not_contain_it(app):
+    """The production failure: installed at /usr/bin, invisible to PATH.
+
+    The systemd unit sets PATH to the virtualenv's bin directory and nothing
+    else, so shutil.which() finds neither ffmpeg nor ffprobe even though both are
+    present. app.py already checks known locations for exactly this reason; the
+    music services did not, and rejected valid audio as unplayable.
+    """
+    from unittest.mock import patch
+    from services.music import waveform_service
+    from services.music.waveform_service import find_binary, probe_duration_ms
+
+    with app.app_context():
+        tmp = tempfile.mkdtemp()
+        try:
+            audio = os.path.join(tmp, "t.mp3")
+            subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi",
+                            "-i", "sine=frequency=440:duration=4",
+                            "-c:a", "libmp3lame", audio, "-y"], check=True)
+
+            # shutil.which blind, exactly as it is under systemd.
+            with patch.object(waveform_service.shutil, "which", lambda n: None):
+                located = find_binary("ffmpeg")
+                # Only meaningful where ffmpeg sits in one of the known dirs.
+                if located is None:
+                    pytest.skip("ffmpeg is not in a conventional bin directory here")
+
+                assert waveform_service.audio_tooling_available() is True
+                assert probe_duration_ms(audio) == pytest.approx(4000, abs=200)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
