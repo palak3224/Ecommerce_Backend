@@ -194,7 +194,11 @@ def get_currency_context():
         'detected_country': country or None,
         'multi_currency_enabled': enabled,
         'supported_currencies': supported_currencies() if enabled else [base],
-        # Presentment is display-only until Razorpay international is live: the
-        # customer is charged in charge_currency whatever they are browsing in.
-        'charge_currency': base,
+        # Phase 7: with FEATURE_MULTI_CURRENCY on the customer is charged in the
+        # currency they browse in (Razorpay International settles it to INR). With it
+        # off, USD is display-only and everyone is charged in the base currency.
+        'charge_in_presentment': enabled,
+        # Best-effort single value for older clients: the currency we would charge in
+        # for the suggested view. Newer clients use charge_in_presentment instead.
+        'charge_currency': suggested if enabled else base,
     })

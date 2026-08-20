@@ -314,6 +314,16 @@ class OrderController:
                 shipping_amount=quote.shipping_amount,
                 total_amount=quote.total_amount,
                 currency=quote.currency,
+                # Freeze the presentment snapshot (I3): what the customer was charged
+                # and the exact FX rate row it was priced at. Null for INR orders.
+                presentment_currency=quote.presentment_currency,
+                presentment_subtotal_amount=quote.presentment_subtotal_amount,
+                presentment_discount_amount=quote.presentment_discount_amount,
+                presentment_tax_amount=quote.presentment_tax_amount,
+                presentment_shipping_amount=quote.presentment_shipping_amount,
+                presentment_total_amount=quote.presentment_total_amount,
+                presentment_total_minor=quote.presentment_total_minor,
+                fx_rate_id=quote.fx_rate_id,
                 payment_method=PaymentMethodEnum(extra.get('payment_method', 'credit_card'))
                 if extra.get('payment_method') else PaymentMethodEnum.CREDIT_CARD,
                 payment_status=PaymentStatusEnum.SUCCESSFUL,

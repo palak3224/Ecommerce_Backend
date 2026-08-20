@@ -68,6 +68,37 @@ class CheckoutQuote(db.Model):
     # the capture against. Derived from total_amount at quote time, never recomputed.
     total_amount_minor = db.Column(db.BigInteger, nullable=False)
 
+    # --- Presentment (Phase 7). Populated only when the customer is charged in a
+    # currency other than the book currency (e.g. USD). The columns above stay INR;
+    # these hold the derived amount actually charged. All nullable with NO default,
+    # so historical rows and INR checkouts leave them empty (docs Landmine #1). ---
+    presentment_currency = db.Column(db.String(3), nullable=True)
+    presentment_subtotal_amount = db.Column(db.Numeric(12, 2), nullable=True)
+    presentment_discount_amount = db.Column(db.Numeric(12, 2), nullable=True)
+    presentment_tax_amount = db.Column(db.Numeric(12, 2), nullable=True)
+    presentment_shipping_amount = db.Column(db.Numeric(12, 2), nullable=True)
+    presentment_total_amount = db.Column(db.Numeric(12, 2), nullable=True)
+    presentment_total_minor = db.Column(db.BigInteger, nullable=True)
+    # References fx_rates.fx_rate_id (append-only, so the exact rate stays provable —
+    # I4). Stored as a plain id, not a DB FK, to keep the additive migration trivial.
+    fx_rate_id = db.Column(db.Integer, nullable=True)
+
+    @property
+    def charge_currency(self):
+        """The currency actually charged: presentment if set, else the book currency."""
+        return self.presentment_currency or self.currency
+
+    @property
+    def charge_amount_minor(self):
+        """The integer minor-unit amount actually charged."""
+        if self.presentment_total_minor is not None:
+            return int(self.presentment_total_minor)
+        return int(self.total_amount_minor)
+
+    @property
+    def is_presentment(self):
+        return self.presentment_currency is not None
+
     shipping_address_id = db.Column(db.Integer, nullable=True)
     billing_address_id = db.Column(db.Integer, nullable=True)
     shipping_method_name = db.Column(db.String(100), nullable=True)
@@ -99,18 +130,26 @@ class CheckoutQuote(db.Model):
         return self.status == QuoteStatus.ACTIVE and not self.is_expired(now)
 
     def serialize(self):
+        # The top-level currency/amounts describe what the customer is CHARGED, so the
+        # UI and the gateway agree. When presentment is set that is USD; otherwise it is
+        # the INR book figure. The INR book values are always exposed under base_*.
+        pres = self.is_presentment
         return {
             "quote_id": self.quote_id,
             "status": self.status,
-            "currency": self.currency,
-            # Strings, not floats — invariant I9. A float total is how a 1299.00
-            # becomes 1298.9999999 in transit.
-            "subtotal_amount": str(self.subtotal_amount),
-            "discount_amount": str(self.discount_amount),
-            "tax_amount": str(self.tax_amount),
-            "shipping_amount": str(self.shipping_amount),
-            "total_amount": str(self.total_amount),
-            "total_amount_minor": int(self.total_amount_minor),
+            # Charge view (presentment if any, else base). Strings, not floats — I9.
+            "currency": self.charge_currency,
+            "subtotal_amount": str(self.presentment_subtotal_amount if pres else self.subtotal_amount),
+            "discount_amount": str(self.presentment_discount_amount if pres else self.discount_amount),
+            "tax_amount": str(self.presentment_tax_amount if pres else self.tax_amount),
+            "shipping_amount": str(self.presentment_shipping_amount if pres else self.shipping_amount),
+            "total_amount": str(self.presentment_total_amount if pres else self.total_amount),
+            "total_amount_minor": self.charge_amount_minor,
+            # Book (INR) view — always present, for records and reconciliation.
+            "base_currency": self.currency,
+            "base_total_amount": str(self.total_amount),
+            "is_presentment": pres,
+            "fx_rate_id": self.fx_rate_id,
             "expires_at": self.expires_at.isoformat() + "Z",
             "created_at": self.created_at.isoformat() + "Z",
             "items": [i.serialize() for i in self.items],

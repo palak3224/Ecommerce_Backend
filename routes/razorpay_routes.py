@@ -137,9 +137,11 @@ def create_razorpay_order():
                 quote = load_spendable_quote(data['quote_id'], user_id)
             except QuoteError as e:
                 return error_response(str(e), 400)
-            amount_minor = int(quote.total_amount_minor)
-            # The quote decides the currency too — not the request body.
-            currency = quote.currency
+            # The quote decides the amount AND the currency — never the request body.
+            # charge_* is the presentment (e.g. USD) figure when the quote has one,
+            # otherwise the INR book figure.
+            amount_minor = int(quote.charge_amount_minor)
+            currency = quote.charge_currency
 
         elif data.get('subscription_plan_id'):
             # Also server-priced: the plan's price is a column, not a request field.
@@ -306,8 +308,10 @@ def verify_razorpay_payment():
 
                 captured_minor = int(payment.get('amount') or 0)
                 captured_currency = (payment.get('currency') or '').upper()
-                expected_minor = int(quote.total_amount_minor)
-                expected_currency = (quote.currency or DEFAULT_CHARGE_CURRENCY).upper()
+                # Compare against what we actually asked the gateway to charge — the
+                # presentment (USD) figure when the quote has one, else the INR book.
+                expected_minor = int(quote.charge_amount_minor)
+                expected_currency = (quote.charge_currency or DEFAULT_CHARGE_CURRENCY).upper()
 
                 if captured_minor != expected_minor or captured_currency != expected_currency:
                     current_app.logger.error(

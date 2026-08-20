@@ -29,6 +29,21 @@ class Order(BaseModel):
     # was rupees, so historical rows carry a meaningless label (see the backfill script).
     currency = db.Column(db.String(3), nullable=False, default="INR")
 
+    # --- Presentment (Phase 7) snapshot. Frozen at payment for orders charged in a
+    # non-book currency (e.g. USD). The amounts above stay INR (I1); these record what
+    # the customer was actually charged and at which frozen FX rate (I2/I3/I4). All
+    # nullable with NO default — INR orders and every historical row leave them empty
+    # (docs Landmine #1). ---
+    presentment_currency = db.Column(db.String(3), nullable=True)
+    presentment_subtotal_amount = db.Column(db.Numeric(12, 2), nullable=True)
+    presentment_discount_amount = db.Column(db.Numeric(12, 2), nullable=True)
+    presentment_tax_amount = db.Column(db.Numeric(12, 2), nullable=True)
+    presentment_shipping_amount = db.Column(db.Numeric(12, 2), nullable=True)
+    presentment_total_amount = db.Column(db.Numeric(12, 2), nullable=True)
+    presentment_total_minor = db.Column(db.BigInteger, nullable=True)
+    # References fx_rates.fx_rate_id (append-only). Plain id, not a DB FK — see quote.
+    fx_rate_id = db.Column(db.Integer, nullable=True)
+
     payment_method = db.Column(db.Enum(PaymentMethodEnum), nullable=True)
     payment_status = db.Column(db.Enum(PaymentStatusEnum), nullable=False, default=PaymentStatusEnum.PENDING, index=True)
     payment_gateway_transaction_id = db.Column(db.String(255), nullable=True, index=True, unique=True)
@@ -69,6 +84,14 @@ class Order(BaseModel):
             "shipping_amount": str(self.shipping_amount),
             "total_amount": str(self.total_amount),
             "currency": self.currency,
+            # Presentment snapshot — null for INR orders. What the customer was charged.
+            "presentment_currency": self.presentment_currency,
+            "presentment_total_amount": str(self.presentment_total_amount) if self.presentment_total_amount is not None else None,
+            "presentment_subtotal_amount": str(self.presentment_subtotal_amount) if self.presentment_subtotal_amount is not None else None,
+            "presentment_discount_amount": str(self.presentment_discount_amount) if self.presentment_discount_amount is not None else None,
+            "presentment_tax_amount": str(self.presentment_tax_amount) if self.presentment_tax_amount is not None else None,
+            "presentment_shipping_amount": str(self.presentment_shipping_amount) if self.presentment_shipping_amount is not None else None,
+            "fx_rate_id": self.fx_rate_id,
             "payment_method": self.payment_method.value if self.payment_method else None,
             "payment_status": self.payment_status.value if self.payment_status else None,
             "payment_gateway_transaction_id": self.payment_gateway_transaction_id,

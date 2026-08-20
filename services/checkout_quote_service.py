@@ -27,6 +27,7 @@ from models.gst_rule import GSTRule
 from models.product import Product
 from models.product_stock import ProductStock
 from models.promotion import Promotion
+from services.fx_service import to_presentment, FxError
 
 
 TWO_PLACES = Decimal("0.01")
@@ -341,6 +342,64 @@ def price_basket(user_id, payload, now=None):
     return totals, lines
 
 
+def _compute_presentment(totals, requested_currency, on_date=None):
+    """Derive the presentment (charge) amounts for a quote in `requested_currency`.
+
+    Returns a dict of presentment amounts + `fx_rate_id`, or None. None means "charge
+    in the book currency (INR)" and is the safe answer for every reason a conversion
+    should not happen: multi-currency off, no/blank currency requested, the request is
+    already the book currency, an unsupported currency, or no usable FX rate. The book
+    (INR) columns on the quote are never touched.
+    """
+    base = current_app.config.get("DEFAULT_CURRENCY", "INR")
+    requested = (requested_currency or "").upper()
+
+    if not current_app.config.get("FEATURE_MULTI_CURRENCY", False):
+        return None
+    if not requested or requested == base.upper():
+        return None
+
+    supported = {c.strip().upper() for c in
+                 (current_app.config.get("FX_QUOTE_CURRENCIES") or "").split(",") if c.strip()}
+    if requested not in supported:
+        current_app.logger.info("Quote: unsupported presentment currency %s ignored", requested)
+        return None
+
+    try:
+        # The grand total is the authoritative charge amount: one conversion, with
+        # markup and marketing rounding, so the customer pays a clean figure.
+        pres_total, rate_row = to_presentment(totals["total_amount"], requested, base, on_date=on_date)
+        # Components carry no marketing rounding; they exist for the invoice/breakdown
+        # and are reconciled to the charged total below.
+        sub, _ = to_presentment(totals["subtotal_amount"], requested, base, on_date=on_date, marketing_rounding=False)
+        tax, _ = to_presentment(totals["tax_amount"], requested, base, on_date=on_date, marketing_rounding=False)
+        disc, _ = to_presentment(totals["discount_amount"], requested, base, on_date=on_date, marketing_rounding=False)
+        ship, _ = to_presentment(totals["shipping_amount"], requested, base, on_date=on_date, marketing_rounding=False)
+    except FxError as e:
+        # No usable rate → charge INR rather than break checkout (docs, Phase 7:
+        # "with the flag on and no rates, every presentment falls back to INR").
+        current_app.logger.warning(
+            "Quote: FX unavailable for %s, charging in %s instead. %s", requested, base, e
+        )
+        return None
+
+    # I5: subtotal + tax - discount + shipping must reconstruct the charged total
+    # exactly. The rounding residual (a cent or two) is absorbed into the subtotal.
+    residual = _q(pres_total) - _q(sub + tax - disc + ship)
+    sub = _q(sub + residual)
+
+    return {
+        "currency": requested,
+        "subtotal_amount": _q(sub),
+        "tax_amount": _q(tax),
+        "discount_amount": _q(disc),
+        "shipping_amount": _q(ship),
+        "total_amount": _q(pres_total),
+        "total_minor": minor_units(_q(pres_total), requested),
+        "fx_rate_id": rate_row.fx_rate_id if rate_row else None,
+    }
+
+
 def build_quote(user_id, payload, now=None):
     """Price a basket and persist it as a spendable quote."""
     now = now or datetime.utcnow()
@@ -348,6 +407,13 @@ def build_quote(user_id, payload, now=None):
 
     if totals["total_amount"] <= Decimal("0.00"):
         raise QuoteError("Basket total must be greater than zero.")
+
+    # Presentment (Phase 7): if the customer is browsing in a supported non-INR
+    # currency and the flag is on, derive what they are charged in that currency.
+    presentment = _compute_presentment(
+        totals, payload.get("presentment_currency"),
+        on_date=now.date() if hasattr(now, "date") else None,
+    )
 
     quote = CheckoutQuote(
         user_id=user_id,
@@ -359,6 +425,14 @@ def build_quote(user_id, payload, now=None):
         shipping_amount=totals["shipping_amount"],
         total_amount=totals["total_amount"],
         total_amount_minor=minor_units(totals["total_amount"], totals["currency"]),
+        presentment_currency=presentment["currency"] if presentment else None,
+        presentment_subtotal_amount=presentment["subtotal_amount"] if presentment else None,
+        presentment_discount_amount=presentment["discount_amount"] if presentment else None,
+        presentment_tax_amount=presentment["tax_amount"] if presentment else None,
+        presentment_shipping_amount=presentment["shipping_amount"] if presentment else None,
+        presentment_total_amount=presentment["total_amount"] if presentment else None,
+        presentment_total_minor=presentment["total_minor"] if presentment else None,
+        fx_rate_id=presentment["fx_rate_id"] if presentment else None,
         shipping_address_id=payload.get("shipping_address_id"),
         billing_address_id=payload.get("billing_address_id"),
         shipping_method_name=payload.get("shipping_method_name"),
