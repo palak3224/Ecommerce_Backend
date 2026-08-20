@@ -9,6 +9,7 @@ The output is deliberately tiny: 120 buckets of 3 decimal places is about 600
 bytes, which is cheaper to ship than one extra thumbnail.
 """
 import json
+import re
 import shutil
 import struct
 import subprocess
@@ -88,17 +89,72 @@ def peaks_json(audio_path, buckets=DEFAULT_BUCKETS):
 
 
 def probe_duration_ms(audio_path, timeout=30):
-    """Track length in milliseconds, or 0 if it cannot be read."""
-    ffprobe = shutil.which("ffprobe") or "ffprobe"
+    """Track length in milliseconds, or 0 if it genuinely cannot be read.
+
+    Tries ffprobe first, then falls back to parsing ffmpeg's own output. They are
+    separate binaries and a box can easily have one without the other — app.py
+    checks for ffmpeg at boot and says nothing about ffprobe, so relying on
+    ffprobe alone made every upload fail with "this does not look like playable
+    audio" on a server where the audio was perfectly fine.
+    """
+    duration = _duration_via_ffprobe(audio_path, timeout)
+    if duration > 0:
+        return duration
+    return _duration_via_ffmpeg(audio_path, timeout)
+
+
+def _duration_via_ffprobe(audio_path, timeout=30):
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        _log("info", "ffprobe not found; falling back to ffmpeg for duration")
+        return 0
     cmd = [ffprobe, "-v", "error", "-show_entries", "format=duration",
            "-of", "csv=p=0", str(audio_path)]
     try:
         proc = subprocess.run(cmd, capture_output=True, timeout=timeout)
         if proc.returncode != 0:
+            _log("warning", "ffprobe failed: %s", proc.stderr.decode()[:300])
             return 0
         return int(float(proc.stdout.decode().strip()) * 1000)
-    except Exception:
+    except Exception as e:
+        _log("warning", "ffprobe error: %s", e)
         return 0
+
+
+def _duration_via_ffmpeg(audio_path, timeout=30):
+    """Read the duration ffmpeg prints to stderr when asked to decode nothing.
+
+    `-f null -` decodes the stream and discards it, which is slower than ffprobe
+    but works with only ffmpeg installed and is exact.
+    """
+    cmd = [_ffmpeg_path(), "-i", str(audio_path), "-f", "null", "-"]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, timeout=timeout)
+    except Exception as e:
+        _log("warning", "ffmpeg duration probe failed: %s", e)
+        return 0
+
+    err = proc.stderr.decode(errors="ignore")
+
+    # "time=00:03:21.53" on the final progress line is the decoded length.
+    matches = re.findall(r"time=(\d+):(\d+):(\d+\.?\d*)", err)
+    if matches:
+        h, m, sec = matches[-1]
+        return int((int(h) * 3600 + int(m) * 60 + float(sec)) * 1000)
+
+    # Fall back to the header's "Duration: 00:03:21.53" line.
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.?\d*)", err)
+    if m:
+        h, mi, sec = m.groups()
+        return int((int(h) * 3600 + int(mi) * 60 + float(sec)) * 1000)
+
+    _log("warning", "could not read duration from ffmpeg output: %s", err[-300:])
+    return 0
+
+
+def audio_tooling_available():
+    """Whether anything can measure audio at all. Used to explain failures."""
+    return shutil.which("ffmpeg") is not None or shutil.which("ffprobe") is not None
 
 
 def _log(level, msg, *args):

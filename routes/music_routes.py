@@ -401,7 +401,9 @@ def admin_upload_song():
     """
     from auth.models.models import User, UserRole
     from services.music.ingest_service import IngestError, upsert_song
-    from services.music.song_upload_service import SongUploadError, upload_song_file
+    from services.music.song_upload_service import (
+        SongUploadError, upload_artwork_file, upload_song_file,
+    )
 
     user = User.query.get(get_jwt_identity())
     if not user or user.role != UserRole.SUPER_ADMIN:
@@ -416,6 +418,11 @@ def admin_upload_song():
 
     try:
         stored = upload_song_file(request.files["file"])
+        # Optional cover image, uploaded the same way. Falls back to a pasted URL
+        # for catalogues that already host their artwork.
+        artwork_url = (request.form.get("artwork_url") or "").strip() or None
+        if request.files.get("artwork"):
+            artwork_url = upload_artwork_file(request.files["artwork"])
     except SongUploadError as e:
         return error_response(str(e), 400)
     except Exception as e:
@@ -426,7 +433,7 @@ def admin_upload_song():
         "provider_track_id": stored["s3_key"],
         "title": title,
         "artist": (request.form.get("artist") or "").strip() or None,
-        "artwork_url": (request.form.get("artwork_url") or "").strip() or None,
+        "artwork_url": artwork_url,
         "audio_url": stored["audio_url"],
         "preview_url": stored["audio_url"],
         "duration_ms": stored["duration_ms"],

@@ -276,3 +276,54 @@ def test_missing_audio_file_yields_no_peaks_rather_than_raising(app):
 
     with app.app_context():
         assert generate_peaks("/nonexistent/file.mp3") == []
+
+
+# --------------------------------------------------------------------------- #
+# duration probing — the production failure
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")
+def test_duration_is_read_without_ffprobe(app):
+    """The server has ffmpeg but not necessarily ffprobe.
+
+    app.py checks for ffmpeg at boot and says nothing about ffprobe — they are
+    separate binaries. Reading duration through ffprobe alone made every upload
+    fail with "this file does not look like playable audio" on a box where the
+    audio was fine.
+    """
+    from unittest.mock import patch
+    from services.music import waveform_service
+    from services.music.waveform_service import probe_duration_ms
+
+    with app.app_context():
+        tmp = tempfile.mkdtemp()
+        try:
+            audio = os.path.join(tmp, "t.mp3")
+            subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi",
+                            "-i", "sine=frequency=440:duration=7.5",
+                            "-c:a", "libmp3lame", audio, "-y"], check=True)
+
+            assert probe_duration_ms(audio) == pytest.approx(7500, abs=200)
+
+            real_which = shutil.which
+            with patch.object(waveform_service.shutil, "which",
+                              lambda n: None if n == "ffprobe" else real_which(n)):
+                without = probe_duration_ms(audio)
+            assert without == pytest.approx(7500, abs=200), \
+                "duration unreadable without ffprobe"
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_missing_tooling_is_reported_as_such(app):
+    """An ops problem must not be reported as a bad file.
+
+    Telling an admin their mp3 is corrupt when the truth is ffmpeg is missing
+    sends them off re-exporting a file that was always fine.
+    """
+    from unittest.mock import patch
+    from services.music import waveform_service
+
+    with app.app_context():
+        with patch.object(waveform_service.shutil, "which", lambda n: None):
+            assert waveform_service.audio_tooling_available() is False

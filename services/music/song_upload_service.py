@@ -17,11 +17,21 @@ from botocore.exceptions import BotoCoreError, ClientError
 from flask import current_app
 from werkzeug.utils import secure_filename
 
-from services.music.waveform_service import generate_peaks, probe_duration_ms
+from services.music.waveform_service import (
+    audio_tooling_available, generate_peaks, probe_duration_ms,
+)
 
 
 ALLOWED_EXTENSIONS = {"mp3", "m4a", "aac", "wav", "ogg", "flac"}
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024      # 30MB — a long track at a sane bitrate
+
+ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
+
+IMAGE_CONTENT_TYPES = {
+    "jpg": "image/jpeg", "jpeg": "image/jpeg",
+    "png": "image/png", "webp": "image/webp",
+}
 
 CONTENT_TYPES = {
     "mp3": "audio/mpeg",
@@ -96,8 +106,17 @@ def upload_song_file(file_storage):
 
         duration_ms = probe_duration_ms(tmp_path)
         if duration_ms <= 0:
-            # ffprobe reads real audio; anything it cannot measure is not audio,
-            # whatever the file is called.
+            # Distinguish "the server cannot measure anything" from "this file is
+            # not audio". The first is an ops problem and blaming the file for it
+            # sends an admin off re-exporting a perfectly good mp3.
+            if not audio_tooling_available():
+                current_app.logger.error(
+                    "Song upload: neither ffmpeg nor ffprobe is installed"
+                )
+                raise SongUploadError(
+                    "Audio processing is not available on this server "
+                    "(ffmpeg is not installed). Please contact support."
+                )
             raise SongUploadError(
                 "This file does not look like playable audio."
             )
@@ -126,6 +145,59 @@ def upload_song_file(file_storage):
             "waveform_peaks": peaks,
             "size_bytes": size,
         }
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+def upload_artwork_file(file_storage):
+    """Store a cover image and return its URL.
+
+    Same reasoning as the audio: an admin who downloaded a track also downloaded
+    its cover, so asking for a URL means finding somewhere to host it first.
+    """
+    if not file_storage or not file_storage.filename:
+        return None
+
+    name = secure_filename(file_storage.filename)
+    ext = (name.rsplit(".", 1)[-1] if "." in name else "").lower()
+    if ext not in ALLOWED_IMAGE_EXTENSIONS:
+        raise SongUploadError(
+            f"Unsupported image format {ext or '(none)'}. "
+            f"Allowed: {', '.join(sorted(ALLOWED_IMAGE_EXTENSIONS))}."
+        )
+
+    bucket, region, cdn, prefix = _config()
+
+    fd, tmp_path = tempfile.mkstemp(suffix=f".{ext}")
+    os.close(fd)
+    try:
+        file_storage.save(tmp_path)
+        size = os.path.getsize(tmp_path)
+        if size == 0:
+            raise SongUploadError("The artwork file is empty.")
+        if size > MAX_IMAGE_BYTES:
+            raise SongUploadError(
+                f"Artwork is {size // (1024 * 1024)}MB; the limit is "
+                f"{MAX_IMAGE_BYTES // (1024 * 1024)}MB."
+            )
+
+        key = f"{prefix}/artwork/{uuid.uuid4().hex}.{ext}"
+        try:
+            _client(region).upload_file(
+                tmp_path, bucket, key,
+                ExtraArgs={
+                    "ContentType": IMAGE_CONTENT_TYPES.get(ext, "image/jpeg"),
+                    "CacheControl": "public, max-age=31536000, immutable",
+                },
+            )
+        except (BotoCoreError, ClientError) as e:
+            current_app.logger.error("Artwork upload failed: %s", e, exc_info=True)
+            raise SongUploadError("Could not store the artwork image.")
+
+        return f"{cdn}/{key}"
     finally:
         try:
             os.unlink(tmp_path)
