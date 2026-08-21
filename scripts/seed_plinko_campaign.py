@@ -36,14 +36,16 @@ from models.plinko import PlinkoCampaign, PlinkoPrize
 
 CAMPAIGN_NAME = "Tap to Drop — Launch"
 
-# The four images beside the game. These ship as a sensible default so the popup is
-# not empty on day one; swap them for real campaign artwork in
-# Superadmin -> Plinko Campaigns, which is why they are data and not hardcoded.
+# Artwork for the panel beside the game. A single entry is rendered whole, which is
+# what a finished poster like this one needs — it carries its own headline, offer badge
+# and call to action, and tiling it into a grid would crop that copy off. Supply two to
+# four plain photographs instead if you want the grid.
+#
+# Swap this in Superadmin -> Plinko Campaigns; it lives here only so a fresh install
+# is not empty on day one.
 DEFAULT_IMAGES = [
-    "/assets/images/similar1.jpg",
-    "/assets/images/similar2.jpg",
-    "/assets/images/similar3.jpg",
-    "/assets/images/similar4.jpg",
+    "https://d34ykwjwy6y000.cloudfront.net/assets/carousel/"
+    "4922e3ab-d9f7-47c9-83c0-bf92569013e5_ChatGPT_Image_Aug_11_2026_11_50_34_AM.png",
 ]
 
 SLOTS = [
