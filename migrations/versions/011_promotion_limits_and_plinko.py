@@ -100,6 +100,7 @@ def upgrade():
             sa.Column('headline', sa.String(length=200), nullable=False),
             sa.Column('subheadline', sa.String(length=300), nullable=True),
             sa.Column('terms_text', sa.Text(), nullable=True),
+            sa.Column('image_urls', sa.Text(), nullable=True),
             sa.Column('coupon_prefix', sa.String(length=12), nullable=False, server_default='PLK'),
             sa.Column('validity_days', sa.Integer(), nullable=False, server_default='1'),
             sa.Column('min_order_value', sa.Numeric(10, 2), nullable=True),

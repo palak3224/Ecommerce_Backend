@@ -740,6 +740,11 @@ def run_migration_011_promotion_limits():
             ("promotion_id", "INT NULL"),
             ("promo_code", "VARCHAR(50) NULL"),
         ],
+        # Only needed on a database that already built plinko_campaigns before the
+        # artwork became configurable; create_all covers a fresh install.
+        "plinko_campaigns": [
+            ("image_urls", "TEXT NULL"),
+        ],
     }
 
     with db.engine.connect() as conn:

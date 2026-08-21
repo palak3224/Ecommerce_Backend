@@ -8,6 +8,7 @@ discount_amount rather than deriving it — the promotion's rules may have chang
 """
 import csv
 import io
+import json
 from datetime import datetime
 from decimal import Decimal
 
@@ -184,6 +185,9 @@ class PlinkoAdminController:
                 setattr(campaign, field, Decimal(str(value)) if value not in (None, '') else None)
         if 'is_active' in payload:
             campaign.is_active = bool(payload['is_active'])
+        if 'image_urls' in payload:
+            urls = [str(u).strip() for u in (payload['image_urls'] or []) if str(u).strip()]
+            campaign.image_urls = json.dumps(urls[:4]) if urls else None
 
         if not campaign.name:
             raise ValueError("Campaign name is required.")

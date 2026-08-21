@@ -10,6 +10,7 @@ walks away leaves a plinko_leads row and nothing else; the promotions table only
 when someone completes the funnel. That keeps "how many played" and "how many cost us
 money" as separate, honest numbers.
 """
+import json
 from datetime import datetime
 
 from common.database import db
@@ -37,6 +38,11 @@ class PlinkoCampaign(db.Model):
     min_order_value = db.Column(db.Numeric(10, 2), nullable=True)
     max_discount_amount = db.Column(db.Numeric(10, 2), nullable=True)
 
+    # The four images beside the game, as a JSON array of URLs. Stored rather than
+    # hardcoded so marketing can swap the artwork per campaign without a deploy —
+    # an earlier pass shipped placeholder blocks, which looked broken.
+    image_urls = db.Column(db.Text, nullable=True)
+
     popup_delay_seconds = db.Column(db.Integer, nullable=False, default=5)
     redisplay_after_days = db.Column(db.Integer, nullable=False, default=7)
     # The circuit breaker. Worst-case daily liability is this x max_discount_amount,
@@ -55,6 +61,16 @@ class PlinkoCampaign(db.Model):
         'PlinkoPrize', backref='campaign', order_by='PlinkoPrize.display_order'
     )
 
+    def get_image_urls(self):
+        """Stored JSON -> list of URLs. Bad JSON must not break the popup."""
+        if not self.image_urls:
+            return []
+        try:
+            parsed = json.loads(self.image_urls)
+            return [str(u) for u in parsed][:4] if isinstance(parsed, list) else []
+        except (ValueError, TypeError):
+            return []
+
     def serialize(self, include_weights=False):
         data = {
             'campaign_id': self.campaign_id,
@@ -67,6 +83,7 @@ class PlinkoCampaign(db.Model):
             'validity_days': self.validity_days,
             'min_order_value': float(self.min_order_value) if self.min_order_value is not None else None,
             'max_discount_amount': float(self.max_discount_amount) if self.max_discount_amount is not None else None,
+            'image_urls': self.get_image_urls(),
             'popup_delay_seconds': self.popup_delay_seconds,
             'redisplay_after_days': self.redisplay_after_days,
             'daily_mint_ceiling': self.daily_mint_ceiling,

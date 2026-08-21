@@ -23,6 +23,7 @@ Usage:
     python scripts/seed_plinko_campaign.py
 """
 
+import json
 import os
 import sys
 from decimal import Decimal
@@ -34,6 +35,16 @@ from common.database import db
 from models.plinko import PlinkoCampaign, PlinkoPrize
 
 CAMPAIGN_NAME = "Tap to Drop — Launch"
+
+# The four images beside the game. These ship as a sensible default so the popup is
+# not empty on day one; swap them for real campaign artwork in
+# Superadmin -> Plinko Campaigns, which is why they are data and not hardcoded.
+DEFAULT_IMAGES = [
+    "/assets/images/similar1.jpg",
+    "/assets/images/similar2.jpg",
+    "/assets/images/similar3.jpg",
+    "/assets/images/similar4.jpg",
+]
 
 SLOTS = [
     # (label,      slot_kind, discount_type, value, weight, order)
@@ -68,6 +79,7 @@ def seed():
         popup_delay_seconds=5,
         redisplay_after_days=7,
         daily_mint_ceiling=500,
+        image_urls=json.dumps(DEFAULT_IMAGES),
     )
     db.session.add(campaign)
     db.session.flush()
