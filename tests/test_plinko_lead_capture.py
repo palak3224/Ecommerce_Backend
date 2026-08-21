@@ -289,3 +289,112 @@ def test_per_ip_play_cap_holds_without_redis(app, client):
 
     blocked = client.post('/api/plinko/play', json={})
     assert blocked.status_code == 429
+
+
+# --------------------------------------------------------------------------- #
+# superadmin campaign editing
+#
+# These enable SQLite's foreign key enforcement explicitly. It is off by default,
+# which is exactly why the delete-and-recreate bug below reached production: the
+# suite passed while MySQL rejected every save.
+# --------------------------------------------------------------------------- #
+
+def _enforce_foreign_keys():
+    db.session.execute(db.text('PRAGMA foreign_keys=ON'))
+
+
+def test_campaign_saves_after_someone_has_played(app):
+    """The regression: plinko_leads.prize_id references the prize rows, so wiping
+    and re-inserting them made every save fail once the game had been played."""
+    from controllers.superadmin.plinko_admin_controller import PlinkoAdminController
+    from models.plinko import PlinkoCampaign, PlinkoLead, PlinkoPrize
+
+    campaign = _mk_campaign()
+    _enforce_foreign_keys()
+
+    prize = PlinkoPrize.query.filter_by(campaign_id=campaign.campaign_id).first()
+    db.session.add(PlinkoLead(campaign_id=campaign.campaign_id, prize_id=prize.prize_id,
+                              session_token='tok-played', status='played'))
+    db.session.commit()
+
+    payload = campaign.serialize(include_weights=True)
+    payload['headline'] = 'Tap to drop!'
+    saved = PlinkoAdminController.save_campaign(payload, campaign_id=campaign.campaign_id)
+
+    assert saved['headline'] == 'Tap to drop!'
+    assert PlinkoCampaign.query.count() == 1
+
+
+def test_editing_prizes_updates_them_in_place(app):
+    """Prize ids must be stable across a save, or every past lead loses its prize."""
+    from controllers.superadmin.plinko_admin_controller import PlinkoAdminController
+    from models.plinko import PlinkoPrize
+
+    campaign = _mk_campaign()
+    _enforce_foreign_keys()
+    before = {p.prize_id for p in PlinkoPrize.query.filter_by(
+        campaign_id=campaign.campaign_id).all()}
+
+    payload = campaign.serialize(include_weights=True)
+    payload['prizes'][0]['label'] = '25% back'
+    payload['prizes'][0]['discount_value'] = 25
+    PlinkoAdminController.save_campaign(payload, campaign_id=campaign.campaign_id)
+
+    after = {p.prize_id for p in PlinkoPrize.query.filter_by(
+        campaign_id=campaign.campaign_id).all()}
+    assert after == before
+
+    updated = PlinkoPrize.query.get(payload['prizes'][0]['prize_id'])
+    assert updated.label == '25% back'
+    assert updated.discount_value == Decimal('25')
+
+
+def test_removing_a_slot_deactivates_rather_than_deletes(app):
+    """A removed slot has to survive as a row: leads point at it, and the leads panel
+    reports which prize each one won."""
+    from controllers.superadmin.plinko_admin_controller import PlinkoAdminController
+    from models.plinko import PlinkoLead, PlinkoPrize
+
+    campaign = _mk_campaign()
+    _enforce_foreign_keys()
+
+    doomed = PlinkoPrize.query.filter_by(
+        campaign_id=campaign.campaign_id, label='5% back').first()
+    db.session.add(PlinkoLead(campaign_id=campaign.campaign_id, prize_id=doomed.prize_id,
+                              session_token='tok-old', status='completed'))
+    db.session.commit()
+    doomed_id = doomed.prize_id
+
+    payload = campaign.serialize(include_weights=True)
+    payload['prizes'] = [p for p in payload['prizes'] if p['label'] != '5% back']
+    PlinkoAdminController.save_campaign(payload, campaign_id=campaign.campaign_id)
+
+    still_there = PlinkoPrize.query.get(doomed_id)
+    assert still_there is not None
+    assert still_there.is_active is False
+
+    # Gone from the storefront, and the old lead still resolves its prize.
+    labels = [p['label'] for p in campaign.serialize()['prizes']]
+    assert '5% back' not in labels
+    lead = PlinkoLead.query.filter_by(session_token='tok-old').first()
+    assert lead.prize.label == '5% back'
+
+
+def test_a_new_slot_is_added_without_touching_the_others(app):
+    from controllers.superadmin.plinko_admin_controller import PlinkoAdminController
+    from models.plinko import PlinkoPrize
+
+    campaign = _mk_campaign()
+    _enforce_foreign_keys()
+    before = PlinkoPrize.query.filter_by(campaign_id=campaign.campaign_id).count()
+
+    payload = campaign.serialize(include_weights=True)
+    payload['prizes'].append({
+        'label': '20% back', 'slot_kind': 'coupon', 'discount_type': 'percentage',
+        'discount_value': 20, 'weight': 5, 'display_order': 9, 'is_active': True,
+    })
+    PlinkoAdminController.save_campaign(payload, campaign_id=campaign.campaign_id)
+
+    assert PlinkoPrize.query.filter_by(campaign_id=campaign.campaign_id).count() == before + 1
+    added = PlinkoPrize.query.filter_by(label='20% back').first()
+    assert added.discount_value == Decimal('20')

@@ -203,19 +203,50 @@ class PlinkoAdminController:
             ).update({PlinkoCampaign.is_active: False}, synchronize_session=False)
 
         if 'prizes' in payload:
-            PlinkoPrize.query.filter_by(campaign_id=campaign.campaign_id).delete()
+            # Update in place; never delete.
+            #
+            # This used to wipe the campaign's prizes and re-insert them, which broke
+            # the moment anyone actually played: plinko_leads.prize_id references these
+            # rows, so the delete failed the foreign key and every save returned
+            # "Failed to update campaign". Deleting would also erase which prize each
+            # past lead won, which the leads panel reports.
+            #
+            # A slot the admin removes is deactivated instead. Inactive prizes are
+            # already excluded from the draw and from the storefront payload, so they
+            # disappear from the game while the history keeps resolving.
+            existing = {
+                p.prize_id: p
+                for p in PlinkoPrize.query.filter_by(campaign_id=campaign.campaign_id).all()
+            }
+            kept = set()
+
             for order, raw in enumerate(payload['prizes'] or []):
                 value = raw.get('discount_value')
-                db.session.add(PlinkoPrize(
-                    campaign_id=campaign.campaign_id,
-                    label=raw.get('label') or 'Prize',
-                    slot_kind=raw.get('slot_kind') or 'coupon',
-                    discount_type=raw.get('discount_type') or 'percentage',
-                    discount_value=Decimal(str(value)) if value not in (None, '') else None,
-                    weight=int(raw.get('weight') or 0),
-                    display_order=int(raw.get('display_order', order)),
-                    is_active=bool(raw.get('is_active', True)),
-                ))
+                fields = {
+                    'label': raw.get('label') or 'Prize',
+                    'slot_kind': raw.get('slot_kind') or 'coupon',
+                    'discount_type': raw.get('discount_type') or 'percentage',
+                    'discount_value': (
+                        Decimal(str(value)) if value not in (None, '') else None
+                    ),
+                    'weight': int(raw.get('weight') or 0),
+                    'display_order': int(raw.get('display_order', order)),
+                    'is_active': bool(raw.get('is_active', True)),
+                }
+
+                prize = existing.get(raw.get('prize_id'))
+                if prize is not None:
+                    for key, val in fields.items():
+                        setattr(prize, key, val)
+                    kept.add(prize.prize_id)
+                else:
+                    db.session.add(
+                        PlinkoPrize(campaign_id=campaign.campaign_id, **fields)
+                    )
+
+            for prize_id, prize in existing.items():
+                if prize_id not in kept:
+                    prize.is_active = False
 
         db.session.commit()
         return campaign.serialize(include_weights=True)
