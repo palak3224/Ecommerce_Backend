@@ -61,7 +61,16 @@ SLOTS = [
 def seed():
     existing = PlinkoCampaign.query.filter_by(name=CAMPAIGN_NAME).first()
     if existing:
-        print(f"✓ Campaign '{CAMPAIGN_NAME}' already exists (id={existing.campaign_id}); nothing to do.")
+        # Backfill artwork only when there is none. A campaign seeded before
+        # image_urls existed would otherwise keep showing the blank fallback panel
+        # forever, with no obvious reason why. Anything already configured is left
+        # alone — this fills a gap, it does not overwrite an admin's choice.
+        if not existing.get_image_urls():
+            existing.image_urls = json.dumps(DEFAULT_IMAGES)
+            db.session.commit()
+            print(f"✓ Campaign '{CAMPAIGN_NAME}' (id={existing.campaign_id}) had no artwork; added the default poster.")
+        else:
+            print(f"✓ Campaign '{CAMPAIGN_NAME}' already exists (id={existing.campaign_id}) with artwork; nothing to do.")
         return
 
     campaign = PlinkoCampaign(
