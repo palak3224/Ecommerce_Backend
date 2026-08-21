@@ -20,6 +20,21 @@ class Promotion(BaseModel):
     start_date     = db.Column(db.Date, nullable=False)
     end_date       = db.Column(db.Date, nullable=False)
     active_flag    = db.Column(db.Boolean, default=True, nullable=False)
+
+    # --- Redemption rules. All nullable with no server default: every historical row
+    # must read as "no minimum, no cap, not bound to anyone", which is how promotions
+    # behaved before these existed. See services/promotion_service.py for enforcement.
+    min_order_value     = db.Column(db.Numeric(10, 2), nullable=True)
+    max_discount_amount = db.Column(db.Numeric(10, 2), nullable=True)
+    # Recorded on every minted code; only *enforced* when PROMO_EMAIL_BINDING_ENFORCED
+    # is on, because rejecting a legitimate winner costs more than a leaked code.
+    restricted_to_email = db.Column(db.String(255), nullable=True, index=True)
+    # Provenance, not a gate: which lead earned this code. A plain reference id rather
+    # than a FK, mirroring fx_rate_id (see migration 010).
+    lead_id             = db.Column(db.Integer, nullable=True, index=True)
+    # 'plinko' for game-issued codes. Lets the superadmin grid exclude them and powers
+    # the daily mint ceiling.
+    source              = db.Column(db.String(32), nullable=True, index=True)
     
     created_at     = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at     = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -70,6 +85,11 @@ class Promotion(BaseModel):
             'start_date': self.start_date.isoformat(),
             'end_date': self.end_date.isoformat(),
             'active_flag': self.active_flag,
+            'min_order_value': float(self.min_order_value) if self.min_order_value is not None else None,
+            'max_discount_amount': float(self.max_discount_amount) if self.max_discount_amount is not None else None,
+            'restricted_to_email': self.restricted_to_email,
+            'lead_id': self.lead_id,
+            'source': self.source,
             'target': target,
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat(),

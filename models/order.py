@@ -25,6 +25,11 @@ class Order(BaseModel):
     tax_amount = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal('0.00'), server_default='0.00')
     shipping_amount = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal('0.00'), server_default='0.00')
     total_amount = db.Column(db.Numeric(12, 2), nullable=False)
+    # Which promotion produced discount_amount. Nothing recorded this before, so
+    # "what did that campaign actually cost us" was unanswerable from the orders
+    # table. promo_code is a snapshot, so a deleted promotion still reports.
+    promotion_id = db.Column(db.Integer, nullable=True, index=True)
+    promo_code = db.Column(db.String(50), nullable=True)
     # INR is the base/book currency. This defaulted to "USD" while every stored amount
     # was rupees, so historical rows carry a meaningless label (see the backfill script).
     currency = db.Column(db.String(3), nullable=False, default="INR")

@@ -99,6 +99,7 @@ import threading
 from services.notification_cleanup_service import NotificationCleanupService
 from controllers.newsletter_public_controller import newsletter_public_bp
 from routes.holi_giveaway_routes import holi_giveaway_bp
+from routes.plinko_routes import plinko_bp
 from flask import send_from_directory as flask_send_from_directory
 
 ALLOWED_ORIGINS = [
@@ -435,6 +436,8 @@ def create_app(config_name=None):
 
     app.register_blueprint(newsletter_public_bp, url_prefix='/api/public')
     app.register_blueprint(holi_giveaway_bp, url_prefix='/api/holi-giveaway')
+    # Public lead-capture game. The blueprint carries its own /api/plinko prefix.
+    app.register_blueprint(plinko_bp)
 
     app.register_blueprint(upload_bp, url_prefix='/api/upload')
     app.register_blueprint(razorpay_bp)

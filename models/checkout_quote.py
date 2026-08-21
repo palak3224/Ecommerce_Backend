@@ -99,6 +99,13 @@ class CheckoutQuote(db.Model):
     def is_presentment(self):
         return self.presentment_currency is not None
 
+    # Which promotion produced discount_amount. The quote is the only carrier between
+    # validate-time and capture-time, so without this create_order_from_quote has no
+    # idea what to mark redeemed. promo_code is a snapshot so a soft-deleted promotion
+    # still reports correctly on the order.
+    promotion_id = db.Column(db.Integer, nullable=True, index=True)
+    promo_code = db.Column(db.String(50), nullable=True)
+
     shipping_address_id = db.Column(db.Integer, nullable=True)
     billing_address_id = db.Column(db.Integer, nullable=True)
     shipping_method_name = db.Column(db.String(100), nullable=True)

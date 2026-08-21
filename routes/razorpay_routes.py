@@ -9,7 +9,9 @@ import hashlib
 import json
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from sqlalchemy.exc import IntegrityError
 
+from auth.models.models import User
 from models.checkout_quote import CheckoutQuote
 from models.payment_refund import PaymentRefund, RefundStatus
 from models.subscription import SubscriptionPlan
@@ -137,6 +139,36 @@ def create_razorpay_order():
                 quote = load_spendable_quote(data['quote_id'], user_id)
             except QuoteError as e:
                 return error_response(str(e), 400)
+
+            # Re-check the promo code before a gateway order exists. A quote is priced
+            # minutes before it is paid, and a single-use code can be spent in that
+            # window. Catching it here means the customer is told "that code is gone,
+            # remove it and retry"; catching it after capture means their money moved
+            # and there is nothing to do but refund.
+            if quote.promotion_id is not None:
+                from services.promotion_service import resolve_promotion
+                recheck = resolve_promotion(
+                    quote.promo_code,
+                    user=User.query.get(user_id),
+                    # Pre-discount, tax-inclusive basket, reconstructed the same way
+                    # price_basket defines it: the stored subtotal is tax-EXCLUSIVE and
+                    # post-discount, so it is not the figure min_order_value compares to.
+                    basket_total_inclusive=(
+                        Decimal(quote.total_amount or 0)
+                        - Decimal(quote.shipping_amount or 0)
+                        + Decimal(quote.discount_amount or 0)
+                    ),
+                )
+                if not recheck.ok:
+                    current_app.logger.info(
+                        "Quote %s blocked at payment: promo %s is %s",
+                        quote.quote_id, quote.promo_code, recheck.reason_code
+                    )
+                    return error_response(
+                        f"{recheck.message} Please refresh your basket and try again.",
+                        409
+                    )
+
             # The quote decides the amount AND the currency — never the request body.
             # charge_* is the presentment (e.g. USD) figure when the quote has one,
             # otherwise the INR book figure.
@@ -354,6 +386,29 @@ def verify_razorpay_payment():
                     # Point the consumed quote at the order it became (I10).
                     quote.order_id = order.order_id
                     db.session.commit()
+                except IntegrityError as e:
+                    # Almost certainly uq_promo_redemption_promotion: the promo code was
+                    # spent by another order between this quote being priced and this
+                    # payment being captured. The customer paid and has no order, so
+                    # they need to know *why* — a generic "could not finalise" gives
+                    # support nothing to act on.
+                    db.session.rollback()
+                    current_app.logger.error(
+                        "Payment %s captured but order creation hit a constraint for "
+                        "quote %s (promo %s): %s",
+                        razorpay_payment_id, quote.quote_id, quote.promo_code, e,
+                        exc_info=True
+                    )
+                    if 'uq_promo_redemption_promotion' in str(e.orig or e):
+                        return error_response(
+                            'Your payment succeeded but the promo code on this order '
+                            'had already been used. Support has been notified and will '
+                            'resolve this — please do not pay again.', 409
+                        )
+                    return error_response(
+                        'Your payment succeeded but we could not finalise the order. '
+                        'Support has been notified — please do not pay again.', 500
+                    )
                 except Exception as e:
                     db.session.rollback()
                     current_app.logger.error(

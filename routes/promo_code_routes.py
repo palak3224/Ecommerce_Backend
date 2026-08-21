@@ -2,11 +2,12 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from http import HTTPStatus
-from datetime import date
+from decimal import Decimal
 
-from models.promotion import Promotion
-from models.product import Product
+from auth.models.models import User
 from common.database import db
+from services.checkout_quote_service import QuoteError, price_basket
+from services.promotion_service import resolve_promotion
 
 promo_code_bp = Blueprint('promo_code_bp', __name__, url_prefix='/api/promo-code')
 
@@ -79,102 +80,68 @@ def apply_promo_code():
     if not data or not data.get('promo_code') or not isinstance(data.get('cart_items'), list):
         return jsonify({'error': 'Promo code and cart items are required.'}), HTTPStatus.BAD_REQUEST
 
-    promo_code = data['promo_code'].upper()
+    promo_code = data['promo_code']
     cart_items = data['cart_items']
+    if not cart_items:
+        return jsonify({'error': 'Cart is empty.'}), HTTPStatus.BAD_REQUEST
 
-   
-    today = date.today()
-    promo = Promotion.query.filter(
-        Promotion.code == promo_code,
-        Promotion.deleted_at.is_(None)
-    ).first()
+    user_id = get_jwt_identity()
 
-    if not promo:
-        return jsonify({'error': 'Invalid promotion code.'}), HTTPStatus.NOT_FOUND
+    # Delegate to the same pricer the checkout quote uses, rather than re-implementing
+    # the discount rules here.
+    #
+    # This endpoint used to compute discounts from the `price` the browser sent, in
+    # float arithmetic with round() — while the quote read prices from the database in
+    # Decimal with ROUND_HALF_UP. Two implementations of "what is this code worth" that
+    # were required to agree and did not: the customer could be shown one number on the
+    # cart page and charged against another. Worse, a min_order_value judged against a
+    # client-supplied price is not a rule at all, since the browser can claim any total
+    # it likes.
+    #
+    # Quantities and product ids still come from the request; every amount comes from
+    # the database.
+    try:
+        totals, lines = price_basket(user_id, {
+            'items': [
+                {'product_id': i.get('product_id'), 'quantity': i.get('quantity')}
+                for i in cart_items
+            ],
+            'promo_code': promo_code,
+        })
+    except QuoteError as e:
+        # Out of stock, product withdrawn, basket unpriceable, or a promo rejected for
+        # a reason the customer can act on (below the minimum, already used).
+        return jsonify({'error': str(e)}), HTTPStatus.BAD_REQUEST
 
-    if not promo.active_flag:
-        return jsonify({'error': 'This promotion is currently inactive.'}), HTTPStatus.BAD_REQUEST
+    # price_basket silently grants no discount for an unknown/expired/inactive code, so
+    # ask the validator directly for the reason to report. Same rules, same module.
+    if not totals.get('promotion_id'):
+        basket_total = sum(
+            Decimal(l['original_listed_inclusive_price_per_unit']) * l['quantity']
+            for l in lines
+        )
+        resolution = resolve_promotion(
+            promo_code,
+            user=User.query.get(user_id),
+            basket_total_inclusive=basket_total,
+        )
+        return (
+            jsonify({'error': resolution.message or 'Invalid promotion code.'}),
+            resolution.http_status or HTTPStatus.BAD_REQUEST,
+        )
 
-    if not (promo.start_date <= today <= promo.end_date):
-        return jsonify({'error': 'This promotion has expired or is not yet active.'}), HTTPStatus.BAD_REQUEST
-    
-    total_discount = 0.0
-    
-    
-    product_ids_in_cart = [item['product_id'] for item in cart_items]
-    products_in_cart = Product.query.filter(Product.product_id.in_(product_ids_in_cart)).all()
-    product_details_map = {p.product_id: p for p in products_in_cart}
-
-    # --- 2. Check the promotion type and apply discount ---
-    
-    total_discount = 0.0
-    item_discounts = {}  # Track discount per item: {product_id: discount_amount}
-    
-    # Case 1: Sitewide Promotion
-    if not promo.product_id and not promo.category_id and not promo.brand_id:
-        if promo.discount_type.value == 'fixed':
-            # For sitewide fixed discount, apply it once to the whole cart
-            # Distribute proportionally across all items
-            cart_total = sum(item['price'] * item['quantity'] for item in cart_items)
-            if cart_total > 0:
-                discount_to_apply = min(cart_total, float(promo.discount_value))
-                total_discount = discount_to_apply
-                
-                for item in cart_items:
-                    item_total = item['price'] * item['quantity']
-                    item_proportion = item_total / cart_total
-                    item_discount = discount_to_apply * item_proportion
-                    item_discounts[item['product_id']] = round(item_discount, 2)
-        elif promo.discount_type.value == 'percentage':
-            # Apply percentage discount to each item
-            for item in cart_items:
-                item_total = item['price'] * item['quantity']
-                item_discount = item_total * (float(promo.discount_value) / 100.0)
-                item_discounts[item['product_id']] = round(item_discount, 2)
-                total_discount += item_discount
-
-    # Case 2: Target-specific Promotion
-    else:
-        applicable_items_found = False
-        for item in cart_items:
-            product = product_details_map.get(item['product_id'])
-            if not product:
-                continue
-
-            is_applicable = False
-            if promo.product_id and promo.product_id == product.product_id:
-                is_applicable = True
-            elif promo.category_id and promo.category_id == product.category_id:
-                is_applicable = True
-            elif promo.brand_id and promo.brand_id == product.brand_id:
-                is_applicable = True
-            
-            if is_applicable:
-                applicable_items_found = True
-                item_total = item['price'] * item['quantity']
-                
-                if promo.discount_type.value == 'fixed':
-                    item_discount = min(item_total, float(promo.discount_value))
-                elif promo.discount_type.value == 'percentage':
-                    item_discount = item_total * (float(promo.discount_value) / 100.0)
-                
-                item_discounts[item['product_id']] = round(item_discount, 2)
-                total_discount += item_discount
-            else:
-                # Non-applicable items get zero discount
-                item_discounts[item['product_id']] = 0.0
-        
-        if not applicable_items_found:
-            return jsonify({'error': 'This promo code is not valid for any items in your cart.'}), HTTPStatus.BAD_REQUEST
-
-    # --- 3. Return the result ---
-    original_total = sum(item['price'] * item['quantity'] for item in cart_items)
-    new_total = original_total - total_discount
+    item_discounts = {
+        l['product_id']: float(
+            Decimal(l['discount_amount_per_unit_applied']) * l['quantity']
+        )
+        for l in lines
+    }
+    new_total = float(sum(Decimal(l['line_item_total_inclusive_gst']) for l in lines))
 
     return jsonify({
         'message': 'Promotion applied successfully!',
-        'discount_amount': round(total_discount, 2),
+        'discount_amount': float(totals['discount_amount']),
         'new_total': round(new_total, 2),
-        'promotion_id': promo.promotion_id,
-        'item_discounts': item_discounts  # NEW: per-item discount breakdown
+        'promotion_id': totals['promotion_id'],
+        'item_discounts': item_discounts,
     }), HTTPStatus.OK

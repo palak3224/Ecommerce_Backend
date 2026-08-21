@@ -6418,3 +6418,121 @@ def superadmin_bulk_delete_products():
         ),
         'data': result,
     }), 200
+
+
+# --------------------------------------------------------------------------- #
+# Plinko lead-capture game
+#
+# Mounted on superadmin_bp, so these live under /api/superadmin/plinko/... and
+# need no change in app.py.
+# --------------------------------------------------------------------------- #
+from controllers.superadmin.plinko_admin_controller import PlinkoAdminController
+
+
+def _plinko_filters():
+    """Query-string filters shared by the list and the export."""
+    def _parse_date(value):
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value.replace('Z', '+00:00')).replace(tzinfo=None)
+        except ValueError:
+            return None
+
+    return {
+        'status': request.args.get('status'),
+        'campaign_id': request.args.get('campaign_id', type=int),
+        'search': request.args.get('search'),
+        'date_from': _parse_date(request.args.get('date_from')),
+        'date_to': _parse_date(request.args.get('date_to')),
+        'sort_by': request.args.get('sort_by', '-created_at'),
+    }
+
+
+@superadmin_bp.route('/plinko/leads', methods=['GET'])
+@super_admin_role_required
+def list_plinko_leads():
+    """Captured leads, newest first, with what became of each coupon."""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = min(request.args.get('per_page', 20, type=int), 200)
+        paginated = PlinkoAdminController.list_leads(
+            page=page, per_page=per_page, **_plinko_filters()
+        )
+        return jsonify({
+            'leads': [PlinkoAdminController.serialize_lead(l) for l in paginated.items],
+            'pagination': {
+                'total_items': paginated.total,
+                'total_pages': paginated.pages,
+                'current_page': paginated.page,
+                'per_page': paginated.per_page,
+                'has_next': paginated.has_next,
+                'has_prev': paginated.has_prev,
+            },
+        }), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error listing plinko leads: {e}", exc_info=True)
+        return jsonify({'message': 'Failed to retrieve leads'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+@superadmin_bp.route('/plinko/leads/export', methods=['GET'])
+@super_admin_role_required
+def export_plinko_leads():
+    try:
+        data, mimetype, filename = PlinkoAdminController.export_csv(**_plinko_filters())
+        return send_file(BytesIO(data), mimetype=mimetype,
+                         as_attachment=True, download_name=filename)
+    except Exception as e:
+        current_app.logger.error(f"Error exporting plinko leads: {e}", exc_info=True)
+        return jsonify({'message': 'Failed to export leads'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+@superadmin_bp.route('/plinko/stats', methods=['GET'])
+@super_admin_role_required
+def plinko_stats():
+    try:
+        return jsonify(PlinkoAdminController.stats(
+            campaign_id=request.args.get('campaign_id', type=int)
+        )), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error building plinko stats: {e}", exc_info=True)
+        return jsonify({'message': 'Failed to retrieve stats'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+@superadmin_bp.route('/plinko/campaigns', methods=['GET'])
+@super_admin_role_required
+def list_plinko_campaigns():
+    try:
+        return jsonify(PlinkoAdminController.list_campaigns()), HTTPStatus.OK
+    except Exception as e:
+        current_app.logger.error(f"Error listing plinko campaigns: {e}", exc_info=True)
+        return jsonify({'message': 'Failed to retrieve campaigns'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+@superadmin_bp.route('/plinko/campaigns', methods=['POST'])
+@super_admin_role_required
+def create_plinko_campaign():
+    try:
+        return jsonify(PlinkoAdminController.save_campaign(request.get_json() or {})), \
+            HTTPStatus.CREATED
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.BAD_REQUEST
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error creating plinko campaign: {e}", exc_info=True)
+        return jsonify({'message': 'Failed to create campaign'}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+@superadmin_bp.route('/plinko/campaigns/<int:campaign_id>', methods=['PUT'])
+@super_admin_role_required
+def update_plinko_campaign(campaign_id):
+    try:
+        return jsonify(PlinkoAdminController.save_campaign(
+            request.get_json() or {}, campaign_id=campaign_id
+        )), HTTPStatus.OK
+    except ValueError as e:
+        return jsonify({'message': str(e)}), HTTPStatus.NOT_FOUND
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error updating plinko campaign: {e}", exc_info=True)
+        return jsonify({'message': 'Failed to update campaign'}), HTTPStatus.INTERNAL_SERVER_ERROR

@@ -3,6 +3,8 @@ from flask import jsonify, request, current_app
 from models.order import Order, OrderItem, OrderStatusHistory
 from models.enums import OrderStatusEnum, PaymentStatusEnum, PaymentMethodEnum,CardStatusEnum , MediaType
 from models.product_stock import ProductStock
+from models.promotion import Promotion
+from models.promotion_redemption import PromotionRedemption
 from models.payment_card import PaymentCard
 from common.database import db
 from datetime import datetime, timezone
@@ -349,6 +351,12 @@ class OrderController:
                 ),
             ))
 
+            # Record which promotion produced discount_amount. Nothing did this
+            # before, so "what did that campaign cost us" was unanswerable from the
+            # orders table.
+            new_order.promotion_id = quote.promotion_id
+            new_order.promo_code = quote.promo_code
+
             db.session.add(new_order)
             db.session.flush()
 
@@ -362,6 +370,28 @@ class OrderController:
                 raise ValueError(
                     f"Order total {expected} does not match quote total {quote.total_amount}."
                 )
+
+            # Spend the promo code here, inside the same transaction as the order, so
+            # the two commit together or not at all. Writing it beside consume_quote()
+            # instead would lose it: this method rolls the outer transaction back on
+            # failure, which is exactly the path where the payment already succeeded.
+            #
+            # PromotionRedemption has a UNIQUE(promotion_id), so a second order trying
+            # to spend the same code raises IntegrityError here rather than silently
+            # discounting twice. That constraint is the single-use guarantee — an
+            # application-level "has it been used?" check reads before it writes and
+            # loses the race.
+            if quote.promotion_id is not None:
+                spent = Promotion.query.get(quote.promotion_id)
+                db.session.add(PromotionRedemption(
+                    promotion_id=quote.promotion_id,
+                    order_id=new_order.order_id,
+                    user_id=user_id,
+                    quote_id=quote.quote_id,
+                    lead_id=spent.lead_id if spent else None,
+                    discount_amount=Decimal(quote.discount_amount or 0),
+                    redeemed_at=datetime.utcnow(),
+                ))
 
             db.session.commit()
             return new_order

@@ -20,6 +20,7 @@ import json
 
 from flask import current_app
 
+from auth.models.models import User
 from common.database import db
 from models.checkout_quote import CheckoutQuote, CheckoutQuoteItem, QuoteStatus
 from models.enums import DiscountType
@@ -27,7 +28,13 @@ from models.gst_rule import GSTRule
 from models.product import Product
 from models.product_stock import ProductStock
 from models.promotion import Promotion
+from models.promotion_redemption import PromotionRedemption
 from services.fx_service import to_presentment, FxError
+from services.promotion_service import (
+    business_today,
+    discount_cap_for,
+    resolve_promotion,
+)
 
 
 TWO_PLACES = Decimal("0.01")
@@ -55,26 +62,33 @@ def minor_units(amount, currency="INR"):
     return int((Decimal(amount) * factor).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
-def _resolve_promotion(code, now=None):
-    """Look a promo code up. Returns a Promotion or None; never trusts an amount."""
-    if not code:
-        return None
-    today = (now or datetime.utcnow()).date()
-    # .upper() to match POST /api/promo-code/apply, which uppercases before looking
-    # up. Without it a customer who typed a lowercase code would be shown a discount
-    # by that endpoint and then not get it in the quote.
-    promo = Promotion.query.filter(
-        Promotion.code == str(code).strip().upper(),
-        Promotion.active_flag.is_(True),
-        Promotion.deleted_at.is_(None),
-    ).first()
-    if not promo:
-        return None
-    if promo.start_date and today < promo.start_date:
-        return None
-    if promo.end_date and today > promo.end_date:
-        return None
-    return promo
+def _resolve_promotion(code, now=None, *, user=None, basket_total_inclusive=None,
+                      strict=False):
+    """Look a promo code up. Returns a Promotion or None; never trusts an amount.
+
+    Every rule now lives in services/promotion_service.resolve_promotion so that this
+    and POST /api/promo-code/apply cannot drift — the numbers they produce have to
+    agree or the customer is overcharged against the total they were shown.
+
+    The two callers still need different behaviour for the same verdict, which is why
+    that function returns a result object rather than raising. An unknown, expired or
+    inactive code stays a silent no-discount here (tests assert exactly that). A code
+    that fails for a reason the customer can act on — below the minimum, already
+    spent, not theirs — is raised when `strict`, because silently dropping the
+    discount on a code they deliberately typed reads as the site being broken.
+    """
+    resolution = resolve_promotion(
+        code, now=now, user=user, basket_total_inclusive=basket_total_inclusive
+    )
+    if resolution.ok:
+        return resolution.promotion
+    if strict and resolution.is_loud:
+        raise QuoteError(resolution.message)
+    if code:
+        current_app.logger.info(
+            "Quote: promo %r not applied (%s)", code, resolution.reason_code
+        )
+    return None
 
 
 def _promotion_applies_to(promo, product):
@@ -86,6 +100,40 @@ def _promotion_applies_to(promo, product):
     if promo.brand_id is not None:
         return promo.brand_id == product.brand_id
     return True
+
+
+def _spread_pro_rata(to_apply, entries, basis_total):
+    """Split `to_apply` across lines in proportion to line_total, summing EXACTLY.
+
+    Largest-remainder: each share is quantised ROUND_DOWN, then the whole residual
+    goes to the largest line. Quantising each share HALF_UP independently — which is
+    what this used to do — can sum to more than `to_apply` by up to n/2 paise. Today
+    the per-unit ROUND_DOWN in price_basket happens to absorb that, but that is luck
+    rather than design, and under a discount cap it is the difference between
+    honouring the cap and quietly breaching it.
+
+    `entries` may contain None for lines this promo does not touch; they receive zero.
+    """
+    shares = []
+    for e in entries:
+        if e is None or basis_total <= Decimal("0.00"):
+            shares.append(Decimal("0.00"))
+        else:
+            raw = to_apply * (e["line_total"] / basis_total)
+            shares.append(raw.quantize(TWO_PLACES, rounding=ROUND_DOWN))
+
+    residual = _q(to_apply) - sum(shares)
+    if residual > Decimal("0.00"):
+        # Give the rounding remainder to the largest line, so the parts sum to the
+        # whole and the caller's ceiling is exact.
+        biggest = max(
+            (i for i, e in enumerate(entries) if e is not None),
+            key=lambda i: entries[i]["line_total"],
+            default=None,
+        )
+        if biggest is not None:
+            shares[biggest] += residual
+    return shares
 
 
 def _resolve_line_discounts(promo, entries):
@@ -125,6 +173,7 @@ def _resolve_line_discounts(promo, entries):
         value = max(value, Decimal("0"))
 
     basket_total = sum(e["line_total"] for e in entries)
+    cap = discount_cap_for(promo)
 
     if is_sitewide and not is_pct:
         # One fixed amount for the whole basket, never more than the basket itself,
@@ -132,7 +181,9 @@ def _resolve_line_discounts(promo, entries):
         if basket_total <= Decimal("0.00"):
             return zero
         to_apply = min(basket_total, value)
-        return [_q(to_apply * (e["line_total"] / basket_total)) for e in entries]
+        if cap is not None:
+            to_apply = min(to_apply, cap)
+        return _spread_pro_rata(to_apply, entries, basket_total)
 
     out = []
     for e in entries:
@@ -144,6 +195,27 @@ def _resolve_line_discounts(promo, entries):
             # Capped at the line, so a fixed discount can never make a line negative
             # and drag the basket total down.
             out.append(_q(min(e["line_total"], value)))
+
+    # A capped promo is just a fixed promo worth min(gross, cap), so rather than
+    # inventing per-line capping, fall back into the same pro-rata spread. When the
+    # gross is already under the cap nothing here runs and the numbers above stand
+    # exactly as they did before caps existed.
+    if cap is not None:
+        gross = sum(out)
+        if gross > cap:
+            eligible = [
+                e if out[i] > Decimal("0.00") else None for i, e in enumerate(entries)
+            ]
+            eligible_total = sum(
+                e["line_total"] for e in eligible if e is not None
+            )
+            if eligible_total <= Decimal("0.00"):
+                return zero
+            spread = _spread_pro_rata(cap, eligible, eligible_total)
+            out = [
+                spread[i] if eligible[i] is not None else Decimal("0.00")
+                for i in range(len(entries))
+            ]
     return out
 
 
@@ -212,7 +284,6 @@ def price_basket(user_id, payload, now=None):
     """
     now = now or datetime.utcnow()
     basket = _basket_from_request(user_id, payload)
-    promo = _resolve_promotion(payload.get("promo_code"), now=now)
 
     # First pass: resolve products and list prices. Discounts cannot be computed
     # per item in isolation — a sitewide fixed promo is one amount spread across the
@@ -238,6 +309,19 @@ def price_basket(user_id, payload, now=None):
             "listed_per_unit": listed_inclusive_per_unit,
             "line_total": _q(listed_inclusive_per_unit * quantity),
         })
+
+    # Resolved here rather than at the top of the function: min_order_value has to be
+    # judged against a basket total, which only exists once the first pass has priced
+    # every line. The user is loaded for the email-binding check.
+    basket_total_inclusive = sum(e["line_total"] for e in entries)
+    buyer = User.query.get(user_id) if user_id is not None else None
+    promo = _resolve_promotion(
+        payload.get("promo_code"),
+        now=now,
+        user=buyer,
+        basket_total_inclusive=basket_total_inclusive,
+        strict=True,
+    )
 
     line_discounts = _resolve_line_discounts(promo, entries)
 
@@ -330,14 +414,34 @@ def price_basket(user_id, payload, now=None):
         "shipping_amount": shipping,
         "total_amount": total,
         "currency": current_app.config.get("DEFAULT_CURRENCY", "INR"),
+        # Carried out so build_quote can record what produced the discount without
+        # resolving the code a second time — a second resolution is a second chance
+        # to disagree with the first.
+        "promotion_id": promo.promotion_id if promo is not None else None,
+        "promo_code": promo.code if promo is not None else None,
     }
 
     # I5, checked here rather than trusted: the parts must reconstruct the total
     # exactly. A mismatch means the arithmetic above drifted and must not reach a
     # payment gateway.
-    reconstructed = _q(sum(l["line_item_total_inclusive_gst"] for l in lines) + shipping)
+    #
+    # This compares independently accumulated components against the total. The
+    # previous version compared `sum(line totals) + shipping` to a value defined as
+    # `sum(line totals) + shipping` — the same expression on both sides, so it could
+    # never fire and the invariant it claimed to guard was unguarded.
+    reconstructed = _q(total_base + total_gst + shipping)
     if reconstructed != totals["total_amount"]:
         raise QuoteError("Internal pricing error: basket total did not reconcile.")
+
+    # A discount must never exceed the ceiling it was granted under, nor the basket it
+    # applies to. Cheap to check, and the only thing standing between a mis-spread cap
+    # and a negative charge.
+    if promo is not None:
+        cap = discount_cap_for(promo)
+        if cap is not None and totals["discount_amount"] > cap:
+            raise QuoteError("Internal pricing error: discount exceeded its cap.")
+    if totals["discount_amount"] > basket_total_inclusive:
+        raise QuoteError("Internal pricing error: discount exceeded the basket.")
 
     return totals, lines
 
@@ -433,6 +537,8 @@ def build_quote(user_id, payload, now=None):
         presentment_total_amount=presentment["total_amount"] if presentment else None,
         presentment_total_minor=presentment["total_minor"] if presentment else None,
         fx_rate_id=presentment["fx_rate_id"] if presentment else None,
+        promotion_id=totals.get("promotion_id"),
+        promo_code=totals.get("promo_code"),
         shipping_address_id=payload.get("shipping_address_id"),
         billing_address_id=payload.get("billing_address_id"),
         shipping_method_name=payload.get("shipping_method_name"),

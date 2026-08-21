@@ -7,13 +7,22 @@ from common.database import db
 
 class PromotionController:
     @staticmethod
-    def list_all():
-        """Lists all non-deleted promotions, eager loading related targets."""
-        return Promotion.query.options(
+    def list_all(include_generated=False):
+        """Lists hand-created, non-deleted promotions, eager loading related targets.
+
+        Codes minted by the lead-capture game (source='plinko') are excluded by
+        default: there is one per completed lead, so thousands of them would bury the
+        handful of promotions a human actually created. They have their own panel at
+        /superadmin/plinko-leads.
+        """
+        query = Promotion.query.options(
             joinedload(Promotion.product),
             joinedload(Promotion.category),
             joinedload(Promotion.brand)
-        ).filter_by(deleted_at=None).order_by(Promotion.created_at.desc()).all()
+        ).filter_by(deleted_at=None)
+        if not include_generated:
+            query = query.filter(Promotion.source.is_(None))
+        return query.order_by(Promotion.created_at.desc()).all()
 
     @staticmethod
     def create(data):

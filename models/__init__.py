@@ -17,6 +17,8 @@ from .attribute_value import AttributeValue
 from .product_tax import ProductTax
 from .product_shipping import ProductShipping
 from .promotion import Promotion
+from .promotion_redemption import PromotionRedemption
+from .plinko import PlinkoCampaign, PlinkoPrize, PlinkoLead
 from .product_promotion import ProductPromotion
 from .review import Review
 from .brand_request import BrandRequest
@@ -66,6 +68,10 @@ __all__ = [
     'ProductMeta',
     'MerchantDimensionPreset',
     'ProductPromotion',
+    'PromotionRedemption',
+    'PlinkoCampaign',
+    'PlinkoPrize',
+    'PlinkoLead',
     'ProductPlacement',
     'SubscriptionPlan',
     'SubscriptionHistory',

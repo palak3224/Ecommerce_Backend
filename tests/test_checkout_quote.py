@@ -225,7 +225,8 @@ def test_active_promotion_is_applied_server_side(app):
         assert quote.total_amount == Decimal("900.00")
 
 
-def _mk_promo(code, dtype, value, product_id=None, category_id=None, brand_id=None):
+def _mk_promo(code, dtype, value, product_id=None, category_id=None, brand_id=None,
+              min_order_value=None, max_discount_amount=None, restricted_to_email=None):
     from models.promotion import Promotion
     p = Promotion(
         code=code, discount_type=dtype, discount_value=Decimal(value),
@@ -233,6 +234,11 @@ def _mk_promo(code, dtype, value, product_id=None, category_id=None, brand_id=No
         brand_id=brand_id,
         start_date=date.today() - timedelta(days=1),
         end_date=date.today() + timedelta(days=1),
+        min_order_value=Decimal(min_order_value) if min_order_value is not None else None,
+        max_discount_amount=(
+            Decimal(max_discount_amount) if max_discount_amount is not None else None
+        ),
+        restricted_to_email=restricted_to_email,
     )
     db.session.add(p)
     db.session.commit()
@@ -635,3 +641,300 @@ def test_empty_basket_is_refused(client, app):
 
     resp = client.post("/api/checkout/quote", json={"items": []}, headers=headers)
     assert resp.status_code == 400
+
+
+# --------------------------------------------------------------------------- #
+# promotion redemption rules
+#
+# These guard the rules added for the storefront lead-capture game, but they are
+# not game-specific: any promotion can now carry a minimum, a cap, an owner, and
+# be spent exactly once.
+# --------------------------------------------------------------------------- #
+
+def test_min_order_value_below_threshold_is_refused_loudly(app):
+    """Not silently dropped. A customer who deliberately typed a code and sees no
+    discount and no reason concludes the site is broken."""
+    from models.enums import DiscountType
+    from services.checkout_quote_service import build_quote, QuoteError
+
+    with app.app_context():
+        buyer, product = _seed(price="100.00", stock=50)
+        _mk_promo("MIN500", DiscountType.PERCENTAGE, "10.00", min_order_value="500.00")
+
+        with pytest.raises(QuoteError) as exc:
+            build_quote(buyer.id, {
+                "items": [{"product_id": product.product_id, "quantity": 2}],
+                "promo_code": "MIN500",
+            })
+        assert "minimum order" in str(exc.value).lower()
+
+
+def test_min_order_value_met_applies_normally(app):
+    from models.enums import DiscountType
+    from services.checkout_quote_service import build_quote
+
+    with app.app_context():
+        buyer, product = _seed(price="100.00", stock=50)
+        _mk_promo("MIN500", DiscountType.PERCENTAGE, "10.00", min_order_value="500.00")
+
+        quote = build_quote(buyer.id, {
+            "items": [{"product_id": product.product_id, "quantity": 6}],
+            "promo_code": "MIN500",
+        })
+        # 600 basket, 10% off.
+        assert quote.discount_amount == Decimal("60.00")
+
+
+def test_max_discount_amount_caps_a_percentage_promo(app):
+    from models.enums import DiscountType
+    from services.checkout_quote_service import build_quote
+
+    with app.app_context():
+        buyer, product = _seed(price="100.00", stock=100)
+        _mk_promo("HALFCAP", DiscountType.PERCENTAGE, "50.00", max_discount_amount="120.00")
+
+        quote = build_quote(buyer.id, {
+            "items": [{"product_id": product.product_id, "quantity": 10}],
+            "promo_code": "HALFCAP",
+        })
+        # 1000 basket, 50% would be 500, capped at 120.
+        assert quote.discount_amount == Decimal("120.00")
+        assert quote.total_amount == Decimal("880.00")
+
+
+def test_cap_spreads_across_lines_and_never_exceeds_itself(app):
+    """The spread has to sum to exactly the cap. Rounding each line's share
+    independently can overshoot by paise per line, which is the difference between
+    honouring a ceiling and quietly breaching it."""
+    from models.enums import DiscountType
+    from services.checkout_quote_service import build_quote
+
+    with app.app_context():
+        owner = _mk_user("owner@ex.com")
+        merchant = _mk_merchant(owner)
+        cat = _mk_category()
+        brand = _mk_brand()
+        a = _mk_product(merchant, cat, brand, price="100.00", sku="C-A", stock=50)
+        b = _mk_product(merchant, cat, brand, price="200.00", sku="C-B", stock=50)
+        _mk_gst_rule(cat)
+        buyer = _mk_user("buyer@ex.com")
+        db.session.commit()
+        _mk_promo("CAP77", DiscountType.PERCENTAGE, "50.00", max_discount_amount="77.77")
+
+        quote = build_quote(buyer.id, {
+            "items": [{"product_id": a.product_id, "quantity": 1},
+                      {"product_id": b.product_id, "quantity": 1}],
+            "promo_code": "CAP77",
+        })
+        assert quote.discount_amount <= Decimal("77.77")
+        assert quote.discount_amount == Decimal("77.77")
+
+
+def test_uncapped_promo_is_unchanged_by_the_cap_code(app):
+    """The regression that matters: promotions without a cap must price exactly as
+    they did before caps existed."""
+    from models.enums import DiscountType
+    from services.checkout_quote_service import build_quote
+
+    with app.app_context():
+        buyer, product = _seed(price="100.00", stock=100)
+        _mk_promo("PLAIN10", DiscountType.PERCENTAGE, "10.00")
+
+        quote = build_quote(buyer.id, {
+            "items": [{"product_id": product.product_id, "quantity": 10}],
+            "promo_code": "PLAIN10",
+        })
+        assert quote.discount_amount == Decimal("100.00")
+
+
+def test_a_spent_promotion_cannot_be_spent_again(app):
+    from models.enums import DiscountType
+    from models.promotion_redemption import PromotionRedemption
+    from services.checkout_quote_service import build_quote, QuoteError
+
+    with app.app_context():
+        buyer, product = _seed(price="100.00", stock=100)
+        promo = _mk_promo("ONCE10", DiscountType.PERCENTAGE, "10.00")
+
+        # First use lands a redemption row, exactly as create_order_from_quote does.
+        db.session.add(PromotionRedemption(
+            promotion_id=promo.promotion_id, order_id="ORD-1", user_id=buyer.id,
+            discount_amount=Decimal("10.00"), redeemed_at=datetime.utcnow(),
+        ))
+        db.session.commit()
+
+        with pytest.raises(QuoteError) as exc:
+            build_quote(buyer.id, {
+                "items": [{"product_id": product.product_id, "quantity": 1}],
+                "promo_code": "ONCE10",
+            })
+        assert "already been used" in str(exc.value).lower()
+
+
+def test_single_use_is_enforced_by_the_database_not_the_check(app):
+    """Two concurrent orders both pass validation; the unique index is what stops
+    the second one actually spending the code."""
+    from models.enums import DiscountType
+    from models.promotion_redemption import PromotionRedemption
+    from sqlalchemy.exc import IntegrityError
+
+    with app.app_context():
+        buyer, _ = _seed(price="100.00", stock=100)
+        promo = _mk_promo("RACE10", DiscountType.PERCENTAGE, "10.00")
+
+        db.session.add(PromotionRedemption(
+            promotion_id=promo.promotion_id, order_id="ORD-A", user_id=buyer.id,
+            discount_amount=Decimal("10.00"), redeemed_at=datetime.utcnow(),
+        ))
+        db.session.commit()
+
+        db.session.add(PromotionRedemption(
+            promotion_id=promo.promotion_id, order_id="ORD-B", user_id=buyer.id,
+            discount_amount=Decimal("10.00"), redeemed_at=datetime.utcnow(),
+        ))
+        with pytest.raises(IntegrityError):
+            db.session.commit()
+        db.session.rollback()
+
+
+def test_email_binding_is_recorded_but_not_enforced_by_default(app):
+    """Off by default: rejecting a legitimate winner who signed up with a different
+    address costs more than a leaked single-use, capped, one-day code."""
+    from models.enums import DiscountType
+    from services.checkout_quote_service import build_quote
+
+    with app.app_context():
+        buyer, product = _seed(price="100.00", stock=100)
+        _mk_promo("MINE10", DiscountType.PERCENTAGE, "10.00",
+                  restricted_to_email="someone.else@ex.com")
+
+        quote = build_quote(buyer.id, {
+            "items": [{"product_id": product.product_id, "quantity": 1},],
+            "promo_code": "MINE10",
+        })
+        assert quote.discount_amount == Decimal("10.00")
+
+
+def test_email_binding_is_enforced_when_the_flag_is_on(app):
+    from models.enums import DiscountType
+    from services.checkout_quote_service import build_quote, QuoteError
+
+    with app.app_context():
+        buyer, product = _seed(price="100.00", stock=100)
+        _mk_promo("MINE10", DiscountType.PERCENTAGE, "10.00",
+                  restricted_to_email="someone.else@ex.com")
+        app.config["PROMO_EMAIL_BINDING_ENFORCED"] = True
+        try:
+            with pytest.raises(QuoteError) as exc:
+                build_quote(buyer.id, {
+                    "items": [{"product_id": product.product_id, "quantity": 1}],
+                    "promo_code": "MINE10",
+                })
+            assert "different account" in str(exc.value).lower()
+        finally:
+            app.config["PROMO_EMAIL_BINDING_ENFORCED"] = False
+
+
+def test_business_today_is_one_clock_for_display_and_pricing(app):
+    """The bug this prevents: /api/promo-code/apply used the server-local date while
+    the quote used UTC. On an IST box between 00:00 and 05:30 those differ, so a
+    same-day coupon was advertised as valid and then produced no discount."""
+    from services.promotion_service import business_today
+
+    with app.app_context():
+        app.config["PROMO_TIMEZONE"] = "Asia/Kolkata"
+        # 20:00 UTC on the 1st is already 01:30 IST on the 2nd.
+        late_utc = datetime(2026, 3, 1, 20, 0, 0)
+        assert business_today(late_utc) == date(2026, 3, 2)
+        assert business_today(late_utc) != late_utc.date()
+
+
+def test_quote_records_which_promotion_it_used(app):
+    """Without this the order has no idea what to mark redeemed at capture time."""
+    from models.enums import DiscountType
+    from services.checkout_quote_service import build_quote
+
+    with app.app_context():
+        buyer, product = _seed(price="100.00", stock=100)
+        promo = _mk_promo("TRACK10", DiscountType.PERCENTAGE, "10.00")
+
+        quote = build_quote(buyer.id, {
+            "items": [{"product_id": product.product_id, "quantity": 1}],
+            "promo_code": "TRACK10",
+        })
+        assert quote.promotion_id == promo.promotion_id
+        assert quote.promo_code == "TRACK10"
+
+
+def test_paying_a_quote_records_the_redemption_atomically(app):
+    """The redemption is written inside create_order_from_quote's transaction, so it
+    cannot end up out of step with the order it belongs to."""
+    from controllers.order_controller import OrderController
+    from models.enums import DiscountType
+    from models.order import Order
+    from models.promotion_redemption import PromotionRedemption
+    from services.checkout_quote_service import build_quote
+
+    with app.app_context():
+        buyer, product = _seed(price="100.00", stock=50)
+        promo = _mk_promo("SPEND10", DiscountType.PERCENTAGE, "10.00")
+        # Read the ids now: the session is cleared below, which detaches these objects.
+        promo_id = promo.promotion_id
+        buyer_id = buyer.id
+
+        quote = build_quote(buyer_id, {
+            "items": [{"product_id": product.product_id, "quantity": 2}],
+            "promo_code": "SPEND10",
+        })
+        order = OrderController.create_order_from_quote(user_id=buyer_id, quote=quote)
+        oid = order.order_id
+
+        db.session.expunge_all()
+        db.session.remove()
+
+        redemption = PromotionRedemption.query.filter_by(promotion_id=promo_id).one()
+        assert redemption.order_id == oid
+        assert redemption.user_id == buyer_id
+        assert redemption.discount_amount == Decimal("20.00")
+
+        # And the order itself remembers which promotion it used.
+        fresh = Order.query.get(oid)
+        assert fresh.promotion_id == promo_id
+        assert fresh.promo_code == "SPEND10"
+
+
+def test_a_code_spent_on_one_order_is_dead_for_the_next_quote(app):
+    """End to end: pay with the code, then try to use it again."""
+    from controllers.order_controller import OrderController
+    from models.enums import DiscountType
+    from services.checkout_quote_service import build_quote, QuoteError
+
+    with app.app_context():
+        buyer, product = _seed(price="100.00", stock=50)
+        _mk_promo("ONEUSE", DiscountType.PERCENTAGE, "10.00")
+
+        first = build_quote(buyer.id, {
+            "items": [{"product_id": product.product_id, "quantity": 1}],
+            "promo_code": "ONEUSE",
+        })
+        OrderController.create_order_from_quote(user_id=buyer.id, quote=first)
+
+        with pytest.raises(QuoteError) as exc:
+            build_quote(buyer.id, {
+                "items": [{"product_id": product.product_id, "quantity": 1}],
+                "promo_code": "ONEUSE",
+            })
+        assert "already been used" in str(exc.value).lower()
+
+
+def test_an_order_without_a_promo_writes_no_redemption(app):
+    from controllers.order_controller import OrderController
+    from models.promotion_redemption import PromotionRedemption
+    from services.checkout_quote_service import build_quote
+
+    with app.app_context():
+        buyer, product = _seed()
+        quote = build_quote(buyer.id, {
+            "items": [{"product_id": product.product_id, "quantity": 1}]})
+        OrderController.create_order_from_quote(user_id=buyer.id, quote=quote)
+        assert PromotionRedemption.query.count() == 0

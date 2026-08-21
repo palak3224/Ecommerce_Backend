@@ -155,6 +155,19 @@ class Config:
     USER_EMAIL_OTP_EXPIRY_MIN = int(os.getenv('USER_EMAIL_OTP_EXPIRY_MIN', '10'))
     MERCHANT_EMAIL_OTP_EXPIRY_MIN = int(os.getenv('MERCHANT_EMAIL_OTP_EXPIRY_MIN', '10'))
 
+    # --- Promotions -------------------------------------------------------------
+    # One clock for minting, /api/promo-code/apply and the checkout quote. Before this
+    # existed the display endpoint used the server-local date and the quote used UTC,
+    # so on an IST box a same-day coupon issued between 00:00 and 05:30 was advertised
+    # as valid and then silently produced no discount. See services/promotion_service.py.
+    PROMO_TIMEZONE = os.getenv('PROMO_TIMEZONE', 'Asia/Kolkata')
+    # When off (the default), a code used by an account other than the one it was
+    # issued to is logged but still honoured. Rejecting a legitimate winner who signed
+    # up with a different address costs an invisible churned customer; a leaked
+    # single-use, capped, one-day code costs one order. Turn on once the mismatch logs
+    # say what the real rate is.
+    PROMO_EMAIL_BINDING_ENFORCED = os.getenv('PROMO_EMAIL_BINDING_ENFORCED', 'false').lower() in ('1', 'true', 'yes')
+
     # Notification Cleanup Configuration
     NOTIFICATION_CLEANUP_ENABLED = os.getenv('NOTIFICATION_CLEANUP_ENABLED', 'true').lower() in ('1', 'true', 'yes')
     NOTIFICATION_CLEANUP_DAYS_OLD = int(os.getenv('NOTIFICATION_CLEANUP_DAYS_OLD', '90'))

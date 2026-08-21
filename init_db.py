@@ -103,6 +103,8 @@ from models.system_monitoring import SystemMonitoring
 
 # --- Newsletter models ---
 from models.newsletter_subscription import NewsletterSubscription
+from models.promotion_redemption import PromotionRedemption
+from models.plinko import PlinkoCampaign, PlinkoPrize, PlinkoLead
 
 # Load environment variables
 load_dotenv()
@@ -709,6 +711,59 @@ def run_migration_008_merchant_account_deletion():
     print("  " + "=" * 46)
 
 
+def run_migration_011_promotion_limits():
+    """
+    Migration 011: promotion redemption rules + the promotion carried on a quote/order.
+
+    Idempotent: adds columns only if missing. Every column is nullable with no default,
+    so existing promotions keep reading as "no minimum, no cap, bound to nobody" — i.e.
+    exactly how they behaved before these rules existed.
+    """
+    print("\nRunning migration 011 (promotion limits + redemption):")
+    print("----------------------------------------------------------")
+    inspector = db.inspect(db.engine)
+    tables = set(inspector.get_table_names())
+
+    plan = {
+        "promotions": [
+            ("min_order_value", "DECIMAL(10,2) NULL"),
+            ("max_discount_amount", "DECIMAL(10,2) NULL"),
+            ("restricted_to_email", "VARCHAR(255) NULL"),
+            ("lead_id", "INT NULL"),
+            ("source", "VARCHAR(32) NULL"),
+        ],
+        "checkout_quotes": [
+            ("promotion_id", "INT NULL"),
+            ("promo_code", "VARCHAR(50) NULL"),
+        ],
+        "orders": [
+            ("promotion_id", "INT NULL"),
+            ("promo_code", "VARCHAR(50) NULL"),
+        ],
+    }
+
+    with db.engine.connect() as conn:
+        for table, cols in plan.items():
+            if table not in tables:
+                print(f"  ℹ {table} does not exist yet; skipping.")
+                continue
+            existing = {c["name"] for c in inspector.get_columns(table)}
+            for name, ddl in cols:
+                if name in existing:
+                    print(f"  ℹ {table}.{name} already exists")
+                    continue
+                try:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+                    conn.commit()
+                    print(f"  ✓ Added {table}.{name}")
+                except Exception as e:
+                    print(f"  ⚠ Could not add {table}.{name}: {e}")
+
+    print("  " + "=" * 46)
+    print("  MIGRATION 011 COMPLETED (promotion limits)")
+    print("  " + "=" * 46)
+
+
 def run_migration_009_user_account_deletion():
     """
     Migration 009: users account deletion grace + soft close timestamps.
@@ -1075,6 +1130,7 @@ def verify_all_tables():
         
         # Other tables
         'subscription_plans', 'subscription_histories', 'promotions', 'game_plays',
+        'promotion_redemptions', 'plinko_campaigns', 'plinko_prizes', 'plinko_leads',
         'payment_cards', 'support_tickets', 'support_ticket_messages',
         'newsletter_subscriptions', 'holi_giveaway_registrations', 'merchant_transactions',
         'live_streams', 'live_stream_comments', 'live_stream_viewers',
@@ -1667,6 +1723,7 @@ def init_database():
         run_migration_008_merchant_account_deletion()
         run_migration_009_user_account_deletion()
         run_migration_010_merchant_bio_and_intro_video()
+        run_migration_011_promotion_limits()
 
         # Initialize data
         init_country_configs()
