@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from common.database import db
 from common.db_errors import describe_integrity_error
 from models.product import Product
+from models.product_stock import ProductStock
 from auth.models.models import MerchantProfile
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from datetime import datetime, timezone
@@ -32,6 +33,11 @@ def _auto_approve_enabled():
         return False
 
 
+# Opening stock for a newly created product. Without a stock row a new listing reads
+# as out of stock everywhere it appears, which is not what a merchant means by "I just
+# added this product". Creation only — see MerchantProductController.create.
+DEFAULT_INITIAL_STOCK = 25
+
 class MerchantProductController:
     @staticmethod
     def list_all():
@@ -57,6 +63,14 @@ class MerchantProductController:
 
     @staticmethod
     def create(data):
+        """Create a product, with an opening stock balance.
+
+        New products used to be created with no product_stock row at all, so every
+        listing started life reading as out of stock until someone opened the stock
+        tab. DEFAULT_INITIAL_STOCK gives it an opening balance instead. This applies
+        at creation only — updates never touch it, so a merchant who deliberately
+        sets stock to 0 stays at 0.
+        """
         user_id = get_jwt_identity()
         merchant = MerchantProfile.get_by_user_id(user_id)
         if not merchant:
@@ -126,6 +140,14 @@ class MerchantProductController:
         # NO call to p.update_base_price_and_gst_details() here
         db.session.add(p)
         try:
+            # Flush first: the stock row needs the product_id, and doing it inside
+            # the try keeps SKU/FK violations on the same error path as before.
+            db.session.flush()
+            db.session.add(ProductStock(
+                product_id=p.product_id,
+                stock_qty=DEFAULT_INITIAL_STOCK,
+                low_stock_threshold=0,
+            ))
             db.session.commit()
         except IntegrityError as e:
             # Another request may have taken the SKU between the check and the commit,
